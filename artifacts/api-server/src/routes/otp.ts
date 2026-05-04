@@ -1,7 +1,6 @@
 import { Router } from "express";
-import { db, farmersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { requireSupabaseAuth } from "../lib/auth.js";
+import { supa } from "../lib/supabase.js";
+import { requireSupabaseAuth, requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -24,18 +23,15 @@ function maskPhone(phone: string): string {
   return phone.replace(/\d(?=\d{4})/g, "*");
 }
 
-router.post("/api/pod/otp/send", requireSupabaseAuth, async (req, res) => {
+router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   const { farmerId } = req.body as { farmerId: number };
   if (!farmerId) {
     res.status(400).json({ error: "farmerId is required" });
     return;
   }
 
-  const [farmer] = await db
-    .select({ id: farmersTable.id, firstName: farmersTable.firstName, lastName: farmersTable.lastName, phone: farmersTable.phone })
-    .from(farmersTable)
-    .where(eq(farmersTable.id, Number(farmerId)))
-    .limit(1);
+  const { data: farmers } = await supa.from("farmers").select("id,first_name,last_name,phone").eq("id", Number(farmerId)).limit(1);
+  const farmer = farmers?.[0];
 
   if (!farmer) {
     res.status(404).json({ error: "Farmer not found" });
@@ -74,12 +70,12 @@ router.post("/api/pod/otp/send", requireSupabaseAuth, async (req, res) => {
   res.json({
     sent: true,
     maskedPhone: maskPhone(farmer.phone),
-    farmerName: `${farmer.firstName} ${farmer.lastName}`,
+    farmerName: `${farmer.first_name} ${farmer.last_name}`,
     devCode: (!twilioSid) ? code : undefined,
   });
 });
 
-router.post("/api/pod/otp/verify", requireSupabaseAuth, async (req, res) => {
+router.post("/api/pod/otp/verify", requireAuth, async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };
   if (!farmerId || !code) {
     res.status(400).json({ verified: false, error: "farmerId and code are required" });

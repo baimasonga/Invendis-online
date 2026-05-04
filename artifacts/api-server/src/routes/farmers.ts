@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { db, farmersTable, districtsTable, chiefdomsTable, valueChainsTable } from "@workspace/db";
-import { eq, ilike, and, sql, desc } from "drizzle-orm";
+import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
@@ -11,79 +10,79 @@ function generateFarmerCode() {
   return "FRM-" + Date.now().toString(36).toUpperCase() + randomBytes(2).toString("hex").toUpperCase();
 }
 function generateBarcode() {
-  return randomBytes(8).toString("hex").toUpperCase();
+  return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
 }
 
 router.get("/api/farmers", requireAuth, async (req, res) => {
   const { page = "1", limit = "20", search, status, districtId, valueChainId } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
-
-  const conditions = [];
-  if (search) conditions.push(ilike(farmersTable.firstName, `%${search}%`));
-  if (status) conditions.push(eq(farmersTable.status, status));
-  if (districtId) conditions.push(eq(farmersTable.districtId, Number(districtId)));
-  if (valueChainId) conditions.push(eq(farmersTable.valueChainId, Number(valueChainId)));
-
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(farmersTable).where(where);
-  const rows = await db.select().from(farmersTable).where(where).orderBy(desc(farmersTable.createdAt)).limit(Number(limit)).offset(offset);
-
-  res.json({ data: rows, total: Number(count), page: Number(page), limit: Number(limit) });
+  let q = supa.from("farmers").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
+  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`) as typeof q;
+  if (status) q = q.eq("status", status) as typeof q;
+  if (districtId) q = q.eq("district_id", Number(districtId)) as typeof q;
+  if (valueChainId) q = q.eq("value_chain_id", Number(valueChainId)) as typeof q;
+  const { data, count, error } = await q;
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
 router.post("/api/farmers", requireAuth, async (req, res) => {
-  const data = req.body;
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
-  const [row] = await db.insert(farmersTable).values({ ...data, farmerCode, barcodeToken, registeredBy: req.user!.userId }).returning();
-  await logAudit(req, "CREATE", "Farmers", `Registered farmer: ${row.firstName} ${row.lastName}`, "farmer", row.id);
-  res.status(201).json(row);
+  const body = camelToSnake(req.body);
+  const { data, error } = await supa.from("farmers").insert({ ...body, farmer_code: farmerCode, barcode_token: barcodeToken, registered_by: req.user!.userId }).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "CREATE", "Farmers", `Registered farmer: ${(data as any).first_name} ${(data as any).last_name}`, "farmer", (data as any).id);
+  res.status(201).json(snakeToCamel(data));
 });
 
 router.get("/api/farmers/stats", requireAuth, async (_req, res) => {
-  const [stats] = await db.select({
-    total: sql<number>`count(*)`,
-    approved: sql<number>`sum(case when ${farmersTable.status}='approved' then 1 else 0 end)`,
-    pending: sql<number>`sum(case when ${farmersTable.status}='pending' then 1 else 0 end)`,
-    rejected: sql<number>`sum(case when ${farmersTable.status}='rejected' then 1 else 0 end)`,
-    male: sql<number>`sum(case when ${farmersTable.gender}='Male' then 1 else 0 end)`,
-    female: sql<number>`sum(case when ${farmersTable.gender}='Female' then 1 else 0 end)`,
-  }).from(farmersTable);
+  const { data } = await supa.from("farmers").select("status,gender");
+  const rows = data ?? [];
+  const stats = {
+    total: rows.length,
+    approved: rows.filter((r: any) => r.status === "approved").length,
+    pending: rows.filter((r: any) => r.status === "pending").length,
+    rejected: rows.filter((r: any) => r.status === "rejected").length,
+    male: rows.filter((r: any) => r.gender === "Male").length,
+    female: rows.filter((r: any) => r.gender === "Female").length,
+  };
   res.json(stats);
 });
 
 router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
-  const [row] = await db.select().from(farmersTable).where(eq(farmersTable.barcodeToken, req.params.token)).limit(1);
-  if (!row) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
-  res.json(row);
+  const { data: rows, error } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).limit(1);
+  if (error || !rows?.length) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
+  res.json(snakeToCamel(rows[0]));
 });
 
 router.get("/api/farmers/:id", requireAuth, async (req, res) => {
-  const [row] = await db.select().from(farmersTable).where(eq(farmersTable.id, Number(req.params.id))).limit(1);
-  if (!row) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(row);
+  const { data: rows, error } = await supa.from("farmers").select("*").eq("id", Number(req.params.id)).limit(1);
+  if (error || !rows?.length) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(snakeToCamel(rows[0]));
 });
 
 router.put("/api/farmers/:id", requireAuth, async (req, res) => {
-  const [row] = await db.update(farmersTable).set({ ...req.body, updatedAt: new Date() }).where(eq(farmersTable.id, Number(req.params.id))).returning();
-  await logAudit(req, "UPDATE", "Farmers", `Updated farmer ID ${req.params.id}`, "farmer", row.id);
-  res.json(row);
+  const body = camelToSnake(req.body);
+  const { data, error } = await supa.from("farmers").update({ ...body, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "Farmers", `Updated farmer ID ${req.params.id}`, "farmer", (data as any).id);
+  res.json(snakeToCamel(data));
 });
 
 router.post("/api/farmers/:id/approve", requireAuth, async (req, res) => {
-  const [row] = await db.update(farmersTable).set({ status: "approved", approvedBy: req.user!.userId, approvedAt: new Date(), updatedAt: new Date() })
-    .where(eq(farmersTable.id, Number(req.params.id))).returning();
-  await logAudit(req, "APPROVE", "Farmers", `Approved farmer ID ${req.params.id}`, "farmer", row.id);
-  res.json(row);
+  const { data, error } = await supa.from("farmers").update({ status: "approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "APPROVE", "Farmers", `Approved farmer ID ${req.params.id}`, "farmer", (data as any).id);
+  res.json(snakeToCamel(data));
 });
 
 router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
   const { reason } = req.body;
-  const [row] = await db.update(farmersTable).set({ status: "rejected", rejectionReason: reason, updatedAt: new Date() })
-    .where(eq(farmersTable.id, Number(req.params.id))).returning();
-  await logAudit(req, "REJECT", "Farmers", `Rejected farmer ID ${req.params.id}: ${reason}`, "farmer", row.id);
-  res.json(row);
+  const { data, error } = await supa.from("farmers").update({ status: "rejected", rejection_reason: reason, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "REJECT", "Farmers", `Rejected farmer ID ${req.params.id}: ${reason}`, "farmer", (data as any).id);
+  res.json(snakeToCamel(data));
 });
 
 export default router;

@@ -1,5 +1,4 @@
-import { db } from "@workspace/db";
-import { auditLogsTable } from "@workspace/db";
+import { supa } from "./supabase.js";
 import type { Request } from "express";
 
 export async function logAudit(
@@ -12,19 +11,19 @@ export async function logAudit(
   metadata?: unknown
 ) {
   try {
-    await db.insert(auditLogsTable).values({
-      userId: req.user?.userId,
-      username: req.user?.username,
+    await supa.from("audit_logs").insert({
+      user_id: req.user?.userId ?? null,
+      username: req.user?.username ?? null,
       action,
       module,
       description,
-      entityType,
-      entityId,
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"],
-      metadata: metadata ? JSON.stringify(metadata) : undefined,
+      entity_type: entityType ?? null,
+      entity_id: entityId ?? null,
+      ip_address: req.ip ?? null,
+      user_agent: req.headers["user-agent"] ?? null,
+      metadata: metadata ? JSON.stringify(metadata) : null,
     });
   } catch {
-    // Non-blocking audit log
+    // Non-blocking
   }
 }
