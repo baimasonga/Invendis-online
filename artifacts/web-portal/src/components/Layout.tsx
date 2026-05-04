@@ -63,7 +63,7 @@ function SidebarContent({ location, user, logout, onClose }: {
       {/* Logo */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border shrink-0">
         <div>
-          <h1 className="text-sm font-bold tracking-tight text-sidebar-primary-foreground leading-none">Agri-PoD</h1>
+          <h1 className="text-sm font-bold tracking-tight text-sidebar-primary-foreground leading-none">Invendis</h1>
           <p className="text-[10px] text-sidebar-foreground/60 mt-0.5 uppercase tracking-wide">Field Operations</p>
         </div>
         {onClose && (
@@ -159,7 +159,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMobileOpen(true)}>
               <Menu className="h-4 w-4" />
             </Button>
-            <span className="font-bold text-sm">Agri-PoD</span>
+            <span className="font-bold text-sm">Invendis</span>
           </div>
           <Button variant="ghost" size="sm" onClick={logout} className="text-xs h-7">
             Sign out
