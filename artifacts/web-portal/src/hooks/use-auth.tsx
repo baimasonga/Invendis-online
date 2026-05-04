@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLocation } from "wouter";
 
@@ -46,42 +46,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setLocation] = useLocation();
-  const initialised = useRef(false);
 
   useEffect(() => {
-    // Safety timeout: never stay loading more than 8 seconds
-    const timeout = setTimeout(() => setIsLoading(false), 8000);
+    // Safety net: never stay stuck loading beyond 10 seconds
+    const safetyTimeout = setTimeout(() => setIsLoading(false), 10000);
 
-    // onAuthStateChange fires INITIAL_SESSION first (replaces getSession()),
-    // then SIGNED_IN / SIGNED_OUT for subsequent changes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === "INITIAL_SESSION") {
-          if (session?.user) {
-            const profile = await fetchProfile(session.user.id);
-            setUser(profile);
-          }
-          clearTimeout(timeout);
-          setIsLoading(false);
-          initialised.current = true;
-        } else if (event === "SIGNED_IN" && session?.user) {
-          const profile = await fetchProfile(session.user.id);
-          setUser(profile);
-          if (!initialised.current) {
-            clearTimeout(timeout);
-            setIsLoading(false);
-            initialised.current = true;
-          }
-        } else if (event === "SIGNED_OUT") {
+      (event, session) => {
+        // IMPORTANT: keep this callback synchronous — no async/await here.
+        // Supabase holds an internal lock during this callback; any awaited
+        // network call inside it will deadlock subsequent auth operations
+        // (e.g. signInWithPassword). Defer all async work via setTimeout.
+        if (event === "SIGNED_OUT" || !session?.user) {
           setUser(null);
-          clearTimeout(timeout);
+          clearTimeout(safetyTimeout);
           setIsLoading(false);
+          return;
         }
+
+        const userId = session.user.id;
+        setTimeout(() => {
+          fetchProfile(userId)
+            .then((profile) => {
+              setUser(profile);
+            })
+            .catch(() => {
+              setUser(null);
+            })
+            .finally(() => {
+              clearTimeout(safetyTimeout);
+              setIsLoading(false);
+            });
+        }, 0);
       }
     );
 
     return () => {
-      clearTimeout(timeout);
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, []);
