@@ -40,8 +40,8 @@ export function CreateProcurementOrderModal({ open, onClose }: Props) {
         data: {
           supplierName: supplier,
           warehouseId: Number(warehouseId),
-          orderDate: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
-          expectedDelivery: expected ? new Date(expected).toISOString() : undefined,
+          orderDate: orderDate ? new Date(orderDate) : new Date(),
+          expectedDelivery: expected ? new Date(expected) : undefined,
           notes: notes || undefined,
           status: "Draft",
         } as any,

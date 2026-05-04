@@ -30,7 +30,7 @@ export function AddDriverModal({ open, onClose }: Props) {
           fullName,
           phone: phone || undefined,
           licenseNumber: licence || undefined,
-          licenseExpiry: licenceExpiry ? new Date(licenceExpiry).toISOString() : undefined,
+          licenseExpiry: licenceExpiry ? new Date(licenceExpiry) : undefined,
           isActive: 1,
         } as any,
       });

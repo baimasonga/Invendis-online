@@ -4,13 +4,13 @@ import {
   useCreateAllocation,
   useListFarmers,
   useListCampaigns,
-  useListInputItems,
   getListAllocationsQueryKey,
 } from "@workspace/api-client-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,24 +23,21 @@ export function NewAllocationModal({ open, onClose }: Props) {
 
   const [campaignId, setCampaignId] = useState("");
   const [farmerId, setFarmerId]     = useState("");
-  const [inputItemId, setItemId]    = useState("");
-  const [quantity, setQuantity]     = useState("");
+  const [notes, setNotes]           = useState("");
   const [search, setSearch]         = useState("");
 
   const { data: campaignsData } = useListCampaigns({});
   const { data: farmersData }   = useListFarmers({ limit: 200, status: "approved" } as any);
-  const { data: items }         = useListInputItems();
 
   const campaigns: any[] = (campaignsData as any)?.data ?? [];
   const allFarmers: any[] = (farmersData as any)?.data ?? [];
-  const inputItems: any[] = (items as any[]) ?? [];
 
   const filtered = search
     ? allFarmers.filter((f: any) =>
         `${f.firstName} ${f.lastName} ${f.farmerCode}`.toLowerCase().includes(search.toLowerCase()))
     : allFarmers;
 
-  function reset() { setCampaignId(""); setFarmerId(""); setItemId(""); setQuantity(""); setSearch(""); }
+  function reset() { setCampaignId(""); setFarmerId(""); setNotes(""); setSearch(""); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,8 +47,7 @@ export function NewAllocationModal({ open, onClose }: Props) {
         data: {
           campaignId: Number(campaignId),
           farmerId: Number(farmerId),
-          inputItemId: inputItemId ? Number(inputItemId) : undefined,
-          quantity: quantity ? Number(quantity) : undefined,
+          notes: notes || undefined,
         } as any,
       });
       await qc.invalidateQueries({ queryKey: getListAllocationsQueryKey() });
@@ -102,22 +98,9 @@ export function NewAllocationModal({ open, onClose }: Props) {
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Input Item</Label>
-              <Select value={inputItemId} onValueChange={setItemId}>
-                <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
-                <SelectContent>
-                  {inputItems.map((i: any) => (
-                    <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Quantity</Label>
-              <Input type="number" min="0" step="any" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="0" />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Notes</Label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any additional notes…" rows={2} />
           </div>
 
           <DialogFooter className="pt-2">

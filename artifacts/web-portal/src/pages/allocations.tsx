@@ -9,9 +9,9 @@ import { Plus, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import { NewAllocationModal } from "@/components/modals/NewAllocationModal";
 
 const STATUS_STYLES: Record<string, string> = {
+  pending:   "bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-400",
   allocated: "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-400",
   delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  pending:   "bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-400",
   cancelled: "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400",
 };
 
@@ -37,7 +37,7 @@ export default function Allocations() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Allocations</h1>
-          <p className="text-sm text-muted-foreground">Input allocations for farmers across all campaigns.</p>
+          <p className="text-sm text-muted-foreground">Farmer allocations across all campaigns.</p>
         </div>
         <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setOpen(true)}>
           <Plus className="h-3.5 w-3.5 mr-1.5" /> New Allocation
@@ -54,8 +54,7 @@ export default function Allocations() {
               <TableRow className="hover:bg-transparent border-t">
                 <TableHead className="pl-4">Farmer</TableHead>
                 <TableHead>Campaign</TableHead>
-                <TableHead className="hidden md:table-cell">Input Item</TableHead>
-                <TableHead className="text-right hidden sm:table-cell">Qty</TableHead>
+                <TableHead className="hidden md:table-cell">Notes</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="pr-4 hidden lg:table-cell">Created</TableHead>
               </TableRow>
@@ -66,8 +65,7 @@ export default function Allocations() {
                     <TableRow key={i}>
                       <TableCell className="pl-4"><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-36" /></TableCell>
-                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
-                      <TableCell className="hidden sm:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                       <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-20" /></TableCell>
                     </TableRow>
@@ -77,8 +75,8 @@ export default function Allocations() {
                     <TableRow key={a.id} className="hover:bg-muted/40">
                       <TableCell className="pl-4">
                         <div>
-                          <p className="text-sm font-medium">{a.farmerName}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{a.farmerCode}</p>
+                          <p className="text-sm font-medium">{a.farmerName ?? "—"}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{a.farmerCode ?? ""}</p>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -86,9 +84,8 @@ export default function Allocations() {
                           <span className="text-sm text-green-700 hover:underline cursor-pointer">{a.campaignName ?? "—"}</span>
                         </Link>
                       </TableCell>
-                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{a.inputItemName ?? "—"}</TableCell>
-                      <TableCell className="text-right hidden sm:table-cell text-sm tabular-nums font-medium">{a.quantity ?? "—"}</TableCell>
-                      <TableCell><StatusBadge status={a.status ?? "Allocated"} /></TableCell>
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
+                      <TableCell><StatusBadge status={a.status ?? "Pending"} /></TableCell>
                       <TableCell className="pr-4 hidden lg:table-cell text-xs text-muted-foreground">
                         {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                       </TableCell>
@@ -96,7 +93,7 @@ export default function Allocations() {
                   ))
                 : (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={5} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Users className="h-8 w-8 opacity-30" />
                           <span className="text-sm">No allocations found</span>

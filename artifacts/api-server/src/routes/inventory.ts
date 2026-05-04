@@ -105,7 +105,14 @@ router.get("/api/procurement", requireAuth, async (_req, res) => {
 });
 router.post("/api/procurement", requireAuth, async (req, res) => {
   const orderCode = "PO-" + Date.now().toString(36).toUpperCase();
-  const [row] = await db.insert(procurementOrdersTable).values({ ...req.body, orderCode, createdBy: req.user!.userId }).returning();
+  const { orderDate, expectedDelivery, ...rest } = req.body;
+  const [row] = await db.insert(procurementOrdersTable).values({
+    ...rest,
+    orderCode,
+    createdBy: req.user!.userId,
+    orderDate: orderDate ? new Date(orderDate) : null,
+    expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
+  }).returning();
   await logAudit(req, "CREATE", "Procurement", `Created PO: ${orderCode}`, "procurement", row.id);
   res.status(201).json(row);
 });

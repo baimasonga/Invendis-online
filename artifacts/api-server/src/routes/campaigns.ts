@@ -72,7 +72,25 @@ router.get("/api/allocations", requireAuth, async (req, res) => {
   if (campaignId) conditions.push(eq(allocationsTable.campaignId, Number(campaignId)));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(allocationsTable).where(where);
-  const rows = await db.select().from(allocationsTable).where(where).orderBy(desc(allocationsTable.createdAt)).limit(Number(limit)).offset(offset);
+  const rows = await db
+    .select({
+      id: allocationsTable.id,
+      campaignId: allocationsTable.campaignId,
+      farmerId: allocationsTable.farmerId,
+      status: allocationsTable.status,
+      notes: allocationsTable.notes,
+      createdAt: allocationsTable.createdAt,
+      farmerName: sql<string>`${farmersTable.firstName} || ' ' || ${farmersTable.lastName}`,
+      farmerCode: farmersTable.farmerCode,
+      campaignName: campaignsTable.name,
+    })
+    .from(allocationsTable)
+    .leftJoin(farmersTable, eq(allocationsTable.farmerId, farmersTable.id))
+    .leftJoin(campaignsTable, eq(allocationsTable.campaignId, campaignsTable.id))
+    .where(where)
+    .orderBy(desc(allocationsTable.createdAt))
+    .limit(Number(limit))
+    .offset(offset);
   res.json({ data: rows, total: Number(count), page: Number(page), limit: Number(limit) });
 });
 
