@@ -3,20 +3,54 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Agri-PoD Inventory & Distribution System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: dashboard
+    description: Dashboard summary
+  - name: farmers
+    description: Farmer registry
+  - name: master-data
+    description: Master data (districts, chiefdoms, value chains, etc.)
+  - name: inventory
+    description: Input catalogue and stock management
+  - name: warehouses
+    description: Warehouse management
+  - name: procurement
+    description: Procurement orders
+  - name: campaigns
+    description: Distribution campaigns
+  - name: allocations
+    description: Farmer allocations
+  - name: vehicles
+    description: Vehicle and driver management
+  - name: dispatch
+    description: Vehicle dispatch manifests
+  - name: gps
+    description: Vehicle GPS tracking
+  - name: pod
+    description: Proof of Delivery
+  - name: reconciliation
+    description: Stock reconciliation
+  - name: reports
+    description: Reports
+  - name: audit
+    description: Audit logs
+  - name: users
+    description: User management
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +58,1435 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # AUTH
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # DASHBOARD
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary cards
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/charts:
+    get:
+      operationId: getDashboardCharts
+      tags: [dashboard]
+      summary: Get dashboard chart data
+      responses:
+        "200":
+          description: Dashboard chart data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardCharts"
+
+  /dashboard/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Get recent activity feed
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  # MASTER DATA
+  /master-data/districts:
+    get:
+      operationId: listDistricts
+      tags: [master-data]
+      summary: List districts
+      responses:
+        "200":
+          description: Districts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/District"
+    post:
+      operationId: createDistrict
+      tags: [master-data]
+      summary: Create district
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDistrictBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/District"
+
+  /master-data/chiefdoms:
+    get:
+      operationId: listChiefdoms
+      tags: [master-data]
+      summary: List chiefdoms
+      parameters:
+        - name: districtId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chiefdoms list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chiefdom"
+
+  /master-data/sections:
+    get:
+      operationId: listSections
+      tags: [master-data]
+      summary: List sections
+      parameters:
+        - name: chiefdomId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sections list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Section"
+
+  /master-data/communities:
+    get:
+      operationId: listCommunities
+      tags: [master-data]
+      summary: List communities
+      parameters:
+        - name: sectionId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Communities list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Community"
+
+  /master-data/value-chains:
+    get:
+      operationId: listValueChains
+      tags: [master-data]
+      summary: List value chains
+      responses:
+        "200":
+          description: Value chains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ValueChain"
+    post:
+      operationId: createValueChain
+      tags: [master-data]
+      summary: Create value chain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateValueChainBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValueChain"
+
+  /master-data/warehouses:
+    get:
+      operationId: listWarehouses
+      tags: [master-data]
+      summary: List warehouses
+      responses:
+        "200":
+          description: Warehouses list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Warehouse"
+    post:
+      operationId: createWarehouse
+      tags: [master-data]
+      summary: Create warehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWarehouseBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Warehouse"
+
+  # FARMERS
+  /farmers:
+    get:
+      operationId: listFarmers
+      tags: [farmers]
+      summary: List farmers
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: districtId
+          in: query
+          schema:
+            type: integer
+        - name: valueChainId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Farmers list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFarmers"
+    post:
+      operationId: createFarmer
+      tags: [farmers]
+      summary: Register farmer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFarmerBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+
+  /farmers/{id}:
+    get:
+      operationId: getFarmer
+      tags: [farmers]
+      summary: Get farmer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Farmer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+    put:
+      operationId: updateFarmer
+      tags: [farmers]
+      summary: Update farmer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFarmerBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+
+  /farmers/{id}/approve:
+    post:
+      operationId: approveFarmer
+      tags: [farmers]
+      summary: Approve farmer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+
+  /farmers/{id}/reject:
+    post:
+      operationId: rejectFarmer
+      tags: [farmers]
+      summary: Reject farmer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectFarmerBody"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+
+  /farmers/stats:
+    get:
+      operationId: getFarmerStats
+      tags: [farmers]
+      summary: Get farmer statistics
+      responses:
+        "200":
+          description: Farmer statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FarmerStats"
+
+  # INVENTORY
+  /inventory/input-items:
+    get:
+      operationId: listInputItems
+      tags: [inventory]
+      summary: List input items catalogue
+      responses:
+        "200":
+          description: Input items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InputItem"
+    post:
+      operationId: createInputItem
+      tags: [inventory]
+      summary: Create input item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInputItemBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InputItem"
+
+  /inventory/stock-balance:
+    get:
+      operationId: getStockBalance
+      tags: [inventory]
+      summary: Get stock balance across warehouses
+      parameters:
+        - name: warehouseId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Stock balance
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StockBalance"
+
+  /inventory/receive-stock:
+    post:
+      operationId: receiveStock
+      tags: [inventory]
+      summary: Receive stock into warehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiveStockBody"
+      responses:
+        "201":
+          description: Stock received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransaction"
+
+  /inventory/transfer-stock:
+    post:
+      operationId: transferStock
+      tags: [inventory]
+      summary: Transfer stock between warehouses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferStockBody"
+      responses:
+        "201":
+          description: Stock transferred
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransaction"
+
+  /inventory/stock-transactions:
+    get:
+      operationId: listStockTransactions
+      tags: [inventory]
+      summary: List stock transactions
+      parameters:
+        - name: warehouseId
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Stock transactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedStockTransactions"
+
+  # PROCUREMENT
+  /procurement:
+    get:
+      operationId: listProcurementOrders
+      tags: [procurement]
+      summary: List procurement orders
+      responses:
+        "200":
+          description: Procurement orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProcurementOrder"
+    post:
+      operationId: createProcurementOrder
+      tags: [procurement]
+      summary: Create procurement order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProcurementOrderBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementOrder"
+
+  /procurement/{id}:
+    get:
+      operationId: getProcurementOrder
+      tags: [procurement]
+      summary: Get procurement order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Procurement order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementOrder"
+
+  # CAMPAIGNS
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List campaigns
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Draft, Submitted, Approved, Active, Completed, Cancelled]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedCampaigns"
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    put:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCampaignBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/approve:
+    post:
+      operationId: approveCampaign
+      tags: [campaigns]
+      summary: Approve campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/submit:
+    post:
+      operationId: submitCampaign
+      tags: [campaigns]
+      summary: Submit campaign for approval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/stats:
+    get:
+      operationId: getCampaignStats
+      tags: [campaigns]
+      summary: Get campaign statistics
+      responses:
+        "200":
+          description: Campaign statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignStats"
+
+  # ALLOCATIONS
+  /allocations:
+    get:
+      operationId: listAllocations
+      tags: [allocations]
+      summary: List farmer allocations
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: farmerId
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Allocations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAllocations"
+    post:
+      operationId: createAllocation
+      tags: [allocations]
+      summary: Allocate farmer to campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAllocationBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Allocation"
+
+  /allocations/bulk:
+    post:
+      operationId: bulkAllocateFarmers
+      tags: [allocations]
+      summary: Bulk allocate farmers to campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkAllocationBody"
+      responses:
+        "201":
+          description: Bulk created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkAllocationResult"
+
+  # VEHICLES
+  /vehicles:
+    get:
+      operationId: listVehicles
+      tags: [vehicles]
+      summary: List vehicles
+      responses:
+        "200":
+          description: Vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+    post:
+      operationId: createVehicle
+      tags: [vehicles]
+      summary: Register vehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVehicleBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+
+  /vehicles/{id}:
+    get:
+      operationId: getVehicle
+      tags: [vehicles]
+      summary: Get vehicle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vehicle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+
+  /vehicles/drivers:
+    get:
+      operationId: listDrivers
+      tags: [vehicles]
+      summary: List drivers
+      responses:
+        "200":
+          description: Drivers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Driver"
+    post:
+      operationId: createDriver
+      tags: [vehicles]
+      summary: Register driver
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDriverBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+
+  # DISPATCH
+  /dispatch:
+    get:
+      operationId: listDispatches
+      tags: [dispatch]
+      summary: List vehicle dispatches
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Dispatches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedDispatches"
+    post:
+      operationId: createDispatch
+      tags: [dispatch]
+      summary: Create vehicle dispatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDispatchBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  /dispatch/{id}:
+    get:
+      operationId: getDispatch
+      tags: [dispatch]
+      summary: Get dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dispatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  /dispatch/{id}/approve:
+    post:
+      operationId: approveDispatch
+      tags: [dispatch]
+      summary: Approve dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  /dispatch/{id}/dispatch:
+    post:
+      operationId: startDispatch
+      tags: [dispatch]
+      summary: Start dispatch (mark as dispatched)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dispatched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  /dispatch/{id}/arrive:
+    post:
+      operationId: markDispatchArrived
+      tags: [dispatch]
+      summary: Mark dispatch as arrived
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Arrived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  # GPS
+  /gps/ping:
+    post:
+      operationId: gpsping
+      tags: [gps]
+      summary: Record GPS ping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GpsPingBody"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /gps/vehicles:
+    get:
+      operationId: listVehicleGpsStatus
+      tags: [gps]
+      summary: Get live GPS status for all active vehicles
+      responses:
+        "200":
+          description: Vehicle GPS positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VehicleGpsStatus"
+
+  /gps/vehicle/{vehicleId}/track:
+    get:
+      operationId: getVehicleTrack
+      tags: [gps]
+      summary: Get GPS track for a vehicle
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: dispatchId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: GPS track points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GpsPoint"
+
+  # PROOF OF DELIVERY
+  /pod:
+    get:
+      operationId: listPod
+      tags: [pod]
+      summary: List Proof of Delivery records
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: farmerId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PoD records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedPod"
+
+  /pod/{id}:
+    get:
+      operationId: getPod
+      tags: [pod]
+      summary: Get PoD record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PoD record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofOfDelivery"
+
+  /pod/submit:
+    post:
+      operationId: submitPod
+      tags: [pod]
+      summary: Submit proof of delivery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitPodBody"
+      responses:
+        "201":
+          description: PoD submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofOfDelivery"
+
+  /pod/stats:
+    get:
+      operationId: getPodStats
+      tags: [pod]
+      summary: Get PoD statistics
+      responses:
+        "200":
+          description: PoD stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PodStats"
+
+  /pod/{id}/approve-exception:
+    post:
+      operationId: approveException
+      tags: [pod]
+      summary: Approve PoD exception
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExceptionDecisionBody"
+      responses:
+        "200":
+          description: Exception approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofOfDelivery"
+
+  # RECONCILIATION
+  /reconciliation:
+    get:
+      operationId: listReconciliations
+      tags: [reconciliation]
+      summary: List reconciliations
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reconciliations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StockReconciliation"
+    post:
+      operationId: createReconciliation
+      tags: [reconciliation]
+      summary: Create stock reconciliation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReconciliationBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockReconciliation"
+
+  # REPORTS
+  /reports/farmer-beneficiary:
+    get:
+      operationId: getFarmerBeneficiaryReport
+      tags: [reports]
+      summary: Farmer beneficiary report
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: districtId
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Farmer beneficiary report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FarmerBeneficiaryReport"
+
+  /reports/stock-movement:
+    get:
+      operationId: getStockMovementReport
+      tags: [reports]
+      summary: Stock movement report
+      parameters:
+        - name: warehouseId
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Stock movement report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockMovementReport"
+
+  /reports/distribution:
+    get:
+      operationId: getDistributionReport
+      tags: [reports]
+      summary: Distribution summary report
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: districtId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Distribution report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistributionReport"
+
+  # AUDIT LOGS
+  /audit:
+    get:
+      operationId: listAuditLogs
+      tags: [audit]
+      summary: List audit logs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: module
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAuditLogs"
+
+  # USERS
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    put:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/activate:
+    post:
+      operationId: activateUser
+      tags: [users]
+      summary: Activate user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/deactivate:
+    post:
+      operationId: deactivateUser
+      tags: [users]
+      summary: Deactivate user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +1494,1704 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error]
+
+    # AUTH
+    LoginBody:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required: [username, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserProfile"
+      required: [token, user]
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        districtId:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+      required: [id, username, fullName, email, role, isActive]
+
+    # DASHBOARD
+    DashboardSummary:
+      type: object
+      properties:
+        totalFarmers:
+          type: integer
+        approvedFarmers:
+          type: integer
+        pendingFarmers:
+          type: integer
+        totalStock:
+          type: integer
+        distributedInputs:
+          type: integer
+        pendingPod:
+          type: integer
+        exceptions:
+          type: integer
+        activeVehicles:
+          type: integer
+        activeCampaigns:
+          type: integer
+        stockVariance:
+          type: number
+      required: [totalFarmers, approvedFarmers, pendingFarmers, totalStock, distributedInputs, pendingPod, exceptions, activeVehicles, activeCampaigns, stockVariance]
+
+    DashboardCharts:
+      type: object
+      properties:
+        distributionByDistrict:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        distributionByValueChain:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        genderDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        stockMovementTrend:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendDataPoint"
+        podStatusBreakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+      required: [distributionByDistrict, distributionByValueChain, genderDistribution, stockMovementTrend, podStatusBreakdown]
+
+    ChartDataPoint:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: number
+        color:
+          type: string
+          nullable: true
+      required: [name, value]
+
+    TrendDataPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        received:
+          type: number
+        delivered:
+          type: number
+        returned:
+          type: number
+      required: [date, received, delivered, returned]
+
+    ActivityItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        description:
+          type: string
+        user:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        module:
+          type: string
+      required: [id, type, description, user, timestamp, module]
+
+    # MASTER DATA
+    District:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        code:
+          type: string
+      required: [id, name, code]
+
+    CreateDistrictBody:
+      type: object
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+      required: [name, code]
+
+    Chiefdom:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        districtId:
+          type: integer
+        districtName:
+          type: string
+          nullable: true
+      required: [id, name, districtId]
+
+    Section:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        chiefdomId:
+          type: integer
+      required: [id, name, chiefdomId]
+
+    Community:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        sectionId:
+          type: integer
+      required: [id, name, sectionId]
+
+    ValueChain:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+      required: [id, name, isActive]
+
+    CreateValueChainBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+      required: [name]
+
+    Warehouse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        code:
+          type: string
+        districtId:
+          type: integer
+          nullable: true
+        districtName:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+      required: [id, name, code, isActive]
+
+    CreateWarehouseBody:
+      type: object
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+        districtId:
+          type: integer
+          nullable: true
+        address:
+          type: string
+          nullable: true
+      required: [name, code]
+
+    # FARMERS
+    Farmer:
+      type: object
+      properties:
+        id:
+          type: integer
+        farmerCode:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        phone:
+          type: string
+          nullable: true
+        nationalId:
+          type: string
+          nullable: true
+        districtId:
+          type: integer
+        districtName:
+          type: string
+          nullable: true
+        chiefdomId:
+          type: integer
+          nullable: true
+        chiefdomName:
+          type: string
+          nullable: true
+        sectionId:
+          type: integer
+          nullable: true
+        communityId:
+          type: integer
+          nullable: true
+        communityName:
+          type: string
+          nullable: true
+        valueChainId:
+          type: integer
+        valueChainName:
+          type: string
+          nullable: true
+        farmSize:
+          type: number
+          nullable: true
+        gpsLatitude:
+          type: number
+          nullable: true
+        gpsLongitude:
+          type: number
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        barcodeToken:
+          type: string
+          nullable: true
+        ageGroup:
+          type: string
+          nullable: true
+        farmerGroup:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, farmerCode, firstName, lastName, gender, districtId, valueChainId, status, createdAt]
+
+    CreateFarmerBody:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        phone:
+          type: string
+          nullable: true
+        nationalId:
+          type: string
+          nullable: true
+        districtId:
+          type: integer
+        chiefdomId:
+          type: integer
+          nullable: true
+        sectionId:
+          type: integer
+          nullable: true
+        communityId:
+          type: integer
+          nullable: true
+        valueChainId:
+          type: integer
+        farmSize:
+          type: number
+          nullable: true
+        gpsLatitude:
+          type: number
+          nullable: true
+        gpsLongitude:
+          type: number
+          nullable: true
+        ageGroup:
+          type: string
+          nullable: true
+        farmerGroup:
+          type: string
+          nullable: true
+      required: [firstName, lastName, gender, districtId, valueChainId]
+
+    UpdateFarmerBody:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        phone:
+          type: string
+          nullable: true
+        districtId:
+          type: integer
+        valueChainId:
+          type: integer
+        farmSize:
+          type: number
+          nullable: true
+
+    RejectFarmerBody:
+      type: object
+      properties:
+        reason:
+          type: string
+      required: [reason]
+
+    PaginatedFarmers:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Farmer"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    FarmerStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        approved:
+          type: integer
+        pending:
+          type: integer
+        rejected:
+          type: integer
+        byGender:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        byDistrict:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        byValueChain:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+      required: [total, approved, pending, rejected, byGender, byDistrict, byValueChain]
+
+    # INVENTORY
+    InputItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        valueChainId:
+          type: integer
+          nullable: true
+        valueChainName:
+          type: string
+          nullable: true
+        unitOfMeasure:
+          type: string
+        description:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, code, name, category, unitOfMeasure, isActive, createdAt]
+
+    CreateInputItemBody:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        valueChainId:
+          type: integer
+          nullable: true
+        unitOfMeasure:
+          type: string
+        description:
+          type: string
+          nullable: true
+      required: [name, category, unitOfMeasure]
+
+    StockBalance:
+      type: object
+      properties:
+        warehouseId:
+          type: integer
+        warehouseName:
+          type: string
+        inputItemId:
+          type: integer
+        inputItemName:
+          type: string
+        inputItemCode:
+          type: string
+        unitOfMeasure:
+          type: string
+        batchNumber:
+          type: string
+          nullable: true
+        available:
+          type: integer
+        reserved:
+          type: integer
+        loaded:
+          type: integer
+        delivered:
+          type: integer
+        returned:
+          type: integer
+        damaged:
+          type: integer
+        total:
+          type: integer
+      required: [warehouseId, warehouseName, inputItemId, inputItemName, inputItemCode, unitOfMeasure, available, reserved, loaded, delivered, returned, damaged, total]
+
+    ReceiveStockBody:
+      type: object
+      properties:
+        warehouseId:
+          type: integer
+        inputItemId:
+          type: integer
+        quantity:
+          type: integer
+        batchNumber:
+          type: string
+          nullable: true
+        expiryDate:
+          type: string
+          format: date
+          nullable: true
+        supplierId:
+          type: integer
+          nullable: true
+        procurementOrderId:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [warehouseId, inputItemId, quantity]
+
+    TransferStockBody:
+      type: object
+      properties:
+        fromWarehouseId:
+          type: integer
+        toWarehouseId:
+          type: integer
+        inputItemId:
+          type: integer
+        quantity:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+      required: [fromWarehouseId, toWarehouseId, inputItemId, quantity]
+
+    StockTransaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        transactionType:
+          type: string
+        warehouseId:
+          type: integer
+        warehouseName:
+          type: string
+          nullable: true
+        inputItemId:
+          type: integer
+        inputItemName:
+          type: string
+          nullable: true
+        quantity:
+          type: integer
+        batchNumber:
+          type: string
+          nullable: true
+        status:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          nullable: true
+      required: [id, transactionType, warehouseId, inputItemId, quantity, status, createdAt]
+
+    PaginatedStockTransactions:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/StockTransaction"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    # PROCUREMENT
+    ProcurementOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderCode:
+          type: string
+        supplierName:
+          type: string
+        inputItemId:
+          type: integer
+        inputItemName:
+          type: string
+          nullable: true
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+          nullable: true
+        totalValue:
+          type: number
+          nullable: true
+        fundingSource:
+          type: string
+          nullable: true
+        status:
+          type: string
+        warehouseId:
+          type: integer
+          nullable: true
+        warehouseName:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        orderDate:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, orderCode, supplierName, inputItemId, quantity, status, orderDate, createdAt]
+
+    CreateProcurementOrderBody:
+      type: object
+      properties:
+        supplierName:
+          type: string
+        inputItemId:
+          type: integer
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+          nullable: true
+        fundingSource:
+          type: string
+          nullable: true
+        warehouseId:
+          type: integer
+          nullable: true
+        orderDate:
+          type: string
+          format: date
+        notes:
+          type: string
+          nullable: true
+      required: [supplierName, inputItemId, quantity, orderDate]
+
+    # CAMPAIGNS
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: integer
+        campaignCode:
+          type: string
+        name:
+          type: string
+        season:
+          type: string
+          nullable: true
+        districtId:
+          type: integer
+        districtName:
+          type: string
+          nullable: true
+        valueChainId:
+          type: integer
+        valueChainName:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        distributionSite:
+          type: string
+          nullable: true
+        siteLatitude:
+          type: number
+          nullable: true
+        siteLongitude:
+          type: number
+          nullable: true
+        geofenceRadius:
+          type: number
+          nullable: true
+        status:
+          type: string
+          enum: [Draft, Submitted, Approved, Active, Completed, Cancelled]
+        totalFarmers:
+          type: integer
+          nullable: true
+        totalAllocations:
+          type: integer
+          nullable: true
+        deliveredCount:
+          type: integer
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, campaignCode, name, districtId, valueChainId, startDate, endDate, status, createdAt]
+
+    CreateCampaignBody:
+      type: object
+      properties:
+        name:
+          type: string
+        season:
+          type: string
+          nullable: true
+        districtId:
+          type: integer
+        valueChainId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        distributionSite:
+          type: string
+          nullable: true
+        siteLatitude:
+          type: number
+          nullable: true
+        siteLongitude:
+          type: number
+          nullable: true
+        geofenceRadius:
+          type: number
+          nullable: true
+        description:
+          type: string
+          nullable: true
+      required: [name, districtId, valueChainId, startDate, endDate]
+
+    UpdateCampaignBody:
+      type: object
+      properties:
+        name:
+          type: string
+        season:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        distributionSite:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+
+    PaginatedCampaigns:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Campaign"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    CampaignStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        active:
+          type: integer
+        completed:
+          type: integer
+        pending:
+          type: integer
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+      required: [total, active, completed, pending, byStatus]
+
+    # ALLOCATIONS
+    Allocation:
+      type: object
+      properties:
+        id:
+          type: integer
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+          nullable: true
+        farmerId:
+          type: integer
+        farmerCode:
+          type: string
+          nullable: true
+        farmerName:
+          type: string
+          nullable: true
+        inputItemId:
+          type: integer
+        inputItemName:
+          type: string
+          nullable: true
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [Pending, Allocated, Delivered, Cancelled]
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, campaignId, farmerId, inputItemId, quantity, status, createdAt]
+
+    CreateAllocationBody:
+      type: object
+      properties:
+        campaignId:
+          type: integer
+        farmerId:
+          type: integer
+        inputItemId:
+          type: integer
+        quantity:
+          type: integer
+      required: [campaignId, farmerId, inputItemId, quantity]
+
+    BulkAllocationBody:
+      type: object
+      properties:
+        campaignId:
+          type: integer
+        inputItemId:
+          type: integer
+        quantity:
+          type: integer
+        farmerIds:
+          type: array
+          items:
+            type: integer
+      required: [campaignId, inputItemId, quantity, farmerIds]
+
+    BulkAllocationResult:
+      type: object
+      properties:
+        created:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required: [created, skipped, errors]
+
+    PaginatedAllocations:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Allocation"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    # VEHICLES
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+        vehicleCode:
+          type: string
+        plateNumber:
+          type: string
+        vehicleType:
+          type: string
+        capacity:
+          type: number
+          nullable: true
+        driverId:
+          type: integer
+          nullable: true
+        driverName:
+          type: string
+          nullable: true
+        gpsDeviceId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Active, Inactive, InTransit, Maintenance]
+        lastLatitude:
+          type: number
+          nullable: true
+        lastLongitude:
+          type: number
+          nullable: true
+        lastPing:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, vehicleCode, plateNumber, vehicleType, status, createdAt]
+
+    CreateVehicleBody:
+      type: object
+      properties:
+        plateNumber:
+          type: string
+        vehicleType:
+          type: string
+        capacity:
+          type: number
+          nullable: true
+        driverId:
+          type: integer
+          nullable: true
+        gpsDeviceId:
+          type: string
+          nullable: true
+      required: [plateNumber, vehicleType]
+
+    Driver:
+      type: object
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        licenseNumber:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        vehicleId:
+          type: integer
+          nullable: true
+        vehiclePlate:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, fullName, isActive, createdAt]
+
+    CreateDriverBody:
+      type: object
+      properties:
+        fullName:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        licenseNumber:
+          type: string
+          nullable: true
+      required: [fullName]
+
+    # DISPATCH
+    Dispatch:
+      type: object
+      properties:
+        id:
+          type: integer
+        manifestCode:
+          type: string
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+          nullable: true
+        vehicleId:
+          type: integer
+        vehiclePlate:
+          type: string
+          nullable: true
+        driverId:
+          type: integer
+          nullable: true
+        driverName:
+          type: string
+          nullable: true
+        warehouseId:
+          type: integer
+        warehouseName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Draft, Approved, Loading, Dispatched, Arrived, Completed, Reconciled, Cancelled]
+        totalPackages:
+          type: integer
+          nullable: true
+        deliveredPackages:
+          type: integer
+          nullable: true
+        returnedPackages:
+          type: integer
+          nullable: true
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+        arrivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, manifestCode, campaignId, vehicleId, warehouseId, status, createdAt]
+
+    CreateDispatchBody:
+      type: object
+      properties:
+        campaignId:
+          type: integer
+        vehicleId:
+          type: integer
+        driverId:
+          type: integer
+          nullable: true
+        warehouseId:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+      required: [campaignId, vehicleId, warehouseId]
+
+    PaginatedDispatches:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Dispatch"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    # GPS
+    GpsPingBody:
+      type: object
+      properties:
+        vehicleId:
+          type: integer
+        dispatchId:
+          type: integer
+          nullable: true
+        latitude:
+          type: number
+        longitude:
+          type: number
+        speed:
+          type: number
+          nullable: true
+        heading:
+          type: number
+          nullable: true
+        batteryLevel:
+          type: number
+          nullable: true
+        recordedAt:
+          type: string
+          format: date-time
+      required: [vehicleId, latitude, longitude]
+
+    GpsPoint:
+      type: object
+      properties:
+        id:
+          type: integer
+        vehicleId:
+          type: integer
+        dispatchId:
+          type: integer
+          nullable: true
+        latitude:
+          type: number
+        longitude:
+          type: number
+        speed:
+          type: number
+          nullable: true
+        heading:
+          type: number
+          nullable: true
+        batteryLevel:
+          type: number
+          nullable: true
+        recordedAt:
+          type: string
+          format: date-time
+      required: [id, vehicleId, latitude, longitude, recordedAt]
+
+    VehicleGpsStatus:
+      type: object
+      properties:
+        vehicleId:
+          type: integer
+        vehiclePlate:
+          type: string
+        driverName:
+          type: string
+          nullable: true
+        campaignName:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+        longitude:
+          type: number
+        speed:
+          type: number
+          nullable: true
+        batteryLevel:
+          type: number
+          nullable: true
+        status:
+          type: string
+        lastPing:
+          type: string
+          format: date-time
+        dispatchId:
+          type: integer
+          nullable: true
+      required: [vehicleId, vehiclePlate, latitude, longitude, status, lastPing]
+
+    # POD
+    ProofOfDelivery:
+      type: object
+      properties:
+        id:
+          type: integer
+        podCode:
+          type: string
+        farmerId:
+          type: integer
+        farmerCode:
+          type: string
+          nullable: true
+        farmerName:
+          type: string
+          nullable: true
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+          nullable: true
+        dispatchId:
+          type: integer
+          nullable: true
+        fieldOfficerId:
+          type: integer
+          nullable: true
+        fieldOfficerName:
+          type: string
+          nullable: true
+        inputItemId:
+          type: integer
+          nullable: true
+        inputItemName:
+          type: string
+          nullable: true
+        quantityDelivered:
+          type: integer
+        otpStatus:
+          type: string
+          enum: [Pending, Verified, Failed, Bypassed]
+        faceStatus:
+          type: string
+          enum: [Pending, Captured, Verified, PendingReview, Failed]
+        gpsStatus:
+          type: string
+          enum: [Pending, Captured, Valid, Invalid, OutsideArea]
+        vehicleGpsStatus:
+          type: string
+          enum: [Pending, Confirmed, NotAtSite]
+        status:
+          type: string
+          enum: [Pending, Verified, PendingSync, Rejected, OtpFailed, FaceMismatch, BarcodeInvalid, InputNotAssigned, VehicleNotAtSite, GpsOutsideArea, DuplicateSuspected, PackageAlreadyDelivered, SupervisorReviewRequired]
+        deliveryLatitude:
+          type: number
+          nullable: true
+        deliveryLongitude:
+          type: number
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, podCode, farmerId, campaignId, quantityDelivered, otpStatus, faceStatus, gpsStatus, vehicleGpsStatus, status, createdAt]
+
+    SubmitPodBody:
+      type: object
+      properties:
+        farmerId:
+          type: integer
+        campaignId:
+          type: integer
+        dispatchId:
+          type: integer
+          nullable: true
+        inputItemId:
+          type: integer
+          nullable: true
+        quantityDelivered:
+          type: integer
+        otpVerified:
+          type: boolean
+        faceCaptured:
+          type: boolean
+        deliveryLatitude:
+          type: number
+          nullable: true
+        deliveryLongitude:
+          type: number
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [farmerId, campaignId, quantityDelivered, otpVerified, faceCaptured]
+
+    PaginatedPod:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofOfDelivery"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    PodStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        verified:
+          type: integer
+        pending:
+          type: integer
+        exceptions:
+          type: integer
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+      required: [total, verified, pending, exceptions, byStatus]
+
+    ExceptionDecisionBody:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        notes:
+          type: string
+          nullable: true
+      required: [decision]
+
+    # RECONCILIATION
+    StockReconciliation:
+      type: object
+      properties:
+        id:
+          type: integer
+        reconciliationCode:
+          type: string
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+          nullable: true
+        dispatchId:
+          type: integer
+          nullable: true
+        totalLoaded:
+          type: integer
+        totalDelivered:
+          type: integer
+        totalReturned:
+          type: integer
+        totalDamaged:
+          type: integer
+        totalMissing:
+          type: integer
+        status:
+          type: string
+          enum: [Draft, Submitted, Approved, Rejected]
+        variance:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, reconciliationCode, campaignId, totalLoaded, totalDelivered, totalReturned, totalDamaged, totalMissing, status, variance, createdAt]
+
+    CreateReconciliationBody:
+      type: object
+      properties:
+        campaignId:
+          type: integer
+        dispatchId:
+          type: integer
+          nullable: true
+        totalLoaded:
+          type: integer
+        totalDelivered:
+          type: integer
+        totalReturned:
+          type: integer
+        totalDamaged:
+          type: integer
+        totalMissing:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+      required: [campaignId, totalLoaded, totalDelivered, totalReturned, totalDamaged, totalMissing]
+
+    # REPORTS
+    FarmerBeneficiaryReport:
+      type: object
+      properties:
+        totalBeneficiaries:
+          type: integer
+        female:
+          type: integer
+        male:
+          type: integer
+        youth:
+          type: integer
+        byDistrict:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        byValueChain:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FarmerBeneficiaryRow"
+      required: [totalBeneficiaries, female, male, youth, byDistrict, byValueChain, rows]
+
+    FarmerBeneficiaryRow:
+      type: object
+      properties:
+        farmerCode:
+          type: string
+        name:
+          type: string
+        gender:
+          type: string
+        district:
+          type: string
+        chiefdom:
+          type: string
+          nullable: true
+        community:
+          type: string
+          nullable: true
+        valueChain:
+          type: string
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [farmerCode, name, gender, district, valueChain]
+
+    StockMovementReport:
+      type: object
+      properties:
+        totalReceived:
+          type: integer
+        totalDelivered:
+          type: integer
+        totalReturned:
+          type: integer
+        totalDamaged:
+          type: integer
+        netStock:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/StockMovementRow"
+      required: [totalReceived, totalDelivered, totalReturned, totalDamaged, netStock, rows]
+
+    StockMovementRow:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        transactionType:
+          type: string
+        inputItem:
+          type: string
+        warehouse:
+          type: string
+        quantity:
+          type: integer
+        batchNumber:
+          type: string
+          nullable: true
+        performedBy:
+          type: string
+          nullable: true
+      required: [date, transactionType, inputItem, warehouse, quantity]
+
+    DistributionReport:
+      type: object
+      properties:
+        campaign:
+          type: string
+        totalAllocated:
+          type: integer
+        totalDelivered:
+          type: integer
+        completionRate:
+          type: number
+        byDistrict:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/DistributionReportRow"
+      required: [campaign, totalAllocated, totalDelivered, completionRate, byDistrict, rows]
+
+    DistributionReportRow:
+      type: object
+      properties:
+        district:
+          type: string
+        chiefdom:
+          type: string
+          nullable: true
+        community:
+          type: string
+          nullable: true
+        allocated:
+          type: integer
+        delivered:
+          type: integer
+        pending:
+          type: integer
+        completionRate:
+          type: number
+      required: [district, allocated, delivered, pending, completionRate]
+
+    # AUDIT LOGS
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        action:
+          type: string
+        module:
+          type: string
+        description:
+          type: string
+        ipAddress:
+          type: string
+          nullable: true
+        entityType:
+          type: string
+          nullable: true
+        entityId:
+          type: integer
+          nullable: true
+        oldValues:
+          type: string
+          nullable: true
+        newValues:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, action, module, description, createdAt]
+
+    PaginatedAuditLogs:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required: [data, total, page, limit, totalPages]
+
+    # USERS
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [SystemAdmin, ProjectManager, ProcurementOfficer, WarehouseManager, DistrictCoordinator, FieldOfficer, Driver, MEOfficer, Auditor]
+        districtId:
+          type: integer
+          nullable: true
+        districtName:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        lastLogin:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, username, fullName, role, isActive, createdAt]
+
+    CreateUserBody:
+      type: object
+      properties:
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [SystemAdmin, ProjectManager, ProcurementOfficer, WarehouseManager, DistrictCoordinator, FieldOfficer, Driver, MEOfficer, Auditor]
+        password:
+          type: string
+        districtId:
+          type: integer
+          nullable: true
+      required: [username, fullName, role, password]
+
+    UpdateUserBody:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [SystemAdmin, ProjectManager, ProcurementOfficer, WarehouseManager, DistrictCoordinator, FieldOfficer, Driver, MEOfficer, Auditor]
+        districtId:
+          type: integer
+          nullable: true
