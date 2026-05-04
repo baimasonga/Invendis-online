@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useListVehicles, useListDrivers } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { listVehicles, listDrivers, KEYS } from "@/lib/db";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,11 +60,17 @@ export default function Vehicles() {
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const [driverOpen, setDriverOpen]   = useState(false);
 
-  const { data: vehicles, isLoading: loadingVehicles } = useListVehicles();
-  const { data: drivers,  isLoading: loadingDrivers }  = useListDrivers();
+  const { data: vehiclesData, isLoading: loadingVehicles } = useQuery({
+    queryKey: KEYS.vehicles(),
+    queryFn: () => listVehicles(),
+  });
+  const { data: driversData, isLoading: loadingDrivers } = useQuery({
+    queryKey: KEYS.drivers(),
+    queryFn: () => listDrivers(),
+  });
 
-  const vehicleList: any[] = (vehicles as any[]) ?? [];
-  const driverList:  any[] = (drivers  as any[]) ?? [];
+  const vehicleList: any[] = vehiclesData?.data ?? [];
+  const driverList:  any[] = driversData?.data ?? [];
 
   return (
     <div className="space-y-5">
@@ -83,7 +90,6 @@ export default function Vehicles() {
         )}
       </div>
 
-      {/* Quick stats */}
       <div className="grid grid-cols-2 gap-3">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">

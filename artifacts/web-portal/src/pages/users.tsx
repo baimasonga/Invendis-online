@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useListUsers,
-  useActivateUser,
-  useDeactivateUser,
-  getListUsersQueryKey,
-} from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listUsers, activateUser, deactivateUser, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,8 +27,8 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function Avatar({ name }: { name: string }) {
-  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+function UserAvatar({ name }: { name: string }) {
+  const initials = name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const colors = ["bg-purple-100 text-purple-800", "bg-blue-100 text-blue-800", "bg-teal-100 text-teal-800", "bg-amber-100 text-amber-800", "bg-green-100 text-green-800"];
   const color = colors[name.charCodeAt(0) % colors.length];
   return (
@@ -47,23 +42,27 @@ export default function Users() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  const { data: users, isLoading } = useListUsers();
-  const activateUser   = useActivateUser();
-  const deactivateUser = useDeactivateUser();
+  const { data: users, isLoading } = useQuery({
+    queryKey: KEYS.users(),
+    queryFn: listUsers,
+  });
 
-  async function handleToggle(id: number, currentlyActive: boolean) {
+  const activateMutation   = useMutation({ mutationFn: (id: string) => activateUser(id) });
+  const deactivateMutation = useMutation({ mutationFn: (id: string) => deactivateUser(id) });
+
+  async function handleToggle(id: string, currentlyActive: boolean) {
     setLoadingId(id);
     try {
       if (currentlyActive) {
-        await deactivateUser.mutateAsync({ id });
+        await deactivateMutation.mutateAsync(id);
         toast({ title: "User deactivated" });
       } else {
-        await activateUser.mutateAsync({ id });
+        await activateMutation.mutateAsync(id);
         toast({ title: "User activated" });
       }
-      await qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.users() });
     } catch (err: any) {
       toast({ title: "Action failed", description: err.message, variant: "destructive" });
     } finally { setLoadingId(null); }
@@ -88,9 +87,8 @@ export default function Users() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="pl-4">User</TableHead>
-                <TableHead className="hidden md:table-cell">Username</TableHead>
+                <TableHead className="hidden md:table-cell">Email</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead className="hidden lg:table-cell">District</TableHead>
                 <TableHead className="hidden sm:table-cell">Status</TableHead>
                 <TableHead className="pr-4 text-right">Action</TableHead>
               </TableRow>
@@ -100,9 +98,8 @@ export default function Users() {
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell className="pl-4"><div className="flex items-center gap-2"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-4 w-28" /></div></TableCell>
-                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-28 rounded-full" /></TableCell>
-                      <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell className="hidden sm:table-cell"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
                       <TableCell className="pr-4"><Skeleton className="h-7 w-20 ml-auto" /></TableCell>
                     </TableRow>
@@ -110,20 +107,20 @@ export default function Users() {
                 : users && (users as any[]).length > 0
                 ? (users as any[]).map((user: any) => {
                     const busy = loadingId === user.id;
+                    const displayName = user.fullName ?? user.email ?? "User";
                     return (
                       <TableRow key={user.id} className="hover:bg-muted/40">
                         <TableCell className="pl-4">
                           <div className="flex items-center gap-2">
-                            <Avatar name={user.fullName ?? user.username ?? "U"} />
+                            <UserAvatar name={displayName} />
                             <div>
-                              <p className="font-medium text-sm">{user.fullName}</p>
+                              <p className="font-medium text-sm">{user.fullName ?? "—"}</p>
                               {user.email && <p className="text-xs text-muted-foreground">{user.email}</p>}
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="hidden md:table-cell font-mono text-xs text-muted-foreground">{user.username}</TableCell>
+                        <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{user.email ?? "—"}</TableCell>
                         <TableCell><RoleBadge role={user.role} /></TableCell>
-                        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{user.districtName ?? "All districts"}</TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${user.isActive ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
                             {user.isActive ? "Active" : "Inactive"}
@@ -148,7 +145,7 @@ export default function Users() {
                   })
                 : (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={5} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <UserCog className="h-8 w-8 opacity-30" />
                           <span className="text-sm">No users found</span>

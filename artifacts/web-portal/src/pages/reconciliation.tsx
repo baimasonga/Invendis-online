@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useListReconciliations, getListReconciliationsQueryKey } from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listReconciliations, approveReconciliation, rejectReconciliation, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Plus, RefreshCcw, TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateReconciliationModal } from "@/components/modals/CreateReconciliationModal";
-import { apiAction } from "@/lib/api";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:  "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
@@ -42,14 +41,19 @@ export default function Reconciliation() {
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  const { data: recordsData, isLoading } = useListReconciliations({});
-  const records: any[] = (recordsData as any)?.data ?? (Array.isArray(recordsData) ? recordsData as any[] : []);
+  const { data: records = [], isLoading } = useQuery({
+    queryKey: KEYS.reconciliations(),
+    queryFn: listReconciliations,
+  });
+
+  const approveMutation = useMutation({ mutationFn: (id: number) => approveReconciliation(id) });
+  const rejectMutation  = useMutation({ mutationFn: (id: number) => rejectReconciliation(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
     try {
-      await apiAction(`/api/reconciliation/${id}/approve`);
-      await qc.invalidateQueries({ queryKey: getListReconciliationsQueryKey({}) });
+      await approveMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.reconciliations() });
       toast({ title: "Reconciliation approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
@@ -59,8 +63,8 @@ export default function Reconciliation() {
   async function handleReject(id: number) {
     setLoadingId(id);
     try {
-      await apiAction(`/api/reconciliation/${id}/reject`);
-      await qc.invalidateQueries({ queryKey: getListReconciliationsQueryKey({}) });
+      await rejectMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.reconciliations() });
       toast({ title: "Reconciliation rejected" });
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
@@ -109,8 +113,8 @@ export default function Reconciliation() {
                       <TableCell className="pr-4"><Skeleton className="h-7 w-24 ml-auto" /></TableCell>
                     </TableRow>
                   ))
-                : records.length > 0
-                ? records.map((r: any) => {
+                : (records as any[]).length > 0
+                ? (records as any[]).map((r: any) => {
                     const status = r.status?.toLowerCase();
                     const busy = loadingId === r.id;
                     return (

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCreateVehicle, getListVehiclesQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { createVehicle, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ interface Props { open: boolean; onClose: () => void; }
 export function AddVehicleModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateVehicle();
+  const create = useMutation({ mutationFn: createVehicle });
 
   const [plate, setPlate]       = useState("");
   const [type, setType]         = useState("");
@@ -31,17 +31,15 @@ export function AddVehicleModal({ open, onClose }: Props) {
     if (!plate || !type) return;
     try {
       await create.mutateAsync({
-        data: {
-          plateNumber: plate.toUpperCase(),
-          vehicleType: type,
-          make: make || undefined,
-          model: model || undefined,
-          year: year ? Number(year) : undefined,
-          capacity: capacity ? Number(capacity) : undefined,
-          status: "Active",
-        } as any,
+        plateNumber: plate.toUpperCase(),
+        vehicleType: type,
+        make: make || undefined,
+        model: model || undefined,
+        year: year ? Number(year) : undefined,
+        capacity: capacity ? Number(capacity) : undefined,
+        status: "Active",
       });
-      await qc.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.vehicles() });
       toast({ title: "Vehicle registered", description: `${plate.toUpperCase()} added to fleet.` });
       reset();
       onClose();

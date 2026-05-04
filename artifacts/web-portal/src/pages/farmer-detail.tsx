@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useGetFarmer,
-  useApproveFarmer,
-  useRejectFarmer,
-  getGetFarmerQueryKey,
-  getListFarmersQueryKey,
-} from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getFarmer, approveFarmer, rejectFarmer, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,20 +37,22 @@ export default function FarmerDetail() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const { data: farmer, isLoading } = useGetFarmer(id, {
-    query: { enabled: !!id, queryKey: getGetFarmerQueryKey(id) },
+  const { data: farmer, isLoading } = useQuery({
+    queryKey: KEYS.farmer(id),
+    queryFn: () => getFarmer(id),
+    enabled: !!id,
   });
 
-  const approveFarmer = useApproveFarmer();
-  const rejectFarmer = useRejectFarmer();
+  const approveMutation = useMutation({ mutationFn: () => approveFarmer(id) });
+  const rejectMutation  = useMutation({ mutationFn: () => rejectFarmer(id) });
 
   async function handleApprove() {
     setActionLoading(true);
     try {
-      await approveFarmer.mutateAsync({ id });
+      await approveMutation.mutateAsync();
       await Promise.all([
-        qc.invalidateQueries({ queryKey: getGetFarmerQueryKey(id) }),
-        qc.invalidateQueries({ queryKey: getListFarmersQueryKey() }),
+        qc.invalidateQueries({ queryKey: KEYS.farmer(id) }),
+        qc.invalidateQueries({ queryKey: KEYS.farmers() }),
       ]);
       toast({ title: "Farmer approved" });
     } catch (err: any) {
@@ -67,10 +63,10 @@ export default function FarmerDetail() {
   async function handleRejectConfirm() {
     setActionLoading(true);
     try {
-      await rejectFarmer.mutateAsync({ id, data: { reason: "Rejected by administrator" } as any });
+      await rejectMutation.mutateAsync();
       await Promise.all([
-        qc.invalidateQueries({ queryKey: getGetFarmerQueryKey(id) }),
-        qc.invalidateQueries({ queryKey: getListFarmersQueryKey() }),
+        qc.invalidateQueries({ queryKey: KEYS.farmer(id) }),
+        qc.invalidateQueries({ queryKey: KEYS.farmers() }),
       ]);
       toast({ title: "Farmer rejected" });
     } catch (err: any) {
@@ -102,11 +98,11 @@ export default function FarmerDetail() {
     );
   }
 
-  const status = (farmer as any).status as string;
+  const f = farmer as any;
+  const status = f.status as string;
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/farmers">
           <Button variant="outline" size="icon" className="h-8 w-8 shrink-0">
@@ -114,8 +110,8 @@ export default function FarmerDetail() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{farmer.firstName} {farmer.lastName}</h1>
-          <p className="text-xs text-muted-foreground font-mono">{farmer.farmerCode}</p>
+          <h1 className="text-xl font-bold truncate">{f.firstName} {f.lastName}</h1>
+          <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>
@@ -141,10 +137,10 @@ export default function FarmerDetail() {
               <CardTitle className="text-sm font-semibold">Personal Information</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              <Field label="Gender"    value={farmer.gender}    icon={User} />
-              <Field label="Phone"     value={farmer.phone}     icon={Phone} />
-              <Field label="National ID" value={farmer.nationalId} icon={IdCard} />
-              <Field label="Date of Birth" value={(farmer as any).dateOfBirth ? new Date((farmer as any).dateOfBirth).toLocaleDateString("en-GB") : undefined} />
+              <Field label="Gender"    value={f.gender}    icon={User} />
+              <Field label="Phone"     value={f.phone}     icon={Phone} />
+              <Field label="National ID" value={f.nationalId} icon={IdCard} />
+              <Field label="Date of Birth" value={f.dateOfBirth ? new Date(f.dateOfBirth).toLocaleDateString("en-GB") : undefined} />
             </CardContent>
           </Card>
 
@@ -153,12 +149,12 @@ export default function FarmerDetail() {
               <CardTitle className="text-sm font-semibold">Agricultural Profile</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              <Field label="Value Chain"    value={(farmer as any).valueChainName} icon={Sprout} />
-              <Field label="Farm Size (Ha)" value={(farmer as any).farmSize?.toString()} />
-              <Field label="District"       value={(farmer as any).districtName}   icon={MapPin} />
-              <Field label="Chiefdom"       value={(farmer as any).chiefdomName} />
-              <Field label="Section"        value={(farmer as any).sectionName} />
-              <Field label="Community"      value={(farmer as any).communityName} />
+              <Field label="Value Chain"    value={f.valueChainName} icon={Sprout} />
+              <Field label="Farm Size (Ha)" value={f.farmSize?.toString()} />
+              <Field label="District"       value={f.districtName}   icon={MapPin} />
+              <Field label="Chiefdom"       value={f.chiefdomName} />
+              <Field label="Section"        value={f.sectionName} />
+              <Field label="Community"      value={f.communityName} />
             </CardContent>
           </Card>
         </div>
@@ -169,13 +165,13 @@ export default function FarmerDetail() {
               <CardTitle className="text-sm font-semibold">Identity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Field label="Farmer Code" value={farmer.farmerCode} icon={Hash} />
-              <Field label="Registered" value={farmer.createdAt ? new Date(farmer.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} />
-              {(farmer as any).barcodeToken && (
+              <Field label="Farmer Code" value={f.farmerCode} icon={Hash} />
+              <Field label="Registered" value={f.createdAt ? new Date(f.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} />
+              {f.barcodeToken && (
                 <div className="pt-2 border-t text-center">
                   <p className="text-xs text-muted-foreground mb-2">Farmer QR Code</p>
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${(farmer as any).barcodeToken}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${f.barcodeToken}`}
                     alt="QR Code"
                     className="mx-auto rounded border"
                   />
@@ -191,7 +187,7 @@ export default function FarmerDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reject Farmer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark <strong>{farmer.firstName} {farmer.lastName}</strong> as rejected. You can review this decision later.
+              This will mark <strong>{f.firstName} {f.lastName}</strong> as rejected. You can review this decision later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

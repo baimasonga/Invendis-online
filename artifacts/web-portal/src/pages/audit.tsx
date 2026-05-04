@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useListAuditLogs } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { listAuditLogs, KEYS } from "@/lib/db";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -20,13 +21,12 @@ const ACTION_STYLES: Record<string, string> = {
 };
 
 const MODULE_STYLES: Record<string, string> = {
-  farmers:       "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400",
-  inventory:     "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
-  campaigns:     "bg-blue-50  text-blue-700  dark:bg-blue-900/20  dark:text-blue-400",
-  dispatch:      "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400",
-  pod:           "bg-teal-50  text-teal-700  dark:bg-teal-900/20  dark:text-teal-400",
-  masterdata:    "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
-  procurement:   "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400",
+  farmers:     "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400",
+  inventory:   "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
+  campaigns:   "bg-blue-50  text-blue-700  dark:bg-blue-900/20  dark:text-blue-400",
+  dispatch:    "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400",
+  pod:         "bg-teal-50  text-teal-700  dark:bg-teal-900/20  dark:text-teal-400",
+  procurement: "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400",
 };
 
 function ActionBadge({ action }: { action: string }) {
@@ -60,7 +60,11 @@ function timeAgo(date: string) {
 export default function AuditLogs() {
   const [page, setPage] = useState(1);
   const limit = 50;
-  const { data: logsData, isLoading } = useListAuditLogs({ page, limit });
+
+  const { data: logsData, isLoading } = useQuery({
+    queryKey: KEYS.auditLogs(page),
+    queryFn: () => listAuditLogs(page, limit),
+  });
   const total = logsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -100,7 +104,7 @@ export default function AuditLogs() {
                     </TableRow>
                   ))
                 : logsData?.data && logsData.data.length > 0
-                ? logsData.data.map((log) => (
+                ? logsData.data.map((log: any) => (
                     <TableRow key={log.id} className="hover:bg-muted/40 align-top">
                       <TableCell className="pl-4">
                         <p className="text-xs tabular-nums">{new Date(log.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>

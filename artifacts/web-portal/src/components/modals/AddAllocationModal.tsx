@@ -1,10 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateAllocation,
-  useListFarmers,
-  getListAllocationsQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createAllocation, listFarmers, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -25,11 +21,14 @@ interface Props {
 export function AddAllocationModal({ open, onClose, campaignId }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const createAllocation = useCreateAllocation();
+  const createMutation = useMutation({ mutationFn: createAllocation });
   const [farmerId, setFarmerId] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch]     = useState("");
 
-  const { data: farmersData } = useListFarmers({ limit: 100, status: "approved" } as any);
+  const { data: farmersData } = useQuery({
+    queryKey: [...KEYS.farmers(), "approved"],
+    queryFn: () => listFarmers(1, 200, "approved"),
+  });
   const farmers = (farmersData as any)?.data ?? [];
   const filtered = search
     ? farmers.filter((f: any) =>
@@ -43,8 +42,8 @@ export function AddAllocationModal({ open, onClose, campaignId }: Props) {
     e.preventDefault();
     if (!farmerId) return;
     try {
-      await createAllocation.mutateAsync({ data: { campaignId, farmerId: Number(farmerId) } as any });
-      await qc.invalidateQueries({ queryKey: getListAllocationsQueryKey({ campaignId } as any) });
+      await createMutation.mutateAsync({ campaignId, farmerId: Number(farmerId) });
+      await qc.invalidateQueries({ queryKey: KEYS.allocations(undefined, campaignId) });
       toast({ title: "Farmer allocated to campaign" });
       reset();
       onClose();
@@ -88,8 +87,8 @@ export function AddAllocationModal({ open, onClose, campaignId }: Props) {
           </div>
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createAllocation.isPending || !farmerId}>
-              {createAllocation.isPending ? "Adding…" : "Add Farmer"}
+            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createMutation.isPending || !farmerId}>
+              {createMutation.isPending ? "Adding…" : "Add Farmer"}
             </Button>
           </DialogFooter>
         </form>

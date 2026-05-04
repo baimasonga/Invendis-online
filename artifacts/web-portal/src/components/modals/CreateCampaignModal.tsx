@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateCampaign,
-  useListDistricts,
-  useListValueChains,
-  getListCampaignsQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createCampaign, listDistricts, listValueChains, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -25,17 +20,20 @@ interface Props {
 export function CreateCampaignModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const createCampaign = useCreateCampaign();
+  const createMutation = useMutation({ mutationFn: createCampaign });
 
-  const [name, setName] = useState("");
-  const [districtId, setDistrictId] = useState("");
+  const [name, setName]               = useState("");
+  const [districtId, setDistrictId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate]     = useState("");
+  const [endDate, setEndDate]         = useState("");
   const [description, setDescription] = useState("");
 
-  const { data: districts } = useListDistricts();
-  const { data: valueChains } = useListValueChains();
+  const { data: districts }   = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
+  const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(), queryFn: listValueChains });
+
+  const districtList:   any[] = Array.isArray(districts)   ? districts   : [];
+  const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
 
   function resetForm() {
     setName(""); setDistrictId(""); setValueChainId("");
@@ -46,17 +44,15 @@ export function CreateCampaignModal({ open, onClose }: Props) {
     e.preventDefault();
     if (!name || !startDate || !endDate) return;
     try {
-      await createCampaign.mutateAsync({
-        data: {
-          name,
-          districtId: districtId ? Number(districtId) : undefined,
-          valueChainId: valueChainId ? Number(valueChainId) : undefined,
-          startDate,
-          endDate,
-          description: description || undefined,
-        } as any,
+      await createMutation.mutateAsync({
+        name,
+        districtId: districtId ? Number(districtId) : undefined,
+        valueChainId: valueChainId ? Number(valueChainId) : undefined,
+        startDate,
+        endDate,
+        description: description || undefined,
       });
-      await qc.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.campaigns() });
       toast({ title: "Campaign created", description: `"${name}" created as Draft.` });
       resetForm();
       onClose();
@@ -83,7 +79,7 @@ export function CreateCampaignModal({ open, onClose }: Props) {
               <Select value={districtId} onValueChange={setDistrictId}>
                 <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                 <SelectContent>
-                  {(districts as any[] ?? []).map((d: any) => (
+                  {districtList.map((d: any) => (
                     <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -94,7 +90,7 @@ export function CreateCampaignModal({ open, onClose }: Props) {
               <Select value={valueChainId} onValueChange={setValueChainId}>
                 <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                 <SelectContent>
-                  {(valueChains as any[] ?? []).map((v: any) => (
+                  {valueChainList.map((v: any) => (
                     <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -120,8 +116,8 @@ export function CreateCampaignModal({ open, onClose }: Props) {
 
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { resetForm(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createCampaign.isPending}>
-              {createCampaign.isPending ? "Creating…" : "Create Campaign"}
+            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createMutation.isPending}>
+              {createMutation.isPending ? "Creating…" : "Create Campaign"}
             </Button>
           </DialogFooter>
         </form>

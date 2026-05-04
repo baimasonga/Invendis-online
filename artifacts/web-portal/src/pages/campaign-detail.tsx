@@ -1,15 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useGetCampaign,
-  useSubmitCampaign,
-  useApproveCampaign,
-  useListAllocations,
-  getGetCampaignQueryKey,
-  getListCampaignsQueryKey,
-  getListAllocationsQueryKey,
-} from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getCampaign, submitCampaign, approveCampaign, listAllocations, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -48,28 +40,31 @@ export default function CampaignDetail() {
   const [allocationOpen, setAllocationOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const { data: campaign, isLoading } = useGetCampaign(id, {
-    query: { enabled: !!id, queryKey: getGetCampaignQueryKey(id) },
+  const { data: campaign, isLoading } = useQuery({
+    queryKey: KEYS.campaign(id),
+    queryFn: () => getCampaign(id),
+    enabled: !!id,
   });
-  const { data: allocations } = useListAllocations(
-    { campaignId: id } as any,
-    { query: { enabled: !!id, queryKey: getListAllocationsQueryKey({ campaignId: id } as any) } },
-  );
+  const { data: allocations } = useQuery({
+    queryKey: KEYS.allocations(undefined, id),
+    queryFn: () => listAllocations(1, 200, id),
+    enabled: !!id,
+  });
 
-  const submitCampaign = useSubmitCampaign();
-  const approveCampaign = useApproveCampaign();
+  const submitMutation  = useMutation({ mutationFn: () => submitCampaign(id) });
+  const approveMutation = useMutation({ mutationFn: () => approveCampaign(id) });
 
   async function handleAction(action: "submit" | "approve") {
     setActionLoading(true);
     try {
       if (action === "submit") {
-        await submitCampaign.mutateAsync({ id });
+        await submitMutation.mutateAsync();
       } else {
-        await approveCampaign.mutateAsync({ id });
+        await approveMutation.mutateAsync();
       }
       await Promise.all([
-        qc.invalidateQueries({ queryKey: getGetCampaignQueryKey(id) }),
-        qc.invalidateQueries({ queryKey: getListCampaignsQueryKey() }),
+        qc.invalidateQueries({ queryKey: KEYS.campaign(id) }),
+        qc.invalidateQueries({ queryKey: KEYS.campaigns() }),
       ]);
       toast({ title: action === "submit" ? "Campaign submitted for approval" : "Campaign approved" });
     } catch (err: any) {
@@ -98,12 +93,12 @@ export default function CampaignDetail() {
     );
   }
 
-  const status = (campaign.status ?? "").toLowerCase();
-  const allocationList = (allocations as any)?.data ?? (Array.isArray(allocations) ? allocations : []);
+  const c = campaign as any;
+  const status = (c.status ?? "").toLowerCase();
+  const allocationList = (allocations as any)?.data ?? [];
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/campaigns">
           <Button variant="outline" size="icon" className="h-8 w-8 shrink-0">
@@ -111,12 +106,12 @@ export default function CampaignDetail() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{campaign.name}</h1>
-          <p className="text-xs text-muted-foreground font-mono">{campaign.campaignCode}</p>
+          <h1 className="text-xl font-bold truncate">{c.name}</h1>
+          <p className="text-xs text-muted-foreground font-mono">{c.campaignCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
-            {campaign.status}
+            {c.status}
           </span>
           {status === "draft" && (
             <Button size="sm" className="h-7 text-xs" variant="outline" disabled={actionLoading} onClick={() => handleAction("submit")}>
@@ -150,14 +145,14 @@ export default function CampaignDetail() {
                   <CardTitle className="text-sm font-semibold">Campaign Details</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-4">
-                  <Field label="District"    value={(campaign as any).districtName}   icon={MapPin} />
-                  <Field label="Value Chain" value={(campaign as any).valueChainName} icon={Sprout} />
-                  <Field label="Start Date"  value={new Date(campaign.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} icon={CalendarDays} />
-                  <Field label="End Date"    value={new Date(campaign.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
-                  {campaign.description && (
+                  <Field label="District"    value={c.districtName}   icon={MapPin} />
+                  <Field label="Value Chain" value={c.valueChainName} icon={Sprout} />
+                  <Field label="Start Date"  value={new Date(c.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} icon={CalendarDays} />
+                  <Field label="End Date"    value={new Date(c.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
+                  {(c.description ?? c.notes) && (
                     <div className="col-span-2 space-y-1">
                       <p className="text-xs text-muted-foreground">Description</p>
-                      <p className="text-sm">{campaign.description}</p>
+                      <p className="text-sm">{c.description ?? c.notes}</p>
                     </div>
                   )}
                 </CardContent>
@@ -171,16 +166,16 @@ export default function CampaignDetail() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground flex items-center gap-1"><Users className="h-3.5 w-3.5" /> Target Farmers</span>
-                    <span className="font-semibold">{(campaign as any).totalFarmers ?? allocationList.length}</span>
+                    <span className="text-sm text-muted-foreground flex items-center gap-1"><Users className="h-3.5 w-3.5" /> Allocated</span>
+                    <span className="font-semibold">{allocationList.length}</span>
                   </div>
                   <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground">Allocated</span>
-                    <span className="font-semibold">{allocationList.length}</span>
+                    <span className="text-sm text-muted-foreground">Target</span>
+                    <span className="font-semibold">{c.totalFarmers ?? allocationList.length}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Delivered</span>
-                    <span className="font-semibold text-emerald-700">{(campaign as any).deliveredCount ?? 0}</span>
+                    <span className="font-semibold text-emerald-700">{c.deliveredCount ?? 0}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -219,7 +214,7 @@ export default function CampaignDetail() {
                     {allocationList.map((a: any) => (
                       <TableRow key={a.id} className="hover:bg-muted/40">
                         <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{a.farmerCode ?? "—"}</TableCell>
-                        <TableCell className="text-sm font-medium">{a.farmerName || (`${a.firstName ?? ""} ${a.lastName ?? ""}`.trim()) || "—"}</TableCell>
+                        <TableCell className="text-sm font-medium">{a.farmerName || "—"}</TableCell>
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{a.districtName ?? "—"}</TableCell>
                         <TableCell className="pr-4 text-right text-xs text-muted-foreground hidden md:table-cell">
                           {a.createdAt ? new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—"}

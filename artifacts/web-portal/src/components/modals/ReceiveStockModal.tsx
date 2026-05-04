@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useReceiveStock,
-  useListWarehouses,
-  useListInputItems,
-  getGetStockBalanceQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { receiveStock, listWarehouses, listInputItems, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -25,16 +20,19 @@ interface Props {
 export function ReceiveStockModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const receiveStock = useReceiveStock();
+  const receive = useMutation({ mutationFn: receiveStock });
 
   const [warehouseId, setWarehouseId] = useState("");
   const [inputItemId, setInputItemId] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [reference, setReference] = useState("");
-  const [notes, setNotes] = useState("");
+  const [quantity, setQuantity]       = useState("");
+  const [reference, setReference]     = useState("");
+  const [notes, setNotes]             = useState("");
 
-  const { data: warehouses } = useListWarehouses();
-  const { data: inputItems } = useListInputItems();
+  const { data: warehouses } = useQuery({ queryKey: KEYS.warehouses(), queryFn: listWarehouses });
+  const { data: inputItems } = useQuery({ queryKey: KEYS.inventory(),  queryFn: listInputItems });
+
+  const warehouseList: any[] = Array.isArray(warehouses) ? warehouses : [];
+  const itemList: any[]      = Array.isArray(inputItems)  ? inputItems  : [];
 
   function resetForm() {
     setWarehouseId(""); setInputItemId(""); setQuantity(""); setReference(""); setNotes("");
@@ -44,16 +42,14 @@ export function ReceiveStockModal({ open, onClose }: Props) {
     e.preventDefault();
     if (!warehouseId || !inputItemId || !quantity) return;
     try {
-      await receiveStock.mutateAsync({
-        data: {
-          warehouseId: Number(warehouseId),
-          inputItemId: Number(inputItemId),
-          quantity: Number(quantity),
-          reference: reference || undefined,
-          notes: notes || undefined,
-        } as any,
+      await receive.mutateAsync({
+        warehouseId: Number(warehouseId),
+        inputItemId: Number(inputItemId),
+        quantity: Number(quantity),
+        reference: reference || undefined,
+        notes: notes || undefined,
       });
-      await qc.invalidateQueries({ queryKey: getGetStockBalanceQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.stockBalance() });
       toast({ title: "Stock received", description: `${quantity} units added to warehouse.` });
       resetForm();
       onClose();
@@ -74,7 +70,7 @@ export function ReceiveStockModal({ open, onClose }: Props) {
             <Select value={warehouseId} onValueChange={setWarehouseId}>
               <SelectTrigger><SelectValue placeholder="Select warehouse…" /></SelectTrigger>
               <SelectContent>
-                {(warehouses as any[] ?? []).map((w: any) => (
+                {warehouseList.map((w: any) => (
                   <SelectItem key={w.id} value={String(w.id)}>{w.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -86,7 +82,7 @@ export function ReceiveStockModal({ open, onClose }: Props) {
             <Select value={inputItemId} onValueChange={setInputItemId}>
               <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
               <SelectContent>
-                {(inputItems as any[] ?? []).map((item: any) => (
+                {itemList.map((item: any) => (
                   <SelectItem key={item.id} value={String(item.id)}>
                     {item.name} <span className="text-muted-foreground">({item.unitOfMeasure ?? item.unit})</span>
                   </SelectItem>
@@ -121,8 +117,8 @@ export function ReceiveStockModal({ open, onClose }: Props) {
 
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { resetForm(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={receiveStock.isPending}>
-              {receiveStock.isPending ? "Saving…" : "Receive Stock"}
+            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={receive.isPending}>
+              {receive.isPending ? "Saving…" : "Receive Stock"}
             </Button>
           </DialogFooter>
         </form>

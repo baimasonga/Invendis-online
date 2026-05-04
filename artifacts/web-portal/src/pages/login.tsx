@@ -8,7 +8,7 @@ import { Redirect } from "wouter";
 import { Leaf, Wheat, Truck, ClipboardCheck } from "lucide-react";
 
 export default function Login() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { login, isAuthenticated } = useAuth();
@@ -18,10 +18,10 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
+    if (!email || !password) return;
     setIsLoading(true);
     try {
-      await login({ username, password });
+      await login({ email, password });
     } catch (error: any) {
       toast({ title: "Login failed", description: error.message || "Invalid credentials.", variant: "destructive" });
     } finally {
@@ -106,15 +106,16 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-sm font-medium">Username</Label>
+              <Label htmlFor="email" className="text-sm font-medium">Email</Label>
               <Input
-                id="username"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="h-10"
                 required
-                autoComplete="username"
+                autoComplete="email"
               />
             </div>
             <div className="space-y-1.5">

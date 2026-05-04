@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useListVehicleGpsStatus } from "@workspace/api-client-react";
+import { listVehicleGpsStatus, listGpsTrack, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,6 @@ import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
   ChevronRight, RefreshCw, Wifi, WifiOff,
 } from "lucide-react";
-import { apiAction } from "@/lib/api";
 
 function formatAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return "No signal";
@@ -73,20 +72,22 @@ function TrackPoint({ point, index, isLast }: { point: any; index: number; isLas
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
 
-  const { data: vehicles, isLoading, refetch, isFetching } = useListVehicleGpsStatus({
-    query: { queryKey: ["/api/gps/vehicles"], refetchInterval: 30_000 },
+  const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
+    queryKey: KEYS.vehicles(),
+    queryFn: listVehicleGpsStatus,
+    refetchInterval: 30_000,
   });
 
   const { data: track, isLoading: loadingTrack } = useQuery({
     queryKey: ["gps-track", selectedVehicle],
-    queryFn: () => apiAction(`/api/gps/track/${selectedVehicle}`, "GET"),
+    queryFn: () => listGpsTrack(selectedVehicle ?? undefined, 50),
     enabled: !!selectedVehicle,
     refetchInterval: 30_000,
   });
 
   const vehicleList: any[] = Array.isArray(vehicles) ? vehicles : [];
   const trackPoints: any[] = Array.isArray(track) ? (track as any[]).slice().reverse() : [];
-  const selectedData = vehicleList.find(v => v.id === selectedVehicle);
+  const selectedData = vehicleList.find((v: any) => v.id === selectedVehicle);
 
   return (
     <div className="space-y-5">
@@ -102,7 +103,6 @@ export default function GpsTracking() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Vehicle list */}
         <div className="lg:col-span-1 space-y-3">
           <div className="flex items-center gap-2">
             <Radio className="h-4 w-4 text-green-600" />
@@ -139,8 +139,8 @@ export default function GpsTracking() {
                       <Truck className="h-4 w-4 text-green-700 dark:text-green-400" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-sm">{v.plateNumber ?? v.vehiclePlate ?? v.plate ?? "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground truncate">{v.driverName ?? "Driver unassigned"}</p>
+                      <p className="font-semibold text-sm">{v.plateNumber ?? "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -163,7 +163,6 @@ export default function GpsTracking() {
           ))}
         </div>
 
-        {/* Track detail panel */}
         <div className="lg:col-span-2">
           {!selectedVehicle ? (
             <Card className="h-full min-h-[300px]">
@@ -181,10 +180,10 @@ export default function GpsTracking() {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <CardTitle className="text-sm font-semibold">
-                      Track History — {selectedData?.plateNumber ?? selectedData?.vehiclePlate ?? `Vehicle #${selectedVehicle}`}
+                      Track History — {selectedData?.plateNumber ?? `Vehicle #${selectedVehicle}`}
                     </CardTitle>
-                    {selectedData?.driverName && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{selectedData.driverName}</p>
+                    {selectedData?.vehicleType && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{selectedData.vehicleType}</p>
                     )}
                   </div>
                   {selectedData?.lastLatitude != null && (

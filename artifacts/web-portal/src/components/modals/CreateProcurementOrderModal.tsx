@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateProcurementOrder,
-  useListWarehouses,
-  useListInputItems,
-  getListProcurementOrdersQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createProcurementOrder, listWarehouses, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +14,7 @@ interface Props { open: boolean; onClose: () => void; }
 export function CreateProcurementOrderModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateProcurementOrder();
+  const create = useMutation({ mutationFn: createProcurementOrder });
 
   const [supplier, setSupplier]   = useState("");
   const [warehouseId, setWh]      = useState("");
@@ -27,8 +22,8 @@ export function CreateProcurementOrderModal({ open, onClose }: Props) {
   const [expected, setExpected]   = useState("");
   const [notes, setNotes]         = useState("");
 
-  const { data: warehouses } = useListWarehouses();
-  const warehouseList: any[] = (warehouses as any[]) ?? [];
+  const { data: warehouses } = useQuery({ queryKey: KEYS.warehouses(), queryFn: listWarehouses });
+  const warehouseList: any[] = Array.isArray(warehouses) ? warehouses : [];
 
   function reset() { setSupplier(""); setWh(""); setOrderDate(""); setExpected(""); setNotes(""); }
 
@@ -37,16 +32,14 @@ export function CreateProcurementOrderModal({ open, onClose }: Props) {
     if (!supplier || !warehouseId) return;
     try {
       await create.mutateAsync({
-        data: {
-          supplierName: supplier,
-          warehouseId: Number(warehouseId),
-          orderDate: orderDate ? new Date(orderDate) : new Date(),
-          expectedDelivery: expected ? new Date(expected) : undefined,
-          notes: notes || undefined,
-          status: "Draft",
-        } as any,
+        supplierName: supplier,
+        warehouseId: Number(warehouseId),
+        orderDate: orderDate || new Date().toISOString().slice(0, 10),
+        expectedDelivery: expected || undefined,
+        notes: notes || undefined,
+        status: "Draft",
       });
-      await qc.invalidateQueries({ queryKey: getListProcurementOrdersQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.procurement() });
       toast({ title: "Procurement order created" });
       reset();
       onClose();

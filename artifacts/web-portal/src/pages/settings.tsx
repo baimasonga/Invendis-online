@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useListDistricts, useListValueChains, useListWarehouses, useCreateValueChain, getListValueChainsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listDistricts, listValueChains, listWarehouses, createValueChain, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,9 +16,9 @@ import { AddWarehouseModal } from "@/components/modals/AddWarehouseModal";
 function AddValueChainModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateValueChain();
-  const [name, setName]     = useState("");
-  const [desc, setDesc]     = useState("");
+  const create = useMutation({ mutationFn: createValueChain });
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
 
   function reset() { setName(""); setDesc(""); }
 
@@ -26,8 +26,8 @@ function AddValueChainModal({ open, onClose }: { open: boolean; onClose: () => v
     e.preventDefault();
     if (!name) return;
     try {
-      await create.mutateAsync({ data: { name, description: desc || undefined, isActive: 1 } as any });
-      await qc.invalidateQueries({ queryKey: getListValueChainsQueryKey() });
+      await create.mutateAsync({ name, description: desc || undefined });
+      await qc.invalidateQueries({ queryKey: KEYS.valueChains() });
       toast({ title: "Value chain added" });
       reset(); onClose();
     } catch (err: any) {
@@ -61,16 +61,16 @@ function AddValueChainModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 export default function Settings() {
-  const [whOpen, setWhOpen]   = useState(false);
-  const [vcOpen, setVcOpen]   = useState(false);
+  const [whOpen, setWhOpen] = useState(false);
+  const [vcOpen, setVcOpen] = useState(false);
 
-  const { data: districts,  isLoading: loadingDistricts } = useListDistricts();
-  const { data: valueChains, isLoading: loadingVC }        = useListValueChains();
-  const { data: warehouses,  isLoading: loadingWh }        = useListWarehouses();
+  const { data: districts,   isLoading: loadingDistricts } = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
+  const { data: valueChains, isLoading: loadingVC }        = useQuery({ queryKey: KEYS.valueChains(), queryFn: listValueChains });
+  const { data: warehouses,  isLoading: loadingWh }        = useQuery({ queryKey: KEYS.warehouses(),  queryFn: listWarehouses });
 
-  const districtList:   any[] = (districts   as any[]) ?? [];
-  const valueChainList: any[] = (valueChains as any[]) ?? [];
-  const warehouseList:  any[] = (warehouses  as any[]) ?? [];
+  const districtList:   any[] = Array.isArray(districts)   ? districts   : [];
+  const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
+  const warehouseList:  any[] = Array.isArray(warehouses)  ? warehouses  : [];
 
   return (
     <div className="space-y-5">
@@ -86,7 +86,6 @@ export default function Settings() {
           <TabsTrigger value="districts"    className="text-xs">Districts</TabsTrigger>
         </TabsList>
 
-        {/* Warehouses */}
         <TabsContent value="warehouses" className="mt-4">
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
@@ -118,7 +117,6 @@ export default function Settings() {
                           <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-40" /></TableCell>
-                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                           <TableCell className="pr-4"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
                         </TableRow>
                       ))
@@ -138,7 +136,7 @@ export default function Settings() {
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                          <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">
                             No warehouses configured
                           </TableCell>
                         </TableRow>
@@ -149,7 +147,6 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Value Chains */}
         <TabsContent value="value-chains" className="mt-4">
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
@@ -203,7 +200,6 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Districts — read-only reference */}
         <TabsContent value="districts" className="mt-4">
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center gap-2">
@@ -246,8 +242,8 @@ export default function Settings() {
         </TabsContent>
       </Tabs>
 
-      <AddWarehouseModal    open={whOpen} onClose={() => setWhOpen(false)} />
-      <AddValueChainModal   open={vcOpen} onClose={() => setVcOpen(false)} />
+      <AddWarehouseModal  open={whOpen} onClose={() => setWhOpen(false)} />
+      <AddValueChainModal open={vcOpen} onClose={() => setVcOpen(false)} />
     </div>
   );
 }

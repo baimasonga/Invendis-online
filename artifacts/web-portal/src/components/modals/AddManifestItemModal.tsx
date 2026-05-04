@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useListInputItems, getGetDispatchQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { addDispatchItem, listInputItems, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -11,7 +11,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiAction } from "@/lib/api";
 
 interface Props {
   open: boolean;
@@ -22,30 +21,31 @@ interface Props {
 export function AddManifestItemModal({ open, onClose, dispatchId }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const addItem = useMutation({ mutationFn: addDispatchItem });
   const [inputItemId, setInputItemId] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [quantity, setQuantity]       = useState("");
 
-  const { data: inputItems } = useListInputItems();
+  const { data: inputItems } = useQuery({ queryKey: KEYS.inventory(), queryFn: listInputItems });
+  const itemList: any[] = Array.isArray(inputItems) ? inputItems : [];
 
   function reset() { setInputItemId(""); setQuantity(""); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!inputItemId || !quantity) return;
-    setSaving(true);
     try {
-      await apiAction(`/api/dispatch/${dispatchId}/items`, "POST", {
+      await addItem.mutateAsync({
+        dispatchId,
         inputItemId: Number(inputItemId),
         quantityLoaded: Number(quantity),
       });
-      await qc.invalidateQueries({ queryKey: getGetDispatchQueryKey(dispatchId) });
+      await qc.invalidateQueries({ queryKey: KEYS.dispatch(dispatchId) });
       toast({ title: "Item added to manifest" });
       reset();
       onClose();
     } catch (err: any) {
       toast({ title: "Failed to add item", description: err.message, variant: "destructive" });
-    } finally { setSaving(false); }
+    }
   }
 
   return (
@@ -60,10 +60,10 @@ export function AddManifestItemModal({ open, onClose, dispatchId }: Props) {
             <Select value={inputItemId} onValueChange={setInputItemId}>
               <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
               <SelectContent>
-                {(inputItems as any[] ?? []).map((item: any) => (
+                {itemList.map((item: any) => (
                   <SelectItem key={item.id} value={String(item.id)}>
                     <span>{item.name}</span>
-                    <span className="text-muted-foreground text-xs ml-1.5">({item.unit})</span>
+                    <span className="text-muted-foreground text-xs ml-1.5">({item.unit ?? item.unitOfMeasure})</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -86,8 +86,8 @@ export function AddManifestItemModal({ open, onClose, dispatchId }: Props) {
 
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={saving || !inputItemId || !quantity}>
-              {saving ? "Adding…" : "Add Item"}
+            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={addItem.isPending || !inputItemId || !quantity}>
+              {addItem.isPending ? "Adding…" : "Add Item"}
             </Button>
           </DialogFooter>
         </form>

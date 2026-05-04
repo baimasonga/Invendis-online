@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCreateDriver, getListDriversQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { createDriver, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,11 @@ interface Props { open: boolean; onClose: () => void; }
 export function AddDriverModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateDriver();
+  const create = useMutation({ mutationFn: createDriver });
 
-  const [fullName, setFullName]       = useState("");
-  const [phone, setPhone]             = useState("");
-  const [licence, setLicence]         = useState("");
+  const [fullName, setFullName]           = useState("");
+  const [phone, setPhone]                 = useState("");
+  const [licence, setLicence]             = useState("");
   const [licenceExpiry, setLicenceExpiry] = useState("");
 
   function reset() { setFullName(""); setPhone(""); setLicence(""); setLicenceExpiry(""); }
@@ -26,15 +26,13 @@ export function AddDriverModal({ open, onClose }: Props) {
     if (!fullName) return;
     try {
       await create.mutateAsync({
-        data: {
-          fullName,
-          phone: phone || undefined,
-          licenseNumber: licence || undefined,
-          licenseExpiry: licenceExpiry ? new Date(licenceExpiry) : undefined,
-          isActive: 1,
-        } as any,
+        fullName,
+        phone: phone || undefined,
+        licenseNumber: licence || undefined,
+        licenseExpiry: licenceExpiry || undefined,
+        isActive: 1,
       });
-      await qc.invalidateQueries({ queryKey: getListDriversQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.drivers() });
       toast({ title: "Driver registered", description: `${fullName} added to fleet.` });
       reset();
       onClose();

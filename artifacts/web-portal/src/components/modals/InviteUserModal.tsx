@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCreateUser, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { createUser, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -19,24 +19,21 @@ interface Props { open: boolean; onClose: () => void; }
 export function InviteUserModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const createUser = useCreateUser();
+  const createUserMutation = useMutation({ mutationFn: createUser });
 
-  const [fullName, setFullName]   = useState("");
-  const [username, setUsername]   = useState("");
-  const [email, setEmail]         = useState("");
-  const [password, setPassword]   = useState("");
-  const [role, setRole]           = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole]         = useState("");
 
-  function reset() { setFullName(""); setUsername(""); setEmail(""); setPassword(""); setRole(""); }
+  function reset() { setFullName(""); setEmail(""); setPassword(""); setRole(""); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!fullName || !username || !password || !role) return;
+    if (!fullName || !email || !password || !role) return;
     try {
-      await createUser.mutateAsync({
-        data: { fullName, username, email: email || undefined, password, role, isActive: true } as any,
-      });
-      await qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
+      await createUserMutation.mutateAsync({ fullName, email, password, role });
+      await qc.invalidateQueries({ queryKey: KEYS.users() });
       toast({ title: "User created", description: `${fullName} (${role}) can now sign in.` });
       reset();
       onClose();
@@ -57,11 +54,11 @@ export function InviteUserModal({ open, onClose }: Props) {
               <Label>Full Name *</Label>
               <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Aminata Koroma" required />
             </div>
-            <div className="space-y-1.5">
-              <Label>Username *</Label>
-              <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="a.koroma" required />
+            <div className="space-y-1.5 col-span-2">
+              <Label>Email *</Label>
+              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="a.koroma@example.com" required />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 col-span-2 sm:col-span-1">
               <Label>Role *</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger><SelectValue placeholder="Select role…" /></SelectTrigger>
@@ -70,11 +67,7 @@ export function InviteUserModal({ open, onClose }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Email</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="a.koroma@example.com" />
-            </div>
-            <div className="space-y-1.5 col-span-2">
+            <div className="space-y-1.5 col-span-2 sm:col-span-1">
               <Label>Password *</Label>
               <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Temporary password" required />
             </div>
@@ -85,9 +78,9 @@ export function InviteUserModal({ open, onClose }: Props) {
             <Button
               type="submit"
               className="bg-green-700 hover:bg-green-800 text-white"
-              disabled={createUser.isPending || !fullName || !username || !password || !role}
+              disabled={createUserMutation.isPending || !fullName || !email || !password || !role}
             >
-              {createUser.isPending ? "Creating…" : "Create User"}
+              {createUserMutation.isPending ? "Creating…" : "Create User"}
             </Button>
           </DialogFooter>
         </form>

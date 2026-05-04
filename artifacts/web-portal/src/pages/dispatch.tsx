@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import {
-  useListDispatches,
-  useApproveDispatch,
-  getListDispatchesQueryKey,
-} from "@workspace/api-client-react";
+import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
-import { apiAction } from "@/lib/api";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
@@ -58,17 +54,22 @@ export default function Dispatch() {
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
   const limit = 20;
-  const { data: dispatchData, isLoading } = useListDispatches({ page });
+  const { data: dispatchData, isLoading } = useQuery({
+    queryKey: KEYS.dispatches(page),
+    queryFn: () => listDispatches(page, limit),
+  });
   const total = dispatchData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  const approveDispatch = useApproveDispatch();
+  const approveMutation  = useMutation({ mutationFn: (id: number) => approveDispatch(id) });
+  const dispatchMutation = useMutation({ mutationFn: (id: number) => dispatchManifest(id) });
+  const arriveMutation   = useMutation({ mutationFn: (id: number) => arriveDispatch(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
     try {
-      await approveDispatch.mutateAsync({ id });
-      await qc.invalidateQueries({ queryKey: getListDispatchesQueryKey() });
+      await approveMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
       toast({ title: "Manifest approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
@@ -78,8 +79,8 @@ export default function Dispatch() {
   async function handleDispatch(id: number) {
     setLoadingId(id);
     try {
-      await apiAction(`/api/dispatch/${id}/dispatch`);
-      await qc.invalidateQueries({ queryKey: getListDispatchesQueryKey() });
+      await dispatchMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
       toast({ title: "Vehicle dispatched", description: "Manifest marked as Dispatched." });
     } catch (err: any) {
       toast({ title: "Failed to dispatch", description: err.message, variant: "destructive" });
@@ -89,8 +90,8 @@ export default function Dispatch() {
   async function handleArrive(id: number) {
     setLoadingId(id);
     try {
-      await apiAction(`/api/dispatch/${id}/arrive`);
-      await qc.invalidateQueries({ queryKey: getListDispatchesQueryKey() });
+      await arriveMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
       toast({ title: "Arrival confirmed", description: "Manifest marked as Arrived." });
     } catch (err: any) {
       toast({ title: "Failed to mark arrival", description: err.message, variant: "destructive" });
@@ -156,7 +157,7 @@ export default function Dispatch() {
                         <TableCell className="text-sm font-medium">{d.campaignName ?? "—"}</TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div>
-                            <p className="text-sm font-medium">{d.vehiclePlate ?? "—"}</p>
+                            <p className="text-sm font-medium">{d.plateNumber ?? "—"}</p>
                             <p className="text-xs text-muted-foreground">{d.driverName ?? "Unassigned"}</p>
                           </div>
                         </TableCell>

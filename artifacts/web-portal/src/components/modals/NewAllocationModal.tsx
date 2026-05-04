@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateAllocation,
-  useListFarmers,
-  useListCampaigns,
-  getListAllocationsQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createAllocation, listFarmers, listCampaigns, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,18 +14,21 @@ interface Props { open: boolean; onClose: () => void; }
 export function NewAllocationModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateAllocation();
+  const create = useMutation({ mutationFn: createAllocation });
 
   const [campaignId, setCampaignId] = useState("");
   const [farmerId, setFarmerId]     = useState("");
   const [notes, setNotes]           = useState("");
   const [search, setSearch]         = useState("");
 
-  const { data: campaignsData } = useListCampaigns({});
-  const { data: farmersData }   = useListFarmers({ limit: 200, status: "approved" } as any);
+  const { data: campaignsData } = useQuery({ queryKey: KEYS.campaigns(), queryFn: () => listCampaigns(1, 100) });
+  const { data: farmersData }   = useQuery({
+    queryKey: [...KEYS.farmers(), "approved"],
+    queryFn: () => listFarmers(1, 200, "approved"),
+  });
 
-  const campaigns: any[] = (campaignsData as any)?.data ?? [];
-  const allFarmers: any[] = (farmersData as any)?.data ?? [];
+  const campaigns: any[]  = (campaignsData as any)?.data ?? [];
+  const allFarmers: any[] = (farmersData as any)?.data   ?? [];
 
   const filtered = search
     ? allFarmers.filter((f: any) =>
@@ -44,13 +42,11 @@ export function NewAllocationModal({ open, onClose }: Props) {
     if (!campaignId || !farmerId) return;
     try {
       await create.mutateAsync({
-        data: {
-          campaignId: Number(campaignId),
-          farmerId: Number(farmerId),
-          notes: notes || undefined,
-        } as any,
+        campaignId: Number(campaignId),
+        farmerId: Number(farmerId),
+        notes: notes || undefined,
       });
-      await qc.invalidateQueries({ queryKey: getListAllocationsQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.allocations() });
       toast({ title: "Farmer allocated to campaign" });
       reset();
       onClose();

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { useListAllocations } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { listAllocations, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,11 +26,14 @@ function StatusBadge({ status }: { status: string }) {
 export default function Allocations() {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
-
   const limit = 20;
-  const { data: allocationsData, isLoading } = useListAllocations({ page } as any);
-  const rows: any[] = (allocationsData as any)?.data ?? [];
-  const total: number = (allocationsData as any)?.total ?? 0;
+
+  const { data: allocationsData, isLoading } = useQuery({
+    queryKey: KEYS.allocations(page),
+    queryFn: () => listAllocations(page, limit),
+  });
+  const rows: any[]   = allocationsData?.data ?? [];
+  const total: number = allocationsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return (

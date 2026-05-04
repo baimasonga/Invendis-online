@@ -1,17 +1,14 @@
-import {
-  useGetDashboardSummary,
-  useGetDashboardCharts,
-  useGetRecentActivity,
-} from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { getDashboardData, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, Package, Flag, AlertTriangle,
-  Truck, ClipboardList, ArrowUpRight, Activity,
+  Truck, ClipboardList, Activity,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  Cell,
 } from "recharts";
 
 const COLORS = ["#15803d", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#64748b"];
@@ -63,35 +60,22 @@ function timeAgo(date: string) {
 }
 
 export default function Dashboard() {
-  const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary();
-  const { data: charts, isLoading: loadingCharts } = useGetDashboardCharts();
-  const { data: activity, isLoading: loadingActivity } = useGetRecentActivity();
+  const { data, isLoading } = useQuery({
+    queryKey: KEYS.dashboard(),
+    queryFn: getDashboardData,
+  });
 
-  const farmerChartData = summary
-    ? [
-        { name: "Approved", value: Number(summary.approvedFarmers), fill: "#15803d" },
-        { name: "Pending", value: Number(summary.pendingFarmers), fill: "#f59e0b" },
-        { name: "Rejected", value: Math.max(0, Number(summary.totalFarmers) - Number(summary.approvedFarmers) - Number(summary.pendingFarmers)), fill: "#ef4444" },
-      ]
+  const summary = data?.summary;
+  const farmerChartData = data?.charts?.farmerStatusChart
+    ? data.charts.farmerStatusChart.map((entry: any, i: number) => ({
+        ...entry,
+        fill: COLORS[i % COLORS.length],
+      }))
     : [];
-
-  const chartsAny = charts as any;
-
-  const campaignPieData = ((chartsAny?.campaignsByStatus ?? []) as any[]).map((d: any, i: number) => ({
-    name: d.status,
-    value: Number(d.count),
-    fill: COLORS[i % COLORS.length],
-  }));
-
-  const podPieData = ((chartsAny?.podByStatus ?? []) as any[]).map((d: any, i: number) => ({
-    name: d.status,
-    value: Number(d.count),
-    fill: COLORS[i % COLORS.length],
-  }));
+  const activity: any[] = data?.recentActivity ?? [];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Dashboard</h1>
@@ -103,8 +87,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      {loadingSummary ? (
+      {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Card key={i}><CardContent className="p-5"><Skeleton className="h-16 w-full" /></CardContent></Card>
@@ -112,30 +95,27 @@ export default function Dashboard() {
         </div>
       ) : summary ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Total Farmers" value={Number(summary.totalFarmers).toLocaleString()} sub={`${Number(summary.approvedFarmers).toLocaleString()} approved`} icon={Users} />
-            <StatCard title="Total Stock" value={Number(summary.totalStock).toLocaleString()} sub={`${Number(summary.distributedInputs).toLocaleString()} distributed`} icon={Package} />
-            <StatCard title="Active Campaigns" value={summary.activeCampaigns} sub="Ongoing distributions" icon={Flag} />
-            <StatCard title="Exceptions" value={summary.exceptions} sub="Require attention" icon={AlertTriangle} accent={summary.exceptions > 0 ? "text-destructive" : undefined} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard title="Total Farmers"     value={Number(summary.totalFarmers).toLocaleString()}    sub={`${Number(summary.pendingFarmers)} pending`}  icon={Users} />
+            <StatCard title="Active Campaigns"  value={summary.activeCampaigns}                           sub="Ongoing distributions"                        icon={Flag} />
+            <StatCard title="Pending PoD"       value={summary.pendingPod}                                sub="Awaiting verification"                        icon={ClipboardList} accent={summary.pendingPod > 0 ? "text-destructive" : undefined} />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Pending PoD" value={summary.pendingPod} sub="Awaiting verification" icon={ClipboardList} />
-            <StatCard title="Vehicles in Transit" value={summary.activeVehicles} sub="Currently deployed" icon={Truck} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard title="Total Dispatches"  value={Number(summary.totalDispatches).toLocaleString()} sub="All time"                                      icon={Truck} />
+            <StatCard title="Total Allocations" value={Number(summary.totalAllocations).toLocaleString()} sub="All campaigns"                                icon={Package} />
           </div>
         </>
       ) : null}
 
-      {/* Charts + Activity */}
       <div className="grid gap-5 lg:grid-cols-3">
-        {/* Farmer status bar */}
         <Card className="lg:col-span-1">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Farmers by Status</CardTitle>
           </CardHeader>
           <CardContent>
-            {loadingSummary ? (
+            {isLoading ? (
               <Skeleton className="h-44 w-full" />
-            ) : (
+            ) : farmerChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={farmerChartData} layout="vertical" barSize={18}>
                   <XAxis type="number" hide />
@@ -145,44 +125,19 @@ export default function Dashboard() {
                     contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }}
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {farmerChartData.map((entry) => (
+                    {farmerChartData.map((entry: any) => (
                       <Cell key={entry.name} fill={entry.fill} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Campaign status pie */}
-        <Card className="lg:col-span-1">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Campaign Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loadingCharts ? (
-              <Skeleton className="h-44 w-full" />
-            ) : campaignPieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie data={campaignPieData} cx="50%" cy="45%" innerRadius={42} outerRadius={66} paddingAngle={3} dataKey="value">
-                    {campaignPieData.map((entry: any) => (
-                      <Cell key={entry.name} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
             ) : (
-              <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No campaign data</div>
+              <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No data yet</div>
             )}
           </CardContent>
         </Card>
 
-        {/* Recent activity */}
-        <Card className="lg:col-span-1">
+        <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Activity className="h-3.5 w-3.5" />
@@ -190,13 +145,13 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3">
-            {loadingActivity ? (
+            {isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
               </div>
-            ) : (activity as any[])?.length > 0 ? (
+            ) : activity.length > 0 ? (
               <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
-                {(activity as any[]).slice(0, 12).map((log: any) => (
+                {activity.slice(0, 12).map((log: any) => (
                   <div key={log.id} className="flex items-start gap-2.5">
                     <span className={`mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${RECENT_ACTION_COLORS[log.action] ?? "bg-slate-100 text-slate-600"}`}>
                       {log.action}

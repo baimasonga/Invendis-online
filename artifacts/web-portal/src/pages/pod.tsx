@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListPod, useGetPodStats } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { listPod, getPodStats, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,8 +29,16 @@ export default function ProofOfDelivery() {
   const [page, setPage] = useState(1);
   const [podOpen, setPodOpen] = useState(false);
   const limit = 20;
-  const { data: podData, isLoading } = useListPod({ page });
-  const { data: stats } = useGetPodStats();
+
+  const { data: podData, isLoading } = useQuery({
+    queryKey: KEYS.pod(page),
+    queryFn: () => listPod(page, limit),
+  });
+  const { data: stats } = useQuery({
+    queryKey: KEYS.podStats(),
+    queryFn: getPodStats,
+  });
+
   const total = podData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -46,7 +55,6 @@ export default function ProofOfDelivery() {
         </Button>
       </div>
 
-      {/* Stats */}
       {stats && (
         <div className="grid grid-cols-3 gap-3">
           <Card>
@@ -55,7 +63,7 @@ export default function ProofOfDelivery() {
                 <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
               </div>
               <div>
-                <p className="text-xl font-bold leading-none">{(stats as any).verified ?? 0}</p>
+                <p className="text-xl font-bold leading-none">{stats.verified ?? 0}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Verified</p>
               </div>
             </CardContent>
@@ -66,7 +74,7 @@ export default function ProofOfDelivery() {
                 <Clock className="h-4 w-4 text-amber-700 dark:text-amber-400" />
               </div>
               <div>
-                <p className="text-xl font-bold leading-none">{(stats as any).pending ?? 0}</p>
+                <p className="text-xl font-bold leading-none">{stats.pending ?? 0}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Pending</p>
               </div>
             </CardContent>
@@ -77,7 +85,7 @@ export default function ProofOfDelivery() {
                 <AlertCircle className="h-4 w-4 text-red-700 dark:text-red-400" />
               </div>
               <div>
-                <p className="text-xl font-bold leading-none">{(stats as any).exceptions ?? 0}</p>
+                <p className="text-xl font-bold leading-none">{stats.exception ?? 0}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Exceptions</p>
               </div>
             </CardContent>

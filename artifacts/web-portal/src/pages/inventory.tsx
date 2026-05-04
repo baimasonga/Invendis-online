@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useListInputItems, useGetStockBalance } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { listInputItems, getStockBalance, KEYS } from "@/lib/db";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, Box, PackageCheck, ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, Box, PackageCheck } from "lucide-react";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -41,11 +42,21 @@ function StockBar({ available, total }: { available: number; total: number }) {
 
 export default function Inventory() {
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const { data: inputItems, isLoading: loadingItems } = useListInputItems();
-  const { data: stockBalances, isLoading: loadingStock } = useGetStockBalance();
 
-  const totalAvailable = (stockBalances as any[] ?? []).reduce((s, r) => s + (r.available ?? 0), 0);
-  const totalDelivered  = (stockBalances as any[] ?? []).reduce((s, r) => s + (r.delivered ?? 0), 0);
+  const { data: inputItems, isLoading: loadingItems } = useQuery({
+    queryKey: KEYS.inventory(),
+    queryFn: listInputItems,
+  });
+  const { data: stockBalances, isLoading: loadingStock } = useQuery({
+    queryKey: KEYS.stockBalance(),
+    queryFn: getStockBalance,
+  });
+
+  const stockList: any[] = stockBalances ?? [];
+  const itemList: any[] = inputItems ?? [];
+
+  const totalAvailable = stockList.reduce((s, r) => s + (r.available ?? 0), 0);
+  const totalDelivered  = stockList.reduce((s, r) => s + (r.delivered ?? 0), 0);
 
   return (
     <div className="space-y-5">
@@ -60,7 +71,6 @@ export default function Inventory() {
         </Button>
       </div>
 
-      {/* Quick stats */}
       {!loadingStock && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Card>
@@ -78,7 +88,7 @@ export default function Inventory() {
           <Card className="hidden sm:block">
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Catalogue Items</p>
-              <p className="text-2xl font-bold">{(inputItems as any[])?.length ?? 0}</p>
+              <p className="text-2xl font-bold">{itemList.length}</p>
             </CardContent>
           </Card>
         </div>
@@ -116,13 +126,13 @@ export default function Inventory() {
                           <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                         </TableRow>
                       ))
-                    : stockBalances && (stockBalances as any[]).length > 0
-                    ? (stockBalances as any[]).map((stock: any, i: number) => {
+                    : stockList.length > 0
+                    ? stockList.map((stock: any, i: number) => {
                         const rowTotal = (stock.available ?? 0) + (stock.delivered ?? 0) + (stock.reserved ?? 0);
                         return (
                           <TableRow key={i} className="hover:bg-muted/40">
                             <TableCell className="pl-4 font-medium text-sm">{stock.warehouseName ?? "—"}</TableCell>
-                            <TableCell className="text-sm">{stock.inputItemName ?? "—"}</TableCell>
+                            <TableCell className="text-sm">{stock.itemName ?? "—"}</TableCell>
                             <TableCell className="hidden md:table-cell">
                               <CategoryBadge category={stock.category} />
                             </TableCell>
@@ -177,8 +187,8 @@ export default function Inventory() {
                           <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-24" /></TableCell>
                         </TableRow>
                       ))
-                    : inputItems && (inputItems as any[]).length > 0
-                    ? (inputItems as any[]).map((item: any) => (
+                    : itemList.length > 0
+                    ? itemList.map((item: any) => (
                         <TableRow key={item.id} className="hover:bg-muted/40">
                           <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{item.itemCode ?? item.code ?? "—"}</TableCell>
                           <TableCell className="font-medium text-sm">{item.name}</TableCell>

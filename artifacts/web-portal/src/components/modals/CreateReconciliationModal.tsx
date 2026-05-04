@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateReconciliation,
-  useListDispatches,
-  useListWarehouses,
-  getListReconciliationsQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createReconciliation, listDispatches, listWarehouses, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -25,7 +20,7 @@ const NUM = (v: string) => (v === "" ? 0 : Number(v));
 export function CreateReconciliationModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateReconciliation();
+  const create = useMutation({ mutationFn: createReconciliation });
 
   const [dispatchId, setDispatchId]   = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -35,8 +30,11 @@ export function CreateReconciliationModal({ open, onClose }: Props) {
   const [damaged, setDamaged]         = useState("");
   const [notes, setNotes]             = useState("");
 
-  const { data: dispatches } = useListDispatches({});
-  const { data: warehouses } = useListWarehouses();
+  const { data: dispatches } = useQuery({ queryKey: KEYS.dispatches(), queryFn: () => listDispatches(1, 200) });
+  const { data: warehouses } = useQuery({ queryKey: KEYS.warehouses(), queryFn: listWarehouses });
+
+  const dispatchList: any[] = (dispatches as any)?.data ?? [];
+  const warehouseList: any[] = Array.isArray(warehouses) ? warehouses : [];
 
   const variance = NUM(loaded) - NUM(delivered) - NUM(returned) - NUM(damaged);
 
@@ -50,18 +48,16 @@ export function CreateReconciliationModal({ open, onClose }: Props) {
     if (!dispatchId || !warehouseId) return;
     try {
       await create.mutateAsync({
-        data: {
-          dispatchId: Number(dispatchId),
-          warehouseId: Number(warehouseId),
-          loadedQuantity: NUM(loaded),
-          deliveredQuantity: NUM(delivered),
-          returnedQuantity: NUM(returned),
-          damagedQuantity: NUM(damaged),
-          notes: notes || undefined,
-          status: "Draft",
-        } as any,
+        dispatchId: Number(dispatchId),
+        warehouseId: Number(warehouseId),
+        loadedQuantity: NUM(loaded),
+        deliveredQuantity: NUM(delivered),
+        returnedQuantity: NUM(returned),
+        damagedQuantity: NUM(damaged),
+        notes: notes || undefined,
+        status: "Draft",
       });
-      await qc.invalidateQueries({ queryKey: getListReconciliationsQueryKey({}) });
+      await qc.invalidateQueries({ queryKey: KEYS.reconciliations() });
       toast({ title: "Reconciliation created" });
       reset();
       onClose();
@@ -69,9 +65,6 @@ export function CreateReconciliationModal({ open, onClose }: Props) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
     }
   }
-
-  const dispatchList: any[] = (dispatches as any)?.data ?? [];
-  const warehouseList: any[] = (warehouses as any[]) ?? [];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>

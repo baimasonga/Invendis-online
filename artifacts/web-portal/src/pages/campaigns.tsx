@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListCampaigns } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { listCampaigns, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,7 +37,11 @@ export default function Campaigns() {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const limit = 20;
-  const { data: campaignsData, isLoading } = useListCampaigns({ page });
+
+  const { data: campaignsData, isLoading } = useQuery({
+    queryKey: KEYS.campaigns(page),
+    queryFn: () => listCampaigns(page, limit),
+  });
   const total = campaignsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 

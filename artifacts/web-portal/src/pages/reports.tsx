@@ -1,10 +1,11 @@
-import { useGetFarmerBeneficiaryReport, useGetStockMovementReport, useGetDistributionReport } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, ArrowUpDown, MapPin, TrendingUp, Download } from "lucide-react";
+import { Users, MapPin, TrendingUp, Download, Truck, Package } from "lucide-react";
 
 function downloadCSV(rows: any[], columns: { key: string; label: string }[], filename: string) {
   if (!rows.length) return;
@@ -55,49 +56,67 @@ function CompletionBar({ pct }: { pct: number }) {
   );
 }
 
-const GENDER_STYLES: Record<string, string> = {
-  female: "bg-pink-100   text-pink-800   dark:bg-pink-900/30    dark:text-pink-400",
-  male:   "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
-  other:  "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
-};
-
 const TXN_STYLES: Record<string, string> = {
   receive:      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   transfer_out: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-400",
   transfer_in:  "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
   dispatch:     "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30  dark:text-indigo-400",
+  adjustment:   "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
 };
 
+const DIST_STATUS_STYLES: Record<string, string> = {
+  pending:    "bg-slate-100  text-slate-600",
+  approved:   "bg-amber-100  text-amber-800",
+  dispatched: "bg-blue-100   text-blue-800",
+  arrived:    "bg-teal-100   text-teal-800",
+  completed:  "bg-emerald-100 text-emerald-800",
+  cancelled:  "bg-red-100    text-red-800",
+};
+
+const today = new Date().toISOString().slice(0, 10);
+
 export default function Reports() {
-  const { data: benReport,   isLoading: loadingBen  } = useGetFarmerBeneficiaryReport();
-  const { data: stockReport, isLoading: loadingStock } = useGetStockMovementReport();
-  const { data: distReport,  isLoading: loadingDist  } = useGetDistributionReport();
+  const { data: benReport,   isLoading: loadingBen  } = useQuery({
+    queryKey: KEYS.reports("beneficiary"),
+    queryFn: getFarmerBeneficiaryReport,
+  });
+  const { data: stockRows,   isLoading: loadingStock } = useQuery({
+    queryKey: KEYS.reports("stock"),
+    queryFn: getStockMovementReport,
+  });
+  const { data: distRows,    isLoading: loadingDist  } = useQuery({
+    queryKey: KEYS.reports("distribution"),
+    queryFn: getDistributionReport,
+  });
 
   const beneficiaryCols = [
-    { key: "farmerCode", label: "Farmer Code" },
-    { key: "name",       label: "Name" },
-    { key: "gender",     label: "Gender" },
-    { key: "district",   label: "District" },
-    { key: "valueChain", label: "Value Chain" },
+    { key: "district",  label: "District" },
+    { key: "total",     label: "Total" },
+    { key: "approved",  label: "Approved" },
+    { key: "pending",   label: "Pending" },
+    { key: "female",    label: "Female" },
   ];
 
   const stockCols = [
-    { key: "date",            label: "Date" },
-    { key: "transactionType", label: "Type" },
-    { key: "inputItem",       label: "Input Item" },
-    { key: "warehouse",       label: "Warehouse" },
-    { key: "quantity",        label: "Quantity" },
+    { key: "createdAt", label: "Date" },
+    { key: "txnType",   label: "Type" },
+    { key: "itemName",  label: "Input Item" },
+    { key: "warehouseName", label: "Warehouse" },
+    { key: "quantity",  label: "Quantity" },
   ];
 
   const distributionCols = [
-    { key: "district",       label: "District" },
-    { key: "allocated",      label: "Allocated" },
-    { key: "delivered",      label: "Delivered" },
-    { key: "pending",        label: "Pending" },
-    { key: "completionRate", label: "Completion %" },
+    { key: "manifestCode",  label: "Manifest" },
+    { key: "campaignName",  label: "Campaign" },
+    { key: "warehouseName", label: "Warehouse" },
+    { key: "status",        label: "Status" },
+    { key: "completionPct", label: "Completion %" },
   ];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const benRows: any[] = (benReport as any)?.rows ?? [];
+  const summary: any   = (benReport as any)?.summary ?? {};
+  const stockList: any[] = Array.isArray(stockRows) ? stockRows : [];
+  const distList: any[]  = Array.isArray(distRows)  ? distRows  : [];
 
   return (
     <div className="space-y-5">
@@ -109,7 +128,7 @@ export default function Reports() {
       <Tabs defaultValue="beneficiary">
         <TabsList className="h-8">
           <TabsTrigger value="beneficiary" className="text-xs">Beneficiaries</TabsTrigger>
-          <TabsTrigger value="stock" className="text-xs">Stock Movement</TabsTrigger>
+          <TabsTrigger value="stock"       className="text-xs">Stock Movement</TabsTrigger>
           <TabsTrigger value="distribution" className="text-xs">Distribution</TabsTrigger>
         </TabsList>
 
@@ -121,22 +140,22 @@ export default function Reports() {
             </div>
           ) : benReport ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard label="Total Beneficiaries" value={benReport.totalBeneficiaries ?? 0} icon={Users}       color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
-              <KpiCard label="Female"              value={benReport.female ?? 0}              icon={Users}       color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
-              <KpiCard label="Male"                value={benReport.male ?? 0}                icon={Users}       color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
-              <KpiCard label="Youth"               value={benReport.youth ?? 0}               icon={TrendingUp}  color="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" />
+              <KpiCard label="Total Farmers"   value={summary.total ?? 0}    icon={Users}      color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
+              <KpiCard label="Approved"         value={summary.approved ?? 0} icon={TrendingUp}  color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" />
+              <KpiCard label="Female Farmers"   value={summary.female ?? 0}   icon={Users}      color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
+              <KpiCard label="Approval Rate"    value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp} color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
             </div>
           ) : null}
 
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Beneficiary List</CardTitle>
+              <CardTitle className="text-sm font-semibold">Farmers by District</CardTitle>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
-                disabled={!benReport?.rows?.length}
-                onClick={() => downloadCSV(benReport?.rows ?? [], beneficiaryCols, `beneficiaries-${today}.csv`)}
+                disabled={!benRows.length}
+                onClick={() => downloadCSV(benRows, beneficiaryCols, `beneficiaries-${today}.csv`)}
               >
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
               </Button>
@@ -145,34 +164,37 @@ export default function Reports() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-4">Code</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="hidden md:table-cell">Gender</TableHead>
-                    <TableHead className="hidden md:table-cell">District</TableHead>
-                    <TableHead className="pr-4 hidden lg:table-cell">Value Chain</TableHead>
+                    <TableHead className="pl-4">District</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Approved</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Pending</TableHead>
+                    <TableHead className="text-right pr-4 hidden lg:table-cell">Female</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingBen
                     ? Array.from({ length: 6 }).map((_, i) => (
                         <TableRow key={i}>
-                          <TableCell className="pl-4"><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                          <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                         </TableRow>
                       ))
-                    : benReport?.rows && benReport.rows.length > 0
-                    ? benReport.rows.map((row: any, i: number) => (
+                    : benRows.length > 0
+                    ? benRows.map((row: any, i: number) => (
                         <TableRow key={i} className="hover:bg-muted/40">
-                          <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{row.farmerCode}</TableCell>
-                          <TableCell className="text-sm font-medium">{row.name}</TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${GENDER_STYLES[row.gender?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>{row.gender}</span>
+                          <TableCell className="pl-4">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="text-sm font-medium">{row.district}</span>
+                            </div>
                           </TableCell>
-                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{row.district}</TableCell>
-                          <TableCell className="hidden lg:table-cell pr-4 text-sm text-muted-foreground">{row.valueChain}</TableCell>
+                          <TableCell className="text-right text-sm font-semibold tabular-nums">{row.total}</TableCell>
+                          <TableCell className="text-right text-sm text-emerald-700 hidden md:table-cell tabular-nums">{row.approved}</TableCell>
+                          <TableCell className="text-right text-sm text-amber-700 hidden md:table-cell tabular-nums">{row.pending}</TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground pr-4 hidden lg:table-cell tabular-nums">{row.female}</TableCell>
                         </TableRow>
                       ))
                     : (
@@ -195,8 +217,8 @@ export default function Reports() {
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
-                disabled={!stockReport?.rows?.length}
-                onClick={() => downloadCSV(stockReport?.rows ?? [], stockCols, `stock-movement-${today}.csv`)}
+                disabled={!stockList.length}
+                onClick={() => downloadCSV(stockList, stockCols, `stock-movement-${today}.csv`)}
               >
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
               </Button>
@@ -223,19 +245,19 @@ export default function Reports() {
                           <TableCell className="pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                         </TableRow>
                       ))
-                    : stockReport?.rows && stockReport.rows.length > 0
-                    ? stockReport.rows.map((row: any, i: number) => (
+                    : stockList.length > 0
+                    ? stockList.map((row: any, i: number) => (
                         <TableRow key={i} className="hover:bg-muted/40">
                           <TableCell className="pl-4 hidden md:table-cell text-xs text-muted-foreground">
-                            {new Date(row.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                            {row.createdAt ? new Date(row.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                           </TableCell>
                           <TableCell className="pl-4 md:pl-0">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TXN_STYLES[row.transactionType?.toLowerCase().replace(/\s+/g, "_")] ?? "bg-slate-100 text-slate-600"}`}>
-                              {row.transactionType}
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TXN_STYLES[row.txnType?.toLowerCase().replace(/\s+/g, "_")] ?? "bg-slate-100 text-slate-600"}`}>
+                              {row.txnType}
                             </span>
                           </TableCell>
-                          <TableCell className="text-sm">{row.inputItem}</TableCell>
-                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{row.warehouse}</TableCell>
+                          <TableCell className="text-sm">{row.itemName ?? "—"}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{row.warehouseName ?? "—"}</TableCell>
                           <TableCell className="pr-4 text-right font-semibold tabular-nums text-sm">{row.quantity}</TableCell>
                         </TableRow>
                       ))
@@ -254,13 +276,13 @@ export default function Reports() {
         <TabsContent value="distribution" className="mt-4">
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Distribution by District</CardTitle>
+              <CardTitle className="text-sm font-semibold">Distribution Manifests</CardTitle>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
-                disabled={!distReport?.rows?.length}
-                onClick={() => downloadCSV(distReport?.rows ?? [], distributionCols, `distribution-${today}.csv`)}
+                disabled={!distList.length}
+                onClick={() => downloadCSV(distList, distributionCols, `distribution-${today}.csv`)}
               >
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
               </Button>
@@ -269,10 +291,10 @@ export default function Reports() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-4">District</TableHead>
-                    <TableHead className="text-right hidden md:table-cell">Allocated</TableHead>
-                    <TableHead className="text-right hidden md:table-cell">Delivered</TableHead>
-                    <TableHead className="text-right hidden lg:table-cell">Pending</TableHead>
+                    <TableHead className="pl-4 w-[130px]">Manifest</TableHead>
+                    <TableHead>Campaign</TableHead>
+                    <TableHead className="hidden md:table-cell">Warehouse</TableHead>
+                    <TableHead className="hidden md:table-cell">Status</TableHead>
                     <TableHead className="text-right pr-4">Completion</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -281,32 +303,41 @@ export default function Reports() {
                     ? Array.from({ length: 5 }).map((_, i) => (
                         <TableRow key={i}>
                           <TableCell className="pl-4"><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
-                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
-                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                           <TableCell className="pr-4"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                         </TableRow>
                       ))
-                    : distReport?.rows && distReport.rows.length > 0
-                    ? distReport.rows.map((row: any, i: number) => (
+                    : distList.length > 0
+                    ? distList.map((row: any, i: number) => (
                         <TableRow key={i} className="hover:bg-muted/40">
                           <TableCell className="pl-4">
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <span className="text-sm font-medium">{row.district}</span>
+                            <div className="flex items-center gap-1.5">
+                              <Truck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-mono text-xs">{row.manifestCode}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="hidden md:table-cell text-right text-sm tabular-nums">{row.allocated}</TableCell>
-                          <TableCell className="hidden md:table-cell text-right text-sm tabular-nums">{row.delivered}</TableCell>
-                          <TableCell className="hidden lg:table-cell text-right text-sm tabular-nums text-muted-foreground">{row.pending}</TableCell>
+                          <TableCell className="text-sm font-medium">{row.campaignName ?? "—"}</TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{row.warehouseName ?? "—"}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${DIST_STATUS_STYLES[row.status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>
+                              {row.status}
+                            </span>
+                          </TableCell>
                           <TableCell className="pr-4">
-                            <CompletionBar pct={row.completionRate ?? 0} />
+                            <CompletionBar pct={row.completionPct ?? 0} />
                           </TableCell>
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">No distribution data</TableCell>
+                          <TableCell colSpan={5} className="h-24 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <Package className="h-8 w-8 opacity-30" />
+                              <span className="text-sm">No distribution data yet</span>
+                            </div>
+                          </TableCell>
                         </TableRow>
                       )}
                 </TableBody>

@@ -1,11 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useListFarmers,
-  useApproveFarmer,
-  useRejectFarmer,
-  getListFarmersQueryKey,
-} from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listFarmers, approveFarmer, rejectFarmer, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -54,18 +49,21 @@ export default function Farmers() {
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
   const limit = 20;
-  const { data: farmersData, isLoading } = useListFarmers({ page, limit });
+  const { data: farmersData, isLoading } = useQuery({
+    queryKey: KEYS.farmers(page, search),
+    queryFn: () => listFarmers(page, limit, search || undefined),
+  });
   const total = farmersData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  const approveFarmer = useApproveFarmer();
-  const rejectFarmer = useRejectFarmer();
+  const approveMutation = useMutation({ mutationFn: (id: number) => approveFarmer(id) });
+  const rejectMutation  = useMutation({ mutationFn: (id: number) => rejectFarmer(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
     try {
-      await approveFarmer.mutateAsync({ id });
-      await qc.invalidateQueries({ queryKey: getListFarmersQueryKey() });
+      await approveMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
       toast({ title: "Farmer approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
@@ -78,8 +76,8 @@ export default function Farmers() {
     if (!rejectTarget) return;
     setLoadingId(rejectTarget.id);
     try {
-      await rejectFarmer.mutateAsync({ id: rejectTarget.id, data: { reason: "Rejected by administrator" } as any });
-      await qc.invalidateQueries({ queryKey: getListFarmersQueryKey() });
+      await rejectMutation.mutateAsync(rejectTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
       toast({ title: "Farmer rejected" });
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
@@ -112,7 +110,7 @@ export default function Farmers() {
                 placeholder="Search farmers…"
                 className="pl-8 h-8 text-sm"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               />
             </div>
             {!isLoading && (

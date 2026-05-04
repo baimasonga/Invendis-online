@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCreateWarehouse, useListDistricts, getListWarehousesQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createWarehouse, listDistricts, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +13,15 @@ interface Props { open: boolean; onClose: () => void; }
 export function AddWarehouseModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const create = useCreateWarehouse();
+  const create = useMutation({ mutationFn: createWarehouse });
 
   const [code, setCode]       = useState("");
   const [name, setName]       = useState("");
   const [districtId, setDist] = useState("");
   const [address, setAddress] = useState("");
 
-  const { data: districts } = useListDistricts();
-  const districtList: any[] = (districts as any[]) ?? [];
+  const { data: districts } = useQuery({ queryKey: KEYS.districts(), queryFn: listDistricts });
+  const districtList: any[] = Array.isArray(districts) ? districts : [];
 
   function reset() { setCode(""); setName(""); setDist(""); setAddress(""); }
 
@@ -30,15 +30,12 @@ export function AddWarehouseModal({ open, onClose }: Props) {
     if (!code || !name) return;
     try {
       await create.mutateAsync({
-        data: {
-          code: code.toUpperCase(),
-          name,
-          districtId: districtId ? Number(districtId) : undefined,
-          address: address || undefined,
-          isActive: 1,
-        } as any,
+        code: code.toUpperCase(),
+        name,
+        districtId: districtId ? Number(districtId) : undefined,
+        address: address || undefined,
       });
-      await qc.invalidateQueries({ queryKey: getListWarehousesQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.warehouses() });
       toast({ title: "Warehouse added", description: `${name} is now available for stock operations.` });
       reset();
       onClose();

@@ -1,14 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useGetDispatch,
-  useApproveDispatch,
-  useListPod,
-  getGetDispatchQueryKey,
-  getListDispatchesQueryKey,
-  getListPodQueryKey,
-} from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,7 +12,6 @@ import {
   CheckCircle2, CalendarDays, Warehouse, User, Plus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiAction } from "@/lib/api";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 
@@ -59,20 +51,32 @@ export default function DispatchDetail() {
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
 
-  const { data: dispatch, isLoading } = useGetDispatch(id, {
-    query: { enabled: !!id, queryKey: getGetDispatchQueryKey(id) },
+  const { data: dispatch, isLoading } = useQuery({
+    queryKey: KEYS.dispatch(id),
+    queryFn: () => getDispatch(id),
+    enabled: !!id,
   });
-  const { data: podData } = useListPod(
-    { dispatchId: id } as any,
-    { query: { enabled: !!id, queryKey: getListPodQueryKey({ dispatchId: id } as any) } },
-  );
+  const { data: podData } = useQuery({
+    queryKey: KEYS.pod(undefined, id),
+    queryFn: () => listPod(1, 100, id),
+    enabled: !!id,
+  });
 
-  const approveDispatch = useApproveDispatch();
+  const approveMutation  = useMutation({ mutationFn: () => approveDispatch(id) });
+  const dispatchMutation = useMutation({ mutationFn: () => dispatchManifest(id) });
+  const arriveMutation   = useMutation({ mutationFn: () => arriveDispatch(id) });
+
+  async function invalidate() {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: KEYS.dispatch(id) }),
+      qc.invalidateQueries({ queryKey: KEYS.dispatches() }),
+    ]);
+  }
 
   async function handleApprove() {
     setActionLoading(true);
     try {
-      await approveDispatch.mutateAsync({ id });
+      await approveMutation.mutateAsync();
       await invalidate();
       toast({ title: "Manifest approved" });
     } catch (err: any) {
@@ -83,7 +87,7 @@ export default function DispatchDetail() {
   async function handleDispatch() {
     setActionLoading(true);
     try {
-      await apiAction(`/api/dispatch/${id}/dispatch`);
+      await dispatchMutation.mutateAsync();
       await invalidate();
       toast({ title: "Vehicle dispatched" });
     } catch (err: any) {
@@ -94,19 +98,12 @@ export default function DispatchDetail() {
   async function handleArrive() {
     setActionLoading(true);
     try {
-      await apiAction(`/api/dispatch/${id}/arrive`);
+      await arriveMutation.mutateAsync();
       await invalidate();
       toast({ title: "Arrival confirmed" });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
     } finally { setActionLoading(false); }
-  }
-
-  async function invalidate() {
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: getGetDispatchQueryKey(id) }),
-      qc.invalidateQueries({ queryKey: getListDispatchesQueryKey() }),
-    ]);
   }
 
   if (isLoading) {
@@ -139,7 +136,6 @@ export default function DispatchDetail() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/dispatch">
           <Button variant="outline" size="icon" className="h-8 w-8 shrink-0">
@@ -190,7 +186,6 @@ export default function DispatchDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Manifest details */}
         <TabsContent value="manifest" className="mt-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <div className="md:col-span-2">
@@ -201,7 +196,7 @@ export default function DispatchDetail() {
                 <CardContent className="grid grid-cols-2 gap-4">
                   <Field label="Campaign"   value={d.campaignName}   icon={Package2} />
                   <Field label="Warehouse"  value={d.warehouseName}  icon={Warehouse} />
-                  <Field label="Vehicle"    value={d.vehiclePlate}   icon={Truck} />
+                  <Field label="Vehicle"    value={d.plateNumber}    icon={Truck} />
                   <Field label="Driver"     value={d.driverName}     icon={User} />
                   <Field label="Scheduled"  value={d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} icon={CalendarDays} />
                   <Field label="Departed"   value={d.departedAt ? new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} />
@@ -243,7 +238,6 @@ export default function DispatchDetail() {
           </div>
         </TabsContent>
 
-        {/* Line items */}
         <TabsContent value="items" className="mt-4">
           <Card>
             <CardHeader className="pb-3 pt-4 flex flex-row items-center justify-between">
@@ -282,7 +276,7 @@ export default function DispatchDetail() {
                     </TableRow>
                   ) : items.map((item: any) => (
                     <TableRow key={item.id} className="hover:bg-muted/40">
-                      <TableCell className="pl-4 text-sm font-medium">{item.inputItemName ?? "—"}</TableCell>
+                      <TableCell className="pl-4 text-sm font-medium">{item.itemName ?? item.inputItemName ?? "—"}</TableCell>
                       <TableCell className="text-right text-sm font-semibold tabular-nums">{item.quantityLoaded?.toLocaleString()}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden md:table-cell text-emerald-700">{item.quantityDelivered ?? 0}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden lg:table-cell text-muted-foreground">{item.quantityReturned ?? 0}</TableCell>
@@ -295,7 +289,6 @@ export default function DispatchDetail() {
           </Card>
         </TabsContent>
 
-        {/* PoD records */}
         <TabsContent value="pod" className="mt-4">
           <Card>
             <CardHeader className="pb-3 pt-4 flex flex-row items-center justify-between">

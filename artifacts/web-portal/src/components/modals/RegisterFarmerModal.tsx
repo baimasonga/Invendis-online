@@ -1,12 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCreateFarmer,
-  useListDistricts,
-  useListChiefdoms,
-  useListValueChains,
-  getListFarmersQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createFarmer, listDistricts, listChiefdoms, listValueChains, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -26,22 +20,28 @@ interface Props {
 export function RegisterFarmerModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const createFarmer = useCreateFarmer();
+  const createFarmerMutation = useMutation({ mutationFn: createFarmer });
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [gender, setGender] = useState("");
-  const [phone, setPhone] = useState("");
-  const [nationalId, setNationalId] = useState("");
-  const [districtId, setDistrictId] = useState("");
-  const [chiefdomId, setChiefdomId] = useState("");
+  const [firstName, setFirstName]     = useState("");
+  const [lastName, setLastName]       = useState("");
+  const [gender, setGender]           = useState("");
+  const [phone, setPhone]             = useState("");
+  const [nationalId, setNationalId]   = useState("");
+  const [districtId, setDistrictId]   = useState("");
+  const [chiefdomId, setChiefdomId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
 
-  const { data: districts } = useListDistricts();
-  const { data: chiefdoms } = useListChiefdoms(
-    districtId ? { districtId: Number(districtId) } : undefined,
-  );
-  const { data: valueChains } = useListValueChains();
+  const { data: districts }   = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
+  const { data: chiefdoms }   = useQuery({
+    queryKey: [...KEYS.districts(), "chiefdoms", districtId],
+    queryFn: () => listChiefdoms(districtId ? Number(districtId) : undefined),
+    enabled: !!districtId,
+  });
+  const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(), queryFn: listValueChains });
+
+  const districtList:   any[] = Array.isArray(districts)   ? districts   : [];
+  const chiefdomList:   any[] = Array.isArray(chiefdoms)   ? chiefdoms   : [];
+  const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
 
   function resetForm() {
     setFirstName(""); setLastName(""); setGender(""); setPhone("");
@@ -52,19 +52,17 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
     e.preventDefault();
     if (!firstName || !lastName) return;
     try {
-      await createFarmer.mutateAsync({
-        data: {
-          firstName,
-          lastName,
-          gender: gender || undefined,
-          phone: phone || undefined,
-          nationalId: nationalId || undefined,
-          districtId: districtId ? Number(districtId) : undefined,
-          chiefdomId: chiefdomId ? Number(chiefdomId) : undefined,
-          valueChainId: valueChainId ? Number(valueChainId) : undefined,
-        } as any,
+      await createFarmerMutation.mutateAsync({
+        firstName,
+        lastName,
+        gender: gender || undefined,
+        phone: phone || undefined,
+        nationalId: nationalId || undefined,
+        districtId: districtId ? Number(districtId) : undefined,
+        chiefdomId: chiefdomId ? Number(chiefdomId) : undefined,
+        valueChainId: valueChainId ? Number(valueChainId) : undefined,
       });
-      await qc.invalidateQueries({ queryKey: getListFarmersQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
       toast({ title: "Farmer registered", description: `${firstName} ${lastName} added successfully.` });
       resetForm();
       onClose();
@@ -118,7 +116,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
             <Select value={districtId} onValueChange={v => { setDistrictId(v); setChiefdomId(""); }}>
               <SelectTrigger><SelectValue placeholder="Select district…" /></SelectTrigger>
               <SelectContent>
-                {(districts as any[] ?? []).map((d: any) => (
+                {districtList.map((d: any) => (
                   <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -131,7 +129,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
               <Select value={chiefdomId} onValueChange={setChiefdomId}>
                 <SelectTrigger><SelectValue placeholder="Select chiefdom…" /></SelectTrigger>
                 <SelectContent>
-                  {(chiefdoms as any[] ?? []).map((c: any) => (
+                  {chiefdomList.map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -144,7 +142,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
             <Select value={valueChainId} onValueChange={setValueChainId}>
               <SelectTrigger><SelectValue placeholder="Select value chain…" /></SelectTrigger>
               <SelectContent>
-                {(valueChains as any[] ?? []).map((v: any) => (
+                {valueChainList.map((v: any) => (
                   <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -153,8 +151,8 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
 
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { resetForm(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createFarmer.isPending}>
-              {createFarmer.isPending ? "Registering…" : "Register Farmer"}
+            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={createFarmerMutation.isPending}>
+              {createFarmerMutation.isPending ? "Registering…" : "Register Farmer"}
             </Button>
           </DialogFooter>
         </form>

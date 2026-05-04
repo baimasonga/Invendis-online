@@ -1,12 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useSubmitPod,
-  useListFarmers,
-  useListDispatches,
-  useListInputItems,
-  getListPodQueryKey,
-} from "@workspace/api-client-react";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { createPod, listFarmers, listDispatches, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -27,20 +21,18 @@ interface Props {
 export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const submitPod = useSubmitPod();
+  const submitPod = useMutation({ mutationFn: createPod });
 
-  const [farmerId, setFarmerId] = useState("");
-  const [dispatchId, setDispatchId] = useState(prefilledDispatchId ? String(prefilledDispatchId) : "");
-  const [inputItemId, setInputItemId] = useState("");
-  const [quantityDelivered, setQuantityDelivered] = useState("");
-  const [notes, setNotes] = useState("");
-  const [farmerSearch, setFarmerSearch] = useState("");
+  const [farmerId, setFarmerId]               = useState("");
+  const [dispatchId, setDispatchId]           = useState(prefilledDispatchId ? String(prefilledDispatchId) : "");
+  const [quantityDelivered, setQty]           = useState("");
+  const [notes, setNotes]                     = useState("");
+  const [farmerSearch, setFarmerSearch]       = useState("");
 
-  const { data: farmersData } = useListFarmers({ limit: 200 } as any);
-  const { data: dispatchesData } = useListDispatches({ limit: 100 } as any);
-  const { data: inputItems } = useListInputItems();
+  const { data: farmersData }    = useQuery({ queryKey: KEYS.farmers(),   queryFn: () => listFarmers(1, 200) });
+  const { data: dispatchesData } = useQuery({ queryKey: KEYS.dispatches(), queryFn: () => listDispatches(1, 100) });
 
-  const farmers = (farmersData as any)?.data ?? [];
+  const farmers   = (farmersData as any)?.data   ?? [];
   const dispatches = (dispatchesData as any)?.data ?? [];
 
   const filteredFarmers = farmerSearch
@@ -50,7 +42,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     : farmers;
 
   function reset() {
-    setFarmerId(""); setInputItemId(""); setQuantityDelivered(""); setNotes(""); setFarmerSearch("");
+    setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
   }
 
@@ -62,16 +54,13 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
 
     try {
       await submitPod.mutateAsync({
-        data: {
-          farmerId: Number(farmerId),
-          dispatchId: dispatchId ? Number(dispatchId) : undefined,
-          campaignId: selectedDispatch?.campaignId ?? undefined,
-          inputItemId: inputItemId ? Number(inputItemId) : undefined,
-          quantityDelivered: Number(quantityDelivered),
-          notes: notes || undefined,
-        } as any,
+        farmerId: Number(farmerId),
+        dispatchId: dispatchId ? Number(dispatchId) : undefined,
+        campaignId: selectedDispatch?.campaignId ?? undefined,
+        quantityDelivered: Number(quantityDelivered),
+        notes: notes || undefined,
       });
-      await qc.invalidateQueries({ queryKey: getListPodQueryKey() });
+      await qc.invalidateQueries({ queryKey: KEYS.pod() });
       toast({ title: "Delivery recorded", description: "PoD submitted as Pending verification." });
       reset();
       onClose();
@@ -87,7 +76,6 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
           <DialogTitle>Record Delivery</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-1">
-          {/* Dispatch selection */}
           {!prefilledDispatchId && (
             <div className="space-y-1.5">
               <Label>Dispatch Manifest</Label>
@@ -105,7 +93,6 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
             </div>
           )}
 
-          {/* Farmer */}
           <div className="space-y-1.5">
             <Label htmlFor="sp-fsearch">Farmer *</Label>
             <Input
@@ -128,24 +115,6 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
             </Select>
           </div>
 
-          {/* Input item */}
-          <div className="space-y-1.5">
-            <Label>Input Item</Label>
-            <Select value={inputItemId} onValueChange={setInputItemId}>
-              <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
-              <SelectContent>
-                {(inputItems as any[] ?? []).map((item: any) => (
-                  <SelectItem key={item.id} value={String(item.id)}>
-                    {item.name}
-                    {(item.unit ?? item.unitOfMeasure) && (
-                      <span className="text-muted-foreground ml-1.5 text-xs">({item.unit ?? item.unitOfMeasure})</span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="sp-qty">Qty Delivered *</Label>
@@ -154,7 +123,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
                 type="number"
                 min="1"
                 value={quantityDelivered}
-                onChange={e => setQuantityDelivered(e.target.value)}
+                onChange={e => setQty(e.target.value)}
                 placeholder="0"
                 required
               />
