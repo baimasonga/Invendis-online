@@ -69,7 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async ({ email, password }: { email: string; password: string }) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
-    setLocation("/dashboard");
+    // Navigation is handled by the Login component once isAuthenticated becomes true
+    // after onAuthStateChange fires and fetchProfile completes.
   };
 
   const logout = async () => {
