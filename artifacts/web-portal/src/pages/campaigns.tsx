@@ -6,12 +6,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays } from "lucide-react";
 import { Link } from "wouter";
+import { CreateCampaignModal } from "@/components/modals/CreateCampaignModal";
 
 const STATUS_STYLES: Record<string, string> = {
   active:    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   approved:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   draft:     "bg-slate-100   text-slate-600   dark:bg-slate-800       dark:text-slate-300",
   pending:   "bg-amber-100   text-amber-800   dark:bg-amber-900/30    dark:text-amber-400",
+  submitted: "bg-blue-100    text-blue-800    dark:bg-blue-900/30     dark:text-blue-400",
   completed: "bg-blue-100    text-blue-800    dark:bg-blue-900/30     dark:text-blue-400",
   cancelled: "bg-red-100     text-red-800     dark:bg-red-900/30      dark:text-red-400",
 };
@@ -32,6 +34,7 @@ function formatDateRange(start: string, end: string) {
 
 export default function Campaigns() {
   const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
   const limit = 20;
   const { data: campaignsData, isLoading } = useListCampaigns({ page });
   const total = campaignsData?.total ?? 0;
@@ -44,7 +47,7 @@ export default function Campaigns() {
           <h1 className="text-xl font-bold tracking-tight">Campaigns</h1>
           <p className="text-sm text-muted-foreground">Manage distribution campaigns and operations.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white">
+        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5 mr-1.5" />
           New Campaign
         </Button>
@@ -105,7 +108,10 @@ export default function Campaigns() {
                       <TableCell colSpan={6} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Flag className="h-8 w-8 opacity-30" />
-                          <span className="text-sm">No campaigns found</span>
+                          <span className="text-sm">No campaigns yet</span>
+                          <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                            <Plus className="h-3.5 w-3.5 mr-1.5" /> Create first campaign
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -128,6 +134,8 @@ export default function Campaigns() {
           )}
         </CardContent>
       </Card>
+
+      <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

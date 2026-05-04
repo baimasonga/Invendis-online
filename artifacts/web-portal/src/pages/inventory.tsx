@@ -1,17 +1,19 @@
+import { useState } from "react";
 import { useListInputItems, useGetStockBalance } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, Box, PackageCheck } from "lucide-react";
+import { Plus, Box, PackageCheck, ArrowDownToLine } from "lucide-react";
+import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
 
 const CATEGORY_STYLES: Record<string, string> = {
-  seed:      "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
-  fertilizer:"bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
-  chemical:  "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-400",
-  tool:      "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
-  equipment: "bg-slate-100  text-slate-700  dark:bg-slate-800      dark:text-slate-300",
+  seed:       "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
+  fertilizer: "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
+  chemical:   "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-400",
+  tool:       "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
+  equipment:  "bg-slate-100  text-slate-700  dark:bg-slate-800      dark:text-slate-300",
 };
 
 function CategoryBadge({ category }: { category?: string }) {
@@ -38,11 +40,12 @@ function StockBar({ available, total }: { available: number; total: number }) {
 }
 
 export default function Inventory() {
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const { data: inputItems, isLoading: loadingItems } = useListInputItems();
   const { data: stockBalances, isLoading: loadingStock } = useGetStockBalance();
 
-  const totalAvailable = (stockBalances ?? []).reduce((s: number, r: any) => s + (r.available ?? 0), 0);
-  const totalDelivered  = (stockBalances ?? []).reduce((s: number, r: any) => s + (r.delivered ?? 0), 0);
+  const totalAvailable = (stockBalances as any[] ?? []).reduce((s, r) => s + (r.available ?? 0), 0);
+  const totalDelivered  = (stockBalances as any[] ?? []).reduce((s, r) => s + (r.delivered ?? 0), 0);
 
   return (
     <div className="space-y-5">
@@ -51,8 +54,8 @@ export default function Inventory() {
           <h1 className="text-xl font-bold tracking-tight">Inventory</h1>
           <p className="text-sm text-muted-foreground">Input catalogue and warehouse stock levels.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white">
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
+        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
+          <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
           Receive Stock
         </Button>
       </div>
@@ -75,7 +78,7 @@ export default function Inventory() {
           <Card className="hidden sm:block">
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Catalogue Items</p>
-              <p className="text-2xl font-bold">{inputItems?.length ?? 0}</p>
+              <p className="text-2xl font-bold">{(inputItems as any[])?.length ?? 0}</p>
             </CardContent>
           </Card>
         </div>
@@ -136,7 +139,10 @@ export default function Inventory() {
                           <TableCell colSpan={6} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Box className="h-8 w-8 opacity-30" />
-                              <span className="text-sm">No stock data found</span>
+                              <span className="text-sm">No stock yet</span>
+                              <Button size="sm" variant="outline" onClick={() => setReceiveOpen(true)}>
+                                <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" /> Receive first stock
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -171,8 +177,8 @@ export default function Inventory() {
                           <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-24" /></TableCell>
                         </TableRow>
                       ))
-                    : inputItems && inputItems.length > 0
-                    ? inputItems.map((item: any) => (
+                    : inputItems && (inputItems as any[]).length > 0
+                    ? (inputItems as any[]).map((item: any) => (
                         <TableRow key={item.id} className="hover:bg-muted/40">
                           <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{item.itemCode ?? item.code ?? "—"}</TableCell>
                           <TableCell className="font-medium text-sm">{item.name}</TableCell>
@@ -197,6 +203,8 @@ export default function Inventory() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
     </div>
   );
 }

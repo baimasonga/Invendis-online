@@ -1,12 +1,24 @@
 import { useState } from "react";
-import { useListFarmers } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListFarmers,
+  useApproveFarmer,
+  useRejectFarmer,
+  getListFarmersQueryKey,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const STATUS_STYLES: Record<string, string> = {
   approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -33,12 +45,49 @@ function Avatar({ name }: { name: string }) {
 }
 
 export default function Farmers() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
+  const [loadingId, setLoadingId] = useState<number | null>(null);
+
   const limit = 20;
   const { data: farmersData, isLoading } = useListFarmers({ page, limit });
   const total = farmersData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const approveFarmer = useApproveFarmer();
+  const rejectFarmer = useRejectFarmer();
+
+  async function handleApprove(id: number) {
+    setLoadingId(id);
+    try {
+      await approveFarmer.mutateAsync({ id });
+      await qc.invalidateQueries({ queryKey: getListFarmersQueryKey() });
+      toast({ title: "Farmer approved" });
+    } catch (err: any) {
+      toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  async function handleRejectConfirm() {
+    if (!rejectTarget) return;
+    setLoadingId(rejectTarget.id);
+    try {
+      await rejectFarmer.mutateAsync({ id: rejectTarget.id, data: { reason: "Rejected by administrator" } as any });
+      await qc.invalidateQueries({ queryKey: getListFarmersQueryKey() });
+      toast({ title: "Farmer rejected" });
+    } catch (err: any) {
+      toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
+    } finally {
+      setLoadingId(null);
+      setRejectTarget(null);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -47,7 +96,7 @@ export default function Farmers() {
           <h1 className="text-xl font-bold tracking-tight">Farmer Registry</h1>
           <p className="text-sm text-muted-foreground">Manage and verify registered farmers.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white">
+        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
           <Plus className="h-3.5 w-3.5 mr-1.5" />
           Register Farmer
         </Button>
@@ -80,7 +129,7 @@ export default function Farmers() {
                 <TableHead className="hidden md:table-cell">Location</TableHead>
                 <TableHead className="hidden lg:table-cell">Value Chain</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="pr-4 text-right w-[70px]"></TableHead>
+                <TableHead className="pr-4 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -92,7 +141,7 @@ export default function Farmers() {
                       <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-18 rounded-full" /></TableCell>
-                      <TableCell className="pr-4" />
+                      <TableCell className="pr-4"><Skeleton className="h-7 w-24 ml-auto" /></TableCell>
                     </TableRow>
                   ))
                 : farmersData?.data && farmersData.data.length > 0
@@ -110,10 +159,36 @@ export default function Farmers() {
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-sm">{farmer.valueChainName ?? "—"}</TableCell>
                       <TableCell><StatusBadge status={farmer.status} /></TableCell>
-                      <TableCell className="pr-4 text-right">
-                        <Link href={`/farmers/${farmer.id}`}>
-                          <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer">View</span>
-                        </Link>
+                      <TableCell className="pr-4">
+                        <div className="flex items-center gap-1 justify-end">
+                          {farmer.status === "pending" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50"
+                                disabled={loadingId === farmer.id}
+                                onClick={() => handleApprove(farmer.id)}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
+                                disabled={loadingId === farmer.id}
+                                onClick={() => setRejectTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          <Link href={`/farmers/${farmer.id}`}>
+                            <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer ml-1">View</span>
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -130,7 +205,6 @@ export default function Farmers() {
             </TableBody>
           </Table>
 
-          {/* Pagination */}
           {total > limit && (
             <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-muted-foreground">
               <span>Page {page} of {totalPages}</span>
@@ -146,6 +220,25 @@ export default function Farmers() {
           )}
         </CardContent>
       </Card>
+
+      <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
+
+      <AlertDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) setRejectTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Farmer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark <strong>{rejectTarget?.name}</strong> as rejected. You can reverse this later by editing the farmer record.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleRejectConfirm}>
+              Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
