@@ -573,16 +573,50 @@ export async function createPod(payload: any) {
   const userId = await uid();
   const { data, error } = await supabase.from("pod").insert({
     farmer_id: payload.farmerId,
-    campaign_id: payload.campaignId,
+    campaign_id: payload.campaignId ?? null,
     dispatch_id: payload.dispatchId ?? null,
     field_officer_id: userId,
     quantity_delivered: payload.quantityDelivered ? Number(payload.quantityDelivered) : null,
     notes: payload.notes ?? null,
+    otp_status: payload.otpStatus ?? "Pending",
+    face_status: payload.faceStatus ?? "Pending",
+    photo_url: payload.photoUrl ?? null,
+    farmer_latitude: payload.farmerLatitude ?? null,
+    farmer_longitude: payload.farmerLongitude ?? null,
+    status: payload.status ?? "Pending",
     submitted_at: new Date().toISOString(),
   }).select().single();
   if (error) throw new Error(error.message);
   await logAudit("CREATE", "pod", `Recorded delivery POD #${(data as any).id}`, "pod", (data as any).id);
   return cc(data);
+}
+
+async function getSupabaseAccessToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+async function apiPost(path: string, body: unknown): Promise<any> {
+  const token = await getSupabaseAccessToken();
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Request failed");
+  return json;
+}
+
+export async function sendOtp(farmerId: number): Promise<{ sent: boolean; maskedPhone: string; farmerName: string; devCode?: string }> {
+  return apiPost("/api/pod/otp/send", { farmerId });
+}
+
+export async function verifyOtp(farmerId: number, code: string): Promise<{ verified: boolean }> {
+  return apiPost("/api/pod/otp/verify", { farmerId, code });
 }
 
 // ── RECONCILIATION ────────────────────────────────────────────────────────────

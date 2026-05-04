@@ -13,6 +13,6 @@ export const supabase = createClient(url, key, {
     // sharing the same origin (e.g. the Replit canvas iframe + a direct tab)
     // deadlock each other waiting for the same named lock, causing
     // signInWithPassword to hang indefinitely.
-    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => fn(),
+    lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
   },
 });

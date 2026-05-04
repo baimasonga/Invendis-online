@@ -31,6 +31,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
+      supabaseUser?: { id: string; email: string };
     }
   }
 }
@@ -47,6 +48,41 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token expired or invalid" });
+  }
+}
+
+export async function requireSupabaseAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const token = authHeader.slice(7);
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    res.status(500).json({ error: "Supabase not configured on server" });
+    return;
+  }
+
+  try {
+    const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: supabaseKey,
+      },
+    });
+    if (!resp.ok) {
+      res.status(401).json({ error: "Unauthorized", message: "Invalid Supabase token" });
+      return;
+    }
+    const user = (await resp.json()) as { id: string; email: string };
+    req.supabaseUser = user;
+    next();
+  } catch {
+    res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
   }
 }
 
