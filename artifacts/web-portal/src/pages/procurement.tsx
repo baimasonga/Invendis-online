@@ -1,81 +1,107 @@
 import { useState } from "react";
 import { useListProcurementOrders } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, ShoppingCart } from "lucide-react";
+import { CreateProcurementOrderModal } from "@/components/modals/CreateProcurementOrderModal";
+
+const STATUS_STYLES: Record<string, string> = {
+  draft:      "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
+  submitted:  "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
+  approved:   "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
+  delivered:  "bg-teal-100   text-teal-800   dark:bg-teal-900/30    dark:text-teal-400",
+  completed:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+  cancelled:  "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-400",
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const cls = STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>
+  );
+}
 
 export default function Procurement() {
+  const [createOpen, setCreateOpen] = useState(false);
   const { data: orders, isLoading } = useListProcurementOrders();
+  const orderList: any[] = (orders as any[]) ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Procurement</h1>
-          <p className="text-muted-foreground">Manage incoming stock and supplier orders.</p>
+          <h1 className="text-xl font-bold tracking-tight">Procurement</h1>
+          <p className="text-sm text-muted-foreground">Manage incoming stock orders from suppliers.</p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Order
+        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Create Order
         </Button>
       </div>
 
       <Card>
-        <CardContent className="pt-6">
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order Code</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
+        <CardHeader className="pb-0 pt-4 px-4">
+          {!isLoading && <p className="text-xs text-muted-foreground">{orderList.length} orders</p>}
+        </CardHeader>
+        <CardContent className="p-0 mt-2">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-t">
+                <TableHead className="pl-4 w-[130px]">Order Code</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead className="hidden md:table-cell">Warehouse</TableHead>
+                <TableHead className="hidden lg:table-cell">Order Date</TableHead>
+                <TableHead className="hidden lg:table-cell">Expected</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading
+                ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                      <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell className="pl-4"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                      <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
+                      <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                     </TableRow>
                   ))
-                ) : orders && orders.length > 0 ? (
-                  orders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.orderCode}</TableCell>
-                      <TableCell>{order.supplierName}</TableCell>
-                      <TableCell>{order.inputItemName}</TableCell>
-                      <TableCell>{order.quantity}</TableCell>
-                      <TableCell>
-                        <Badge variant={order.status === 'Completed' ? 'default' : 'secondary'}>
-                          {order.status}
-                        </Badge>
+                : orderList.length > 0
+                ? orderList.map((o: any) => (
+                    <TableRow key={o.id} className="hover:bg-muted/40">
+                      <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{o.orderCode}</TableCell>
+                      <TableCell className="text-sm font-medium">{o.supplierName ?? "—"}</TableCell>
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{o.warehouseName ?? `Warehouse #${o.warehouseId}`}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                        {o.orderDate ? new Date(o.orderDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                       </TableCell>
-                      <TableCell>{new Date(order.orderDate).toLocaleDateString()}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                        {o.expectedDelivery ? new Date(o.expectedDelivery).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </TableCell>
+                      <TableCell><StatusBadge status={o.status} /></TableCell>
                     </TableRow>
                   ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      No procurement orders found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                : (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-32 text-center">
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <ShoppingCart className="h-8 w-8 opacity-30" />
+                          <span className="text-sm">No procurement orders yet</span>
+                          <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                            <Plus className="h-3.5 w-3.5 mr-1.5" /> Create first order
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
+
+      <CreateProcurementOrderModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }
