@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   useListDispatches,
   useApproveDispatch,
@@ -145,7 +146,13 @@ export default function Dispatch() {
                     const busy = loadingId === d.id;
                     return (
                       <TableRow key={d.id} className="hover:bg-muted/40">
-                        <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{d.manifestCode}</TableCell>
+                        <TableCell className="pl-4">
+                          <Link href={`/dispatch/${d.id}`}>
+                            <span className="font-mono text-xs text-green-700 hover:text-green-900 hover:underline cursor-pointer">
+                              {d.manifestCode}
+                            </span>
+                          </Link>
+                        </TableCell>
                         <TableCell className="text-sm font-medium">{d.campaignName ?? "—"}</TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div>
@@ -177,6 +184,11 @@ export default function Dispatch() {
                                 Arrived
                               </Button>
                             )}
+                            <Link href={`/dispatch/${d.id}`}>
+                              <span className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline cursor-pointer ml-1">
+                                View
+                              </span>
+                            </Link>
                           </div>
                         </TableCell>
                       </TableRow>

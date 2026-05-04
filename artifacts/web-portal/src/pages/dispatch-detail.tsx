@@ -16,11 +16,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiAction } from "@/lib/api";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
+import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -56,6 +57,7 @@ export default function DispatchDetail() {
   const { toast } = useToast();
   const [actionLoading, setActionLoading] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
+  const [addItemOpen, setAddItemOpen] = useState(false);
 
   const { data: dispatch, isLoading } = useGetDispatch(id, {
     query: { enabled: !!id, queryKey: getGetDispatchQueryKey(id) },
@@ -132,6 +134,8 @@ export default function DispatchDetail() {
   const status = (d.status ?? "").toLowerCase().replace(/\s+/g, "");
   const items: any[] = d.items ?? [];
   const pods: any[] = (podData as any)?.data ?? [];
+  const canAddItems = status === "pending" || status === "approved";
+  const canRecordDelivery = status === "arrived" || status === "completed";
 
   return (
     <div className="space-y-5">
@@ -165,7 +169,7 @@ export default function DispatchDetail() {
               <MapPin className="h-3.5 w-3.5 mr-1" /> Mark Arrived
             </Button>
           )}
-          {(status === "arrived" || status === "completed") && (
+          {canRecordDelivery && (
             <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
               <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Record Delivery
             </Button>
@@ -177,10 +181,12 @@ export default function DispatchDetail() {
         <TabsList className="h-8">
           <TabsTrigger value="manifest" className="text-xs">Manifest</TabsTrigger>
           <TabsTrigger value="items" className="text-xs">
-            Line Items {items.length > 0 && <span className="ml-1 text-xs bg-muted rounded px-1">{items.length}</span>}
+            Line Items
+            {items.length > 0 && <span className="ml-1 text-xs bg-muted rounded px-1">{items.length}</span>}
           </TabsTrigger>
           <TabsTrigger value="pod" className="text-xs">
-            PoD Records {pods.length > 0 && <span className="ml-1 text-xs bg-muted rounded px-1">{pods.length}</span>}
+            PoD Records
+            {pods.length > 0 && <span className="ml-1 text-xs bg-muted rounded px-1">{pods.length}</span>}
           </TabsTrigger>
         </TabsList>
 
@@ -216,8 +222,12 @@ export default function DispatchDetail() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground">Total Packages</span>
+                    <span className="text-sm text-muted-foreground">Total Loaded</span>
                     <span className="font-semibold">{d.totalPackages ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b">
+                    <span className="text-sm text-muted-foreground">Line Items</span>
+                    <span className="font-semibold">{items.length}</span>
                   </div>
                   <div className="flex justify-between items-center pb-2 border-b">
                     <span className="text-sm text-muted-foreground">Delivered</span>
@@ -236,27 +246,47 @@ export default function DispatchDetail() {
         {/* Line items */}
         <TabsContent value="items" className="mt-4">
           <Card>
+            <CardHeader className="pb-3 pt-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold">Items Loaded</CardTitle>
+              {canAddItems && (
+                <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setAddItemOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
+                </Button>
+              )}
+            </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="pl-4">Input Item</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead className="text-right">Loaded</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Delivered</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Returned</TableHead>
                     <TableHead className="text-right pr-4 hidden md:table-cell">Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="h-24 text-center text-muted-foreground text-sm">
-                        No line items recorded
+                      <TableCell colSpan={5} className="h-28 text-center">
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Package2 className="h-7 w-7 opacity-30" />
+                          <span className="text-sm">No items added yet</span>
+                          {canAddItems && (
+                            <Button size="sm" variant="outline" onClick={() => setAddItemOpen(true)}>
+                              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add first item
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ) : items.map((item: any, i: number) => (
-                    <TableRow key={i} className="hover:bg-muted/40">
-                      <TableCell className="pl-4 text-sm font-medium">{item.inputItemName ?? item.name ?? "—"}</TableCell>
-                      <TableCell className="text-right text-sm">{item.quantity?.toLocaleString()}</TableCell>
-                      <TableCell className="text-right pr-4 text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? item.unitOfMeasure ?? "—"}</TableCell>
+                  ) : items.map((item: any) => (
+                    <TableRow key={item.id} className="hover:bg-muted/40">
+                      <TableCell className="pl-4 text-sm font-medium">{item.inputItemName ?? "—"}</TableCell>
+                      <TableCell className="text-right text-sm font-semibold tabular-nums">{item.quantityLoaded?.toLocaleString()}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums hidden md:table-cell text-emerald-700">{item.quantityDelivered ?? 0}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums hidden lg:table-cell text-muted-foreground">{item.quantityReturned ?? 0}</TableCell>
+                      <TableCell className="text-right pr-4 text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -270,7 +300,7 @@ export default function DispatchDetail() {
           <Card>
             <CardHeader className="pb-3 pt-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Proof of Delivery</CardTitle>
-              {(status === "arrived" || status === "completed") && (
+              {canRecordDelivery && (
                 <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
                   <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Record Delivery
                 </Button>
@@ -322,6 +352,7 @@ export default function DispatchDetail() {
       </Tabs>
 
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
+      <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />
     </div>
   );
 }

@@ -3,7 +3,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, ArrowUpDown, MapPin, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, ArrowUpDown, MapPin, TrendingUp, Download } from "lucide-react";
+
+function downloadCSV(rows: any[], columns: { key: string; label: string }[], filename: string) {
+  if (!rows.length) return;
+  const header = columns.map(c => `"${c.label}"`).join(",");
+  const lines = rows.map(row =>
+    columns.map(c => {
+      const val = row[c.key] ?? "";
+      return `"${String(val).replace(/"/g, '""')}"`;
+    }).join(",")
+  );
+  const csv = [header, ...lines].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function KpiCard({ label, value, icon: Icon, color }: { label: string; value: number | string; icon: React.ElementType; color: string }) {
   return (
@@ -51,6 +73,32 @@ export default function Reports() {
   const { data: stockReport, isLoading: loadingStock } = useGetStockMovementReport();
   const { data: distReport,  isLoading: loadingDist  } = useGetDistributionReport();
 
+  const beneficiaryCols = [
+    { key: "farmerCode", label: "Farmer Code" },
+    { key: "name",       label: "Name" },
+    { key: "gender",     label: "Gender" },
+    { key: "district",   label: "District" },
+    { key: "valueChain", label: "Value Chain" },
+  ];
+
+  const stockCols = [
+    { key: "date",            label: "Date" },
+    { key: "transactionType", label: "Type" },
+    { key: "inputItem",       label: "Input Item" },
+    { key: "warehouse",       label: "Warehouse" },
+    { key: "quantity",        label: "Quantity" },
+  ];
+
+  const distributionCols = [
+    { key: "district",       label: "District" },
+    { key: "allocated",      label: "Allocated" },
+    { key: "delivered",      label: "Delivered" },
+    { key: "pending",        label: "Pending" },
+    { key: "completionRate", label: "Completion %" },
+  ];
+
+  const today = new Date().toISOString().slice(0, 10);
+
   return (
     <div className="space-y-5">
       <div>
@@ -73,16 +121,25 @@ export default function Reports() {
             </div>
           ) : benReport ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard label="Total Beneficiaries" value={benReport.totalBeneficiaries ?? 0} icon={Users} color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
-              <KpiCard label="Female" value={benReport.female ?? 0} icon={Users} color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
-              <KpiCard label="Male" value={benReport.male ?? 0} icon={Users} color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
-              <KpiCard label="Youth" value={benReport.youth ?? 0} icon={TrendingUp} color="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" />
+              <KpiCard label="Total Beneficiaries" value={benReport.totalBeneficiaries ?? 0} icon={Users}       color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
+              <KpiCard label="Female"              value={benReport.female ?? 0}              icon={Users}       color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
+              <KpiCard label="Male"                value={benReport.male ?? 0}                icon={Users}       color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
+              <KpiCard label="Youth"               value={benReport.youth ?? 0}               icon={TrendingUp}  color="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" />
             </div>
           ) : null}
 
           <Card>
-            <CardHeader className="pb-2 pt-4 px-4">
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Beneficiary List</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={!benReport?.rows?.length}
+                onClick={() => downloadCSV(benReport?.rows ?? [], beneficiaryCols, `beneficiaries-${today}.csv`)}
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -132,8 +189,17 @@ export default function Reports() {
         {/* Stock movement tab */}
         <TabsContent value="stock" className="mt-4">
           <Card>
-            <CardHeader className="pb-2 pt-4 px-4">
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Stock Movement Ledger</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={!stockReport?.rows?.length}
+                onClick={() => downloadCSV(stockReport?.rows ?? [], stockCols, `stock-movement-${today}.csv`)}
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -187,8 +253,17 @@ export default function Reports() {
         {/* Distribution tab */}
         <TabsContent value="distribution" className="mt-4">
           <Card>
-            <CardHeader className="pb-2 pt-4 px-4">
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Distribution by District</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={!distReport?.rows?.length}
+                onClick={() => downloadCSV(distReport?.rows ?? [], distributionCols, `distribution-${today}.csv`)}
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table>

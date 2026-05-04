@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, dispatchesTable, dispatchItemsTable, vehiclesTable } from "@workspace/db";
+import { db, dispatchesTable, dispatchItemsTable, inputItemsTable, vehiclesTable } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -28,8 +28,32 @@ router.post("/api/dispatch", requireAuth, async (req, res) => {
 router.get("/api/dispatch/:id", requireAuth, async (req, res) => {
   const [row] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, Number(req.params.id))).limit(1);
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
-  const items = await db.select().from(dispatchItemsTable).where(eq(dispatchItemsTable.dispatchId, row.id));
+  const items = await db
+    .select({
+      id: dispatchItemsTable.id,
+      dispatchId: dispatchItemsTable.dispatchId,
+      inputItemId: dispatchItemsTable.inputItemId,
+      inputItemName: inputItemsTable.name,
+      unit: inputItemsTable.unit,
+      quantityLoaded: dispatchItemsTable.quantityLoaded,
+      quantityDelivered: dispatchItemsTable.quantityDelivered,
+      quantityReturned: dispatchItemsTable.quantityReturned,
+    })
+    .from(dispatchItemsTable)
+    .leftJoin(inputItemsTable, eq(dispatchItemsTable.inputItemId, inputItemsTable.id))
+    .where(eq(dispatchItemsTable.dispatchId, row.id));
   res.json({ ...row, items });
+});
+
+router.post("/api/dispatch/:id/items", requireAuth, async (req, res) => {
+  const dispatchId = Number(req.params.id);
+  const { inputItemId, quantityLoaded } = req.body as { inputItemId: number; quantityLoaded: number };
+  const [item] = await db.insert(dispatchItemsTable).values({ dispatchId, inputItemId, quantityLoaded }).returning();
+  const allItems = await db.select().from(dispatchItemsTable).where(eq(dispatchItemsTable.dispatchId, dispatchId));
+  const total = allItems.reduce((s, i) => s + (i.quantityLoaded ?? 0), 0);
+  await db.update(dispatchesTable).set({ totalPackages: Math.round(total), updatedAt: new Date() }).where(eq(dispatchesTable.id, dispatchId));
+  await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
+  res.status(201).json(item);
 });
 
 router.post("/api/dispatch/:id/approve", requireAuth, async (req, res) => {
@@ -39,7 +63,6 @@ router.post("/api/dispatch/:id/approve", requireAuth, async (req, res) => {
   res.json(row);
 });
 
-// OpenAPI spec uses /dispatch — same path used for "start dispatch" action
 router.post("/api/dispatch/:id/dispatch", requireAuth, async (req, res) => {
   const [row] = await db.update(dispatchesTable).set({ status: "Dispatched", departedAt: new Date(), updatedAt: new Date() })
     .where(eq(dispatchesTable.id, Number(req.params.id))).returning();
