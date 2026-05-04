@@ -28,4 +28,24 @@ router.post("/api/reconciliation", requireAuth, async (req, res) => {
   res.status(201).json(row);
 });
 
+router.post("/api/reconciliation/:id/approve", requireAuth, async (req, res) => {
+  const [row] = await db.update(reconciliationsTable)
+    .set({ status: "Approved", approvedBy: req.user!.userId, approvedAt: new Date() })
+    .where(eq(reconciliationsTable.id, Number(req.params.id)))
+    .returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  await logAudit(req, "APPROVE", "Reconciliation", `Approved reconciliation ID ${req.params.id}`, "reconciliation", row.id);
+  res.json(row);
+});
+
+router.post("/api/reconciliation/:id/reject", requireAuth, async (req, res) => {
+  const [row] = await db.update(reconciliationsTable)
+    .set({ status: "Rejected" })
+    .where(eq(reconciliationsTable.id, Number(req.params.id)))
+    .returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  await logAudit(req, "REJECT", "Reconciliation", `Rejected reconciliation ID ${req.params.id}`, "reconciliation", row.id);
+  res.json(row);
+});
+
 export default router;

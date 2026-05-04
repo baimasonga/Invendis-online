@@ -51,8 +51,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 }
 
 export function requireRoles(...roles: string[]) {
+  const normalised = roles.map(r => r.toLowerCase());
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user || !normalised.includes(req.user.role.toLowerCase())) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }
