@@ -17,6 +17,7 @@ import CampaignDetail from "@/pages/campaign-detail";
 import Allocations from "@/pages/allocations";
 import Vehicles from "@/pages/vehicles";
 import Dispatch from "@/pages/dispatch";
+import DispatchDetail from "@/pages/dispatch-detail";
 import GpsTracking from "@/pages/gps-tracking";
 import Pod from "@/pages/pod";
 import Reconciliation from "@/pages/reconciliation";
@@ -27,7 +28,6 @@ import Settings from "@/pages/settings";
 
 const queryClient = new QueryClient();
 
-// Protected Route Wrapper
 const ProtectedRoute = ({ component: Component, ...rest }: any) => {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -55,25 +55,26 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      
-      <ProtectedRoute path="/dashboard" component={Dashboard} />
-      <ProtectedRoute path="/farmers" component={Farmers} />
-      <ProtectedRoute path="/farmers/:id" component={FarmerDetail} />
-      <ProtectedRoute path="/inventory" component={Inventory} />
-      <ProtectedRoute path="/procurement" component={Procurement} />
-      <ProtectedRoute path="/campaigns" component={Campaigns} />
-      <ProtectedRoute path="/campaigns/:id" component={CampaignDetail} />
-      <ProtectedRoute path="/allocations" component={Allocations} />
-      <ProtectedRoute path="/vehicles" component={Vehicles} />
-      <ProtectedRoute path="/dispatch" component={Dispatch} />
-      <ProtectedRoute path="/gps-tracking" component={GpsTracking} />
-      <ProtectedRoute path="/pod" component={Pod} />
-      <ProtectedRoute path="/reconciliation" component={Reconciliation} />
-      <ProtectedRoute path="/reports" component={Reports} />
-      <ProtectedRoute path="/audit" component={AuditLogs} />
-      <ProtectedRoute path="/users" component={Users} />
-      <ProtectedRoute path="/settings" component={Settings} />
-      
+
+      <ProtectedRoute path="/dashboard"        component={Dashboard} />
+      <ProtectedRoute path="/farmers"          component={Farmers} />
+      <ProtectedRoute path="/farmers/:id"      component={FarmerDetail} />
+      <ProtectedRoute path="/inventory"        component={Inventory} />
+      <ProtectedRoute path="/procurement"      component={Procurement} />
+      <ProtectedRoute path="/campaigns"        component={Campaigns} />
+      <ProtectedRoute path="/campaigns/:id"    component={CampaignDetail} />
+      <ProtectedRoute path="/allocations"      component={Allocations} />
+      <ProtectedRoute path="/vehicles"         component={Vehicles} />
+      <ProtectedRoute path="/dispatch"         component={Dispatch} />
+      <ProtectedRoute path="/dispatch/:id"     component={DispatchDetail} />
+      <ProtectedRoute path="/gps-tracking"     component={GpsTracking} />
+      <ProtectedRoute path="/pod"              component={Pod} />
+      <ProtectedRoute path="/reconciliation"   component={Reconciliation} />
+      <ProtectedRoute path="/reports"          component={Reports} />
+      <ProtectedRoute path="/audit"            component={AuditLogs} />
+      <ProtectedRoute path="/users"            component={Users} />
+      <ProtectedRoute path="/settings"         component={Settings} />
+
       <Route path="/">
         <Redirect to="/dashboard" />
       </Route>
