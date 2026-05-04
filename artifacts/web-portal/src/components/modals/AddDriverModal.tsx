@@ -24,11 +24,9 @@ export function AddDriverModal({ open, onClose }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fullName) return;
-    const driverCode = "DRV-" + Date.now().toString(36).toUpperCase();
     try {
       await create.mutateAsync({
         data: {
-          driverCode,
           fullName,
           phone: phone || undefined,
           licenseNumber: licence || undefined,

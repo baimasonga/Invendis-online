@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, inputItemsTable, stockBalanceTable, stockLedgerTable, procurementOrdersTable, procurementItemsTable } from "@workspace/db";
+import { db, inputItemsTable, stockBalanceTable, stockLedgerTable, procurementOrdersTable, procurementItemsTable, warehousesTable } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -84,7 +84,24 @@ router.get("/api/inventory/transactions", requireAuth, async (req, res) => {
 
 // Procurement Orders
 router.get("/api/procurement", requireAuth, async (_req, res) => {
-  res.json(await db.select().from(procurementOrdersTable).orderBy(desc(procurementOrdersTable.createdAt)));
+  const rows = await db
+    .select({
+      id: procurementOrdersTable.id,
+      orderCode: procurementOrdersTable.orderCode,
+      supplierName: procurementOrdersTable.supplierName,
+      warehouseId: procurementOrdersTable.warehouseId,
+      warehouseName: warehousesTable.name,
+      status: procurementOrdersTable.status,
+      totalAmount: procurementOrdersTable.totalAmount,
+      orderDate: procurementOrdersTable.orderDate,
+      expectedDelivery: procurementOrdersTable.expectedDelivery,
+      notes: procurementOrdersTable.notes,
+      createdAt: procurementOrdersTable.createdAt,
+    })
+    .from(procurementOrdersTable)
+    .leftJoin(warehousesTable, eq(procurementOrdersTable.warehouseId, warehousesTable.id))
+    .orderBy(desc(procurementOrdersTable.createdAt));
+  res.json(rows);
 });
 router.post("/api/procurement", requireAuth, async (req, res) => {
   const orderCode = "PO-" + Date.now().toString(36).toUpperCase();

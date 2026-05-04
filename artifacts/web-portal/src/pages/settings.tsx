@@ -26,7 +26,7 @@ function AddValueChainModal({ open, onClose }: { open: boolean; onClose: () => v
     e.preventDefault();
     if (!name) return;
     try {
-      await create.mutateAsync({ data: { name, description: desc || undefined, isActive: true } as any });
+      await create.mutateAsync({ data: { name, description: desc || undefined, isActive: 1 } as any });
       await qc.invalidateQueries({ queryKey: getListValueChainsQueryKey() });
       toast({ title: "Value chain added" });
       reset(); onClose();
@@ -107,7 +107,6 @@ export default function Settings() {
                     <TableHead>Name</TableHead>
                     <TableHead className="hidden md:table-cell">District</TableHead>
                     <TableHead className="hidden lg:table-cell">Address</TableHead>
-                    <TableHead className="hidden md:table-cell text-right pr-4">Capacity (MT)</TableHead>
                     <TableHead className="pr-4">Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -130,7 +129,6 @@ export default function Settings() {
                           <TableCell className="text-sm font-medium">{w.name}</TableCell>
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{w.districtName ?? "—"}</TableCell>
                           <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{w.address ?? "—"}</TableCell>
-                          <TableCell className="hidden md:table-cell text-right pr-4 text-sm tabular-nums text-muted-foreground">{w.capacityMt ?? "—"}</TableCell>
                           <TableCell className="pr-4">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${w.isActive ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
                               {w.isActive ? "Active" : "Inactive"}

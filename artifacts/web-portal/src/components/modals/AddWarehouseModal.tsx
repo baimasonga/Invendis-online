@@ -15,16 +15,15 @@ export function AddWarehouseModal({ open, onClose }: Props) {
   const { toast } = useToast();
   const create = useCreateWarehouse();
 
-  const [code, setCode]         = useState("");
-  const [name, setName]         = useState("");
-  const [districtId, setDist]   = useState("");
-  const [address, setAddress]   = useState("");
-  const [capacity, setCapacity] = useState("");
+  const [code, setCode]       = useState("");
+  const [name, setName]       = useState("");
+  const [districtId, setDist] = useState("");
+  const [address, setAddress] = useState("");
 
   const { data: districts } = useListDistricts();
   const districtList: any[] = (districts as any[]) ?? [];
 
-  function reset() { setCode(""); setName(""); setDist(""); setAddress(""); setCapacity(""); }
+  function reset() { setCode(""); setName(""); setDist(""); setAddress(""); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,8 +35,7 @@ export function AddWarehouseModal({ open, onClose }: Props) {
           name,
           districtId: districtId ? Number(districtId) : undefined,
           address: address || undefined,
-          capacityMt: capacity ? Number(capacity) : undefined,
-          isActive: true,
+          isActive: 1,
         } as any,
       });
       await qc.invalidateQueries({ queryKey: getListWarehousesQueryKey() });
@@ -54,15 +52,9 @@ export function AddWarehouseModal({ open, onClose }: Props) {
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Add Warehouse</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Code *</Label>
-              <Input value={code} onChange={e => setCode(e.target.value)} placeholder="WH-BO" required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Capacity (MT)</Label>
-              <Input type="number" min="0" step="any" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="500" />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Code *</Label>
+            <Input value={code} onChange={e => setCode(e.target.value)} placeholder="WH-BO" required />
           </div>
           <div className="space-y-1.5">
             <Label>Name *</Label>

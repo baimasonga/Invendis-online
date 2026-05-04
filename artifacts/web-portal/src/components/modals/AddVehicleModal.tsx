@@ -29,11 +29,9 @@ export function AddVehicleModal({ open, onClose }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!plate || !type) return;
-    const vehicleCode = "VEH-" + Date.now().toString(36).toUpperCase();
     try {
       await create.mutateAsync({
         data: {
-          vehicleCode,
           plateNumber: plate.toUpperCase(),
           vehicleType: type,
           make: make || undefined,
