@@ -1,110 +1,198 @@
 import { useListInputItems, useGetStockBalance } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Plus, Box, PackageCheck } from "lucide-react";
+
+const CATEGORY_STYLES: Record<string, string> = {
+  seed:      "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
+  fertilizer:"bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
+  chemical:  "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-400",
+  tool:      "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
+  equipment: "bg-slate-100  text-slate-700  dark:bg-slate-800      dark:text-slate-300",
+};
+
+function CategoryBadge({ category }: { category?: string }) {
+  const key = (category ?? "").toLowerCase();
+  const cls = CATEGORY_STYLES[key] ?? "bg-slate-100 text-slate-600";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
+      {category ?? "—"}
+    </span>
+  );
+}
+
+function StockBar({ available, total }: { available: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((available / total) * 100)) : 0;
+  const color = pct > 50 ? "bg-emerald-500" : pct > 20 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="flex items-center gap-2 justify-end">
+      <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-sm font-medium tabular-nums w-12 text-right">{available?.toLocaleString()}</span>
+    </div>
+  );
+}
 
 export default function Inventory() {
-  const { data: inputItems, isLoading: isLoadingItems } = useListInputItems();
-  const { data: stockBalances, isLoading: isLoadingStock } = useGetStockBalance();
+  const { data: inputItems, isLoading: loadingItems } = useListInputItems();
+  const { data: stockBalances, isLoading: loadingStock } = useGetStockBalance();
+
+  const totalAvailable = (stockBalances ?? []).reduce((s: number, r: any) => s + (r.available ?? 0), 0);
+  const totalDelivered  = (stockBalances ?? []).reduce((s: number, r: any) => s + (r.delivered ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-        <p className="text-muted-foreground">Manage input catalogue and warehouse stock.</p>
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Inventory</h1>
+          <p className="text-sm text-muted-foreground">Input catalogue and warehouse stock levels.</p>
+        </div>
+        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white">
+          <Plus className="h-3.5 w-3.5 mr-1.5" />
+          Receive Stock
+        </Button>
       </div>
 
-      <Tabs defaultValue="stock">
-        <TabsList>
-          <TabsTrigger value="stock">Stock Balances</TabsTrigger>
-          <TabsTrigger value="catalogue">Input Catalogue</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="stock" className="mt-4">
+      {/* Quick stats */}
+      {!loadingStock && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Card>
-            <CardHeader>
-              <CardTitle>Warehouse Stock</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Warehouse</TableHead>
-                      <TableHead>Input Item</TableHead>
-                      <TableHead className="text-right">Available</TableHead>
-                      <TableHead className="text-right">Reserved</TableHead>
-                      <TableHead className="text-right">Delivered</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoadingStock ? (
-                      <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
-                    ) : stockBalances && stockBalances.length > 0 ? (
-                      stockBalances.map((stock, i) => (
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Available Units</p>
+              <p className="text-2xl font-bold">{totalAvailable.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Delivered</p>
+              <p className="text-2xl font-bold">{totalDelivered.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card className="hidden sm:block">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Catalogue Items</p>
+              <p className="text-2xl font-bold">{inputItems?.length ?? 0}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Tabs defaultValue="stock">
+        <TabsList className="h-8">
+          <TabsTrigger value="stock" className="text-xs">Stock Balances</TabsTrigger>
+          <TabsTrigger value="catalogue" className="text-xs">Input Catalogue</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="stock" className="mt-3">
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4">Warehouse</TableHead>
+                    <TableHead>Input Item</TableHead>
+                    <TableHead className="hidden md:table-cell">Category</TableHead>
+                    <TableHead className="text-right pr-4">Available</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Reserved</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell pr-4">Delivered</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingStock
+                    ? Array.from({ length: 5 }).map((_, i) => (
                         <TableRow key={i}>
-                          <TableCell>{stock.warehouseName}</TableCell>
-                          <TableCell>{stock.inputItemName}</TableCell>
-                          <TableCell className="text-right font-medium">{stock.available}</TableCell>
-                          <TableCell className="text-right">{stock.reserved}</TableCell>
-                          <TableCell className="text-right">{stock.delivered}</TableCell>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell className="pr-4"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                         </TableRow>
                       ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                          No stock balances found.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                    : stockBalances && (stockBalances as any[]).length > 0
+                    ? (stockBalances as any[]).map((stock: any, i: number) => {
+                        const rowTotal = (stock.available ?? 0) + (stock.delivered ?? 0) + (stock.reserved ?? 0);
+                        return (
+                          <TableRow key={i} className="hover:bg-muted/40">
+                            <TableCell className="pl-4 font-medium text-sm">{stock.warehouseName ?? "—"}</TableCell>
+                            <TableCell className="text-sm">{stock.inputItemName ?? "—"}</TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              <CategoryBadge category={stock.category} />
+                            </TableCell>
+                            <TableCell className="pr-4 text-right">
+                              <StockBar available={stock.available ?? 0} total={rowTotal} />
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell text-right text-sm text-muted-foreground">{stock.reserved ?? 0}</TableCell>
+                            <TableCell className="hidden lg:table-cell pr-4 text-right text-sm text-muted-foreground">{stock.delivered ?? 0}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={6} className="h-32 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <Box className="h-8 w-8 opacity-30" />
+                              <span className="text-sm">No stock data found</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="catalogue" className="mt-4">
+        <TabsContent value="catalogue" className="mt-3">
           <Card>
-            <CardHeader>
-              <CardTitle>Input Items</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Value Chain</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoadingItems ? (
-                      <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
-                    ) : inputItems && inputItems.length > 0 ? (
-                      inputItems.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium">{item.code}</TableCell>
-                          <TableCell>{item.name}</TableCell>
-                          <TableCell>{item.category}</TableCell>
-                          <TableCell>{item.unitOfMeasure}</TableCell>
-                          <TableCell>{item.valueChainName || '-'}</TableCell>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4 w-[130px]">Code</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead className="hidden md:table-cell">Unit</TableHead>
+                    <TableHead className="hidden lg:table-cell pr-4">Value Chain</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingItems
+                    ? Array.from({ length: 6 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-16" /></TableCell>
+                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-24" /></TableCell>
                         </TableRow>
                       ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                          No input items found.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                    : inputItems && inputItems.length > 0
+                    ? inputItems.map((item: any) => (
+                        <TableRow key={item.id} className="hover:bg-muted/40">
+                          <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{item.itemCode ?? item.code ?? "—"}</TableCell>
+                          <TableCell className="font-medium text-sm">{item.name}</TableCell>
+                          <TableCell><CategoryBadge category={item.category} /></TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{item.unit ?? item.unitOfMeasure ?? "—"}</TableCell>
+                          <TableCell className="hidden lg:table-cell pr-4 text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
+                        </TableRow>
+                      ))
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-32 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <PackageCheck className="h-8 w-8 opacity-30" />
+                              <span className="text-sm">No input items found</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>

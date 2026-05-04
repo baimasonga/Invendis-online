@@ -1,82 +1,218 @@
-import { useGetDashboardSummary, useGetDashboardCharts } from "@workspace/api-client-react";
+import {
+  useGetDashboardSummary,
+  useGetDashboardCharts,
+  useGetRecentActivity,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Package, AlertTriangle, Truck, MapPin } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Users, Package, Flag, AlertTriangle,
+  Truck, ClipboardList, ArrowUpRight, Activity,
+} from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+} from "recharts";
+
+const COLORS = ["#15803d", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#64748b"];
+
+function StatCard({
+  title, value, sub, icon: Icon, accent,
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+  icon: React.ElementType;
+  accent?: string;
+}) {
+  return (
+    <Card className="relative overflow-hidden">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{title}</p>
+            <p className={`text-2xl font-bold ${accent ?? ""}`}>{value}</p>
+            {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+          </div>
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${accent ? "bg-red-100 dark:bg-red-900/30" : "bg-green-100 dark:bg-green-900/30"}`}>
+            <Icon className={`h-4 w-4 ${accent ? "text-red-600 dark:text-red-400" : "text-green-700 dark:text-green-400"}`} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const RECENT_ACTION_COLORS: Record<string, string> = {
+  CREATE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+  UPDATE: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  DELETE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  APPROVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  REJECT: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
+  DISPATCH: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
+  RECEIVE: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400",
+};
+
+function timeAgo(date: string) {
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export default function Dashboard() {
-  const { data: summary, isLoading: isSummaryLoading } = useGetDashboardSummary();
-  
+  const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary();
+  const { data: charts, isLoading: loadingCharts } = useGetDashboardCharts();
+  const { data: activity, isLoading: loadingActivity } = useGetRecentActivity();
+
+  const farmerChartData = summary
+    ? [
+        { name: "Approved", value: Number(summary.approvedFarmers), fill: "#15803d" },
+        { name: "Pending", value: Number(summary.pendingFarmers), fill: "#f59e0b" },
+        { name: "Rejected", value: Math.max(0, Number(summary.totalFarmers) - Number(summary.approvedFarmers) - Number(summary.pendingFarmers)), fill: "#ef4444" },
+      ]
+    : [];
+
+  const chartsAny = charts as any;
+
+  const campaignPieData = ((chartsAny?.campaignsByStatus ?? []) as any[]).map((d: any, i: number) => ({
+    name: d.status,
+    value: Number(d.count),
+    fill: COLORS[i % COLORS.length],
+  }));
+
+  const podPieData = ((chartsAny?.podByStatus ?? []) as any[]).map((d: any, i: number) => ({
+    name: d.status,
+    value: Number(d.count),
+    fill: COLORS[i % COLORS.length],
+  }));
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard Overview</h1>
-        <p className="text-muted-foreground">Monitor real-time distribution and field operations.</p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Field operations at a glance</p>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          Live
+        </div>
       </div>
 
-      {isSummaryLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Card key={i}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <Skeleton className="h-4 w-[100px]" />
-                <Skeleton className="h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-[60px]" />
-              </CardContent>
-            </Card>
+      {/* KPI Cards */}
+      {loadingSummary ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}><CardContent className="p-5"><Skeleton className="h-16 w-full" /></CardContent></Card>
           ))}
         </div>
       ) : summary ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Farmers</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.totalFarmers.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">{summary.approvedFarmers.toLocaleString()} approved</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Stock</CardTitle>
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.totalStock.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">Available units</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Campaigns</CardTitle>
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.activeCampaigns}</div>
-              <p className="text-xs text-muted-foreground">Ongoing distributions</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Exceptions</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive">{summary.exceptions}</div>
-              <p className="text-xs text-muted-foreground">Require attention</p>
-            </CardContent>
-          </Card>
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard title="Total Farmers" value={Number(summary.totalFarmers).toLocaleString()} sub={`${Number(summary.approvedFarmers).toLocaleString()} approved`} icon={Users} />
+            <StatCard title="Total Stock" value={Number(summary.totalStock).toLocaleString()} sub={`${Number(summary.distributedInputs).toLocaleString()} distributed`} icon={Package} />
+            <StatCard title="Active Campaigns" value={summary.activeCampaigns} sub="Ongoing distributions" icon={Flag} />
+            <StatCard title="Exceptions" value={summary.exceptions} sub="Require attention" icon={AlertTriangle} accent={summary.exceptions > 0 ? "text-destructive" : undefined} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard title="Pending PoD" value={summary.pendingPod} sub="Awaiting verification" icon={ClipboardList} />
+            <StatCard title="Vehicles in Transit" value={summary.activeVehicles} sub="Currently deployed" icon={Truck} />
+          </div>
+        </>
       ) : null}
-      
-      <div className="h-64 border rounded-lg border-dashed flex items-center justify-center text-muted-foreground">
-        Charts implementation goes here
+
+      {/* Charts + Activity */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        {/* Farmer status bar */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Farmers by Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingSummary ? (
+              <Skeleton className="h-44 w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={farmerChartData} layout="vertical" barSize={18}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={62} />
+                  <Tooltip
+                    cursor={{ fill: "rgba(0,0,0,0.04)" }}
+                    contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                    {farmerChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Campaign status pie */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Campaign Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingCharts ? (
+              <Skeleton className="h-44 w-full" />
+            ) : campaignPieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={campaignPieData} cx="50%" cy="45%" innerRadius={42} outerRadius={66} paddingAngle={3} dataKey="value">
+                    {campaignPieData.map((entry: any) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No campaign data</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent activity */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Activity className="h-3.5 w-3.5" />
+              Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            {loadingActivity ? (
+              <div className="space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+              </div>
+            ) : (activity as any[])?.length > 0 ? (
+              <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                {(activity as any[]).slice(0, 12).map((log: any) => (
+                  <div key={log.id} className="flex items-start gap-2.5">
+                    <span className={`mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${RECENT_ACTION_COLORS[log.action] ?? "bg-slate-100 text-slate-600"}`}>
+                      {log.action}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-foreground truncate leading-tight">{log.description}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{log.username} · {timeAgo(log.createdAt)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No recent activity</div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
