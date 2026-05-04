@@ -48,48 +48,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    // Safety net: never stay stuck loading beyond 10 seconds
-    const safetyTimeout = setTimeout(() => setIsLoading(false), 10000);
+    let mounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        // IMPORTANT: keep this callback synchronous — no async/await here.
-        // Supabase holds an internal lock during this callback; any awaited
-        // network call inside it will deadlock subsequent auth operations
-        // (e.g. signInWithPassword). Defer all async work via setTimeout.
-        if (event === "SIGNED_OUT" || !session?.user) {
-          setUser(null);
-          clearTimeout(safetyTimeout);
-          setIsLoading(false);
-          return;
-        }
-
-        const userId = session.user.id;
-        setTimeout(() => {
-          fetchProfile(userId)
-            .then((profile) => {
-              setUser(profile);
-            })
-            .catch(() => {
-              setUser(null);
-            })
-            .finally(() => {
-              clearTimeout(safetyTimeout);
-              setIsLoading(false);
-            });
-        }, 0);
+    // Check for an existing session on mount — runs outside any Supabase lock
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id);
+        if (mounted) setUser(profile);
       }
-    );
+      if (mounted) setIsLoading(false);
+    });
+
+    // Only use onAuthStateChange for sign-out — NO async work inside the callback
+    // to avoid deadlocking Supabase's internal auth lock.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setIsLoading(false);
+      }
+    });
 
     return () => {
-      clearTimeout(safetyTimeout);
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
   const login = async ({ email, password }: { email: string; password: string }) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
+    // Fetch profile directly here — completely outside onAuthStateChange, no lock conflict
+    if (data.user) {
+      const profile = await fetchProfile(data.user.id);
+      setUser(profile);
+    }
   };
 
   const logout = async () => {
