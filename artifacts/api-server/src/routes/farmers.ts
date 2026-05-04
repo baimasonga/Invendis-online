@@ -53,6 +53,12 @@ router.get("/api/farmers/stats", requireAuth, async (_req, res) => {
   res.json(stats);
 });
 
+router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
+  const [row] = await db.select().from(farmersTable).where(eq(farmersTable.barcodeToken, req.params.token)).limit(1);
+  if (!row) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
+  res.json(row);
+});
+
 router.get("/api/farmers/:id", requireAuth, async (req, res) => {
   const [row] = await db.select().from(farmersTable).where(eq(farmersTable.id, Number(req.params.id))).limit(1);
   if (!row) { res.status(404).json({ error: "Not found" }); return; }

@@ -1,12 +1,13 @@
 # Invendis — Inventory & Distribution System
 
-A full-stack web application for managing agricultural input distribution in Sierra Leone. Tracks farmer registry, inventory/warehouse management, distribution campaigns, vehicle dispatch & GPS tracking, Proof of Delivery (PoD), stock reconciliation, reports, and audit logs.
+A full-stack web application + mobile field app for managing agricultural input distribution in Sierra Leone. Tracks farmer registry, inventory/warehouse management, distribution campaigns, vehicle dispatch & GPS tracking, Proof of Delivery (PoD), stock reconciliation, reports, and audit logs.
 
 ## Architecture
 
 **Monorepo structure (pnpm workspaces):**
 - `artifacts/web-portal` — React + Vite frontend (port 21464, preview path `/`)
 - `artifacts/api-server` — Express 5 API backend (port 8080, base path `/api`)
+- `artifacts/field-app` — Expo React Native mobile app (port 24635, preview path `/field-app/`)
 - `lib/db` — Drizzle ORM schema + PostgreSQL client
 - `lib/api-spec` — OpenAPI spec + orval codegen config
 - `lib/api-zod` — Generated Zod validation schemas
@@ -16,10 +17,36 @@ A full-stack web application for managing agricultural input distribution in Sie
 
 ## Tech Stack
 
-- **Frontend:** React 18, Vite, TypeScript, Wouter (routing), TanStack Query v5, shadcn/ui, Tailwind CSS
-- **Backend:** Express 5, TypeScript, Supabase Auth, pino logging
+- **Web Frontend:** React 18, Vite, TypeScript, Wouter (routing), TanStack Query v5, shadcn/ui, Tailwind CSS
+- **Mobile App:** Expo (React Native), Expo Router, TanStack Query v5, expo-camera, expo-location, AsyncStorage
+- **Backend:** Express 5, TypeScript, bcrypt+JWT auth, pino logging
 - **Database:** PostgreSQL (Supabase) via Drizzle ORM + direct Supabase client in `db.ts`
-- **Auth:** Supabase Auth (`signInWithPassword`) — email + password
+- **Web Auth:** Supabase Auth (`signInWithPassword`) — email + password
+- **Mobile Auth:** Custom JWT (`POST /api/auth/login` returns token, stored in AsyncStorage)
+
+## Mobile Field App (`artifacts/field-app`)
+
+Expo app for field officers to:
+- **Login** — JWT auth via `POST /api/auth/login` (same credentials as web portal)
+- **Dashboard** — Today's PoD count, pending sync queue, active dispatches
+- **Dispatch tab** — Browse/filter active dispatches, tap to view detail
+- **Scan tab** — Camera barcode/QR scan OR manual search to look up farmers
+- **Distribution detail** — Manifest info, items loaded, submitted PoDs
+- **Confirm PoD** — Farmer info, GPS capture, quantity, notes → submit or save offline
+- **Incidents tab** — Report field incidents (stored locally in AsyncStorage)
+- **Sync tab** — Offline queue management; sync pending PoDs when connected
+
+### Key Files (field-app)
+- `context/AuthContext.tsx` — JWT auth state, backed by AsyncStorage `@auth`
+- `context/OfflineQueueContext.tsx` — PoD offline queue in AsyncStorage `@pod_queue`
+- `lib/api.ts` — Typed API helpers using `EXPO_PUBLIC_DOMAIN`
+- `app/_layout.tsx` — Root layout with providers + auth guard redirect
+- `app/(tabs)/_layout.tsx` — 5-tab bar (Home, Dispatch, Scan, Incidents, Sync)
+- `app/confirm-pod.tsx` — GPS capture + PoD submission with offline fallback
+- `app/scan-farmer.tsx` — Camera barcode scanner + manual search
+
+### New API Route (added for mobile)
+- `GET /api/farmers/barcode/:token` — Look up farmer by `barcodeToken` field
 
 ## Data Layer Pattern (web-portal)
 
@@ -50,9 +77,10 @@ Key facts about `db.ts`:
 
 ## Running the Application
 
-Both workflows start automatically:
+All workflows start automatically:
 - **API Server:** `artifacts/api-server: API Server` — Express on PORT
 - **Web Portal:** `artifacts/web-portal: web` — Vite dev server on PORT
+- **Field App:** `artifacts/field-app: expo` — Expo dev server on PORT 24635
 
 ## Database
 
@@ -61,7 +89,8 @@ PostgreSQL is provisioned via Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SU
 **Push schema:** `pnpm --filter @workspace/db run push`
 **Seed data:** `pnpm --filter @workspace/scripts run seed`
 
-### Seed Credentials (email login)
+### Seed Credentials
+**Web Portal (email login via Supabase):**
 | Role              | Email                      | Password     |
 |-------------------|----------------------------|--------------|
 | Admin             | admin@invendis.sl          | admin123     |
@@ -69,14 +98,23 @@ PostgreSQL is provisioned via Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SU
 | Warehouse Manager | wm.amara@invendis.sl       | password123  |
 | Field Officer     | fo.fatima@invendis.sl      | password123  |
 
+**Mobile App (username login via API server JWT):**
+| Role              | Username        | Password     |
+|-------------------|-----------------|--------------|
+| Admin             | admin           | admin123     |
+| Field Officer     | fo.fatima       | password123  |
+
 ## Authentication
 
-Supabase Auth — `signInWithPassword({ email, password })`. Session is maintained by the Supabase client automatically. The `AuthProvider` in `use-auth.tsx` wraps the app and exposes `login`, `logout`, `user`, `isAuthenticated`.
+**Web portal:** Supabase Auth — `signInWithPassword({ email, password })`. Session maintained by Supabase client. `AuthProvider` in `use-auth.tsx` exposes `login`, `logout`, `user`, `isAuthenticated`.
+
+**Mobile app:** API server JWT — `POST /api/auth/login` returns `{ token, user }`. Token stored in AsyncStorage `@auth`. Sent as `Authorization: Bearer <token>` on all requests.
 
 Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `FieldOfficer`, `Viewer`
 
 ## Modules / Pages
 
+### Web Portal
 | Route | Description |
 |-------|-------------|
 | `/login` | Login (email + password) |
@@ -94,15 +132,31 @@ Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `Fi
 | `/gps-tracking` | Live vehicle GPS tracking (30s refresh) |
 | `/pod` | Proof of delivery monitoring |
 | `/reconciliation` | Stock reconciliation |
-| `/reports` | Beneficiary (district-level), stock movement, distribution reports |
+| `/reports` | Beneficiary, stock movement, distribution reports |
 | `/audit` | Audit log viewer (paginated) |
 | `/users` | User management (activate/deactivate) |
 | `/settings` | Master data: districts, value chains, warehouses |
+
+### Mobile Field App
+| Screen | Description |
+|--------|-------------|
+| `/login` | Username + password login |
+| `/(tabs)/` | Dashboard — stats, active dispatches, quick actions |
+| `/(tabs)/distributions` | Dispatch list with search/filter |
+| `/(tabs)/scan` | Camera scan + manual farmer lookup |
+| `/(tabs)/incidents` | Field incident reports |
+| `/(tabs)/sync` | Offline queue + sync management |
+| `/distribution/[id]` | Dispatch detail + PoD records |
+| `/scan-farmer` | Dedicated farmer barcode scan screen |
+| `/confirm-pod` | GPS + quantity + submit PoD |
+| `/incident/new` | New incident report form |
 
 ## Environment Variables / Secrets
 
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_ANON_KEY` — Supabase anon key (used in web-portal)
 - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (used in api-server)
-- `SESSION_SECRET` — Session/JWT signing secret
+- `SESSION_SECRET` — Session/JWT signing secret (api-server)
 - `DATABASE_URL` — Direct PostgreSQL connection string (api-server + drizzle)
+- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` — SMS OTP
+- `EXPO_PUBLIC_DOMAIN` — Injected at runtime; mobile app uses this to reach the API
