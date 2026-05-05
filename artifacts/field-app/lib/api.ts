@@ -121,6 +121,8 @@ export const submitPoD = (token: string, payload: Record<string, unknown>) =>
 
 export interface OtpSendResult {
   sent: boolean;
+  smsSent?: boolean;
+  channel?: "whatsapp" | "sms" | "none";
   maskedPhone: string;
   farmerName: string;
   devCode?: string;

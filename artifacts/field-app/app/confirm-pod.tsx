@@ -411,7 +411,14 @@ export default function ConfirmPodScreen() {
           <View style={[styles.devBanner, { backgroundColor: "#fef3c7", borderColor: "#f59e0b", borderRadius: colors.radius }]}>
             <Feather name="terminal" size={16} color="#92400e" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.devBannerLabel}>Dev Mode — SMS not delivered to handset</Text>
+              <Text style={styles.devBannerLabel}>
+                Dev Mode —{" "}
+                {otpResult?.channel === "whatsapp"
+                  ? "WhatsApp sent (join sandbox first)"
+                  : otpResult?.channel === "sms"
+                  ? "SMS attempted"
+                  : "Not delivered to handset"}
+              </Text>
               <Text style={styles.devBannerCode}>{devCode}</Text>
             </View>
           </View>
@@ -419,13 +426,17 @@ export default function ConfirmPodScreen() {
 
         {/* OTP card */}
         <View style={[styles.otpCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
-          {/* Shield header */}
+          {/* Header */}
           <View style={[styles.otpIconWrap, { backgroundColor: colors.primary + "12" }]}>
-            <Feather name="shield" size={32} color={colors.primary} />
+            <Feather name={otpResult?.channel === "whatsapp" ? "message-circle" : "shield"} size={32} color={colors.primary} />
           </View>
           <Text style={[styles.otpTitle, { color: colors.foreground }]}>Farmer Verification</Text>
           <Text style={[styles.otpSubtitle, { color: colors.mutedForeground }]}>
-            A 6-digit code was sent to
+            {otpResult?.channel === "whatsapp"
+              ? "A 6-digit code was sent via WhatsApp to"
+              : otpResult?.channel === "sms"
+              ? "A 6-digit code was sent via SMS to"
+              : "A 6-digit code was sent to"}
           </Text>
           <Text style={[styles.otpPhone, { color: colors.foreground }]}>
             {otpResult?.maskedPhone ?? "the farmer's phone"}

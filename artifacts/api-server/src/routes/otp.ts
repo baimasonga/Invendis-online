@@ -52,23 +52,42 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   const isDev = process.env.NODE_ENV !== "production";
   let smsSent = false;
 
+  // WhatsApp sandbox number — override with TWILIO_WHATSAPP_FROM for approved senders
+  const whatsappFrom = process.env.TWILIO_WHATSAPP_FROM ?? "whatsapp:+14155238886";
+  let channel: "whatsapp" | "sms" | "none" = "none";
+
   if (twilioSid && twilioAuth && twilioFrom) {
+    const { default: twilio } = await import("twilio");
+    const client = twilio(twilioSid, twilioAuth);
+
+    // Try WhatsApp first
     try {
-      const { default: twilio } = await import("twilio");
-      const client = twilio(twilioSid, twilioAuth);
       const msg = await client.messages.create({
-        body: `Agri-PoD Verification Code: ${code}\nDo not share this code. Valid for 5 minutes.\n- AVDP Sierra Leone`,
-        from: twilioFrom,
-        to: farmer.phone,
+        body: `*Agri-PoD Verification*\n\nYour delivery verification code is:\n\n*${code}*\n\nValid for 5 minutes. Do not share this code.\n— AVDP Sierra Leone`,
+        from: whatsappFrom,
+        to: `whatsapp:${farmer.phone}`,
       });
       smsSent = true;
-      req.log.info({ messageSid: msg.sid, to: farmer.phone, status: msg.status }, "Twilio SMS sent");
-    } catch (err: any) {
-      req.log.error({ err: err.message }, "Twilio SMS send failed");
-      // In dev, continue anyway so testing works; in prod, fail hard
-      if (!isDev) {
-        res.status(502).json({ error: "Failed to send SMS. Please check the farmer's phone number." });
-        return;
+      channel = "whatsapp";
+      req.log.info({ messageSid: msg.sid, to: farmer.phone, channel: "whatsapp", status: msg.status }, "WhatsApp OTP sent");
+    } catch (waErr: any) {
+      req.log.warn({ err: waErr.message }, "WhatsApp send failed, falling back to SMS");
+      // Fall back to plain SMS
+      try {
+        const msg = await client.messages.create({
+          body: `Agri-PoD Verification Code: ${code}\nDo not share this code. Valid for 5 minutes.\n- AVDP Sierra Leone`,
+          from: twilioFrom,
+          to: farmer.phone,
+        });
+        smsSent = true;
+        channel = "sms";
+        req.log.info({ messageSid: msg.sid, to: farmer.phone, channel: "sms", status: msg.status }, "SMS OTP sent");
+      } catch (smsErr: any) {
+        req.log.error({ err: smsErr.message }, "SMS fallback also failed");
+        if (!isDev) {
+          res.status(502).json({ error: "Could not send verification code via WhatsApp or SMS." });
+          return;
+        }
       }
     }
   } else {
@@ -78,9 +97,10 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   res.json({
     sent: true,
     smsSent,
+    channel,
     maskedPhone: maskPhone(farmer.phone),
     farmerName: `${farmer.first_name} ${farmer.last_name}`,
-    // Always expose code in dev so testing works even on trial Twilio accounts
+    // Always expose code in dev so testing works without verified numbers
     devCode: isDev ? code : undefined,
   });
 });
