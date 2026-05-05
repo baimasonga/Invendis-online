@@ -75,6 +75,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
-    "face-api.js": "^0.22.2"
+    "face-api.js": "^0.22.2",
+    "qrcode.react": "^4.2.0"
   }
 }

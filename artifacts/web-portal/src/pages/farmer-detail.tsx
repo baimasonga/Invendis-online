@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { FarmerIdCard } from "@/components/FarmerIdCard";
 
 const STATUS_STYLES: Record<string, string> = {
   approved: "bg-emerald-100 text-emerald-800 border border-emerald-200",
@@ -34,6 +36,7 @@ export default function FarmerDetail() {
   const id = parseInt(params.id || "0");
   const qc = useQueryClient();
   const { toast } = useToast();
+  const can = usePermissions();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -48,7 +51,7 @@ export default function FarmerDetail() {
     queryKey: ["face-view-url", photoKey],
     queryFn: () => getFaceViewUrl(photoKey!),
     enabled: !!photoKey,
-    staleTime: 1000 * 60 * 10, // signed URLs last 10 min
+    staleTime: 1000 * 60 * 10,
   });
 
   const approveMutation = useMutation({ mutationFn: () => approveFarmer(id) });
@@ -125,7 +128,7 @@ export default function FarmerDetail() {
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>
             {status}
           </span>
-          {status === "pending" && (
+          {can.approveFarmer && status === "pending" && (
             <>
               <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
@@ -145,8 +148,8 @@ export default function FarmerDetail() {
               <CardTitle className="text-sm font-semibold">Personal Information</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              <Field label="Gender"    value={f.gender}    icon={User} />
-              <Field label="Phone"     value={f.phone}     icon={Phone} />
+              <Field label="Gender"      value={f.gender}    icon={User} />
+              <Field label="Phone"       value={f.phone}     icon={Phone} />
               <Field label="National ID" value={f.nationalId} icon={IdCard} />
               <Field label="Date of Birth" value={f.dateOfBirth ? new Date(f.dateOfBirth).toLocaleDateString("en-GB") : undefined} />
             </CardContent>
@@ -196,23 +199,28 @@ export default function FarmerDetail() {
             </CardContent>
           </Card>
 
+          {/* Farmer ID Card with QR */}
           <Card>
             <CardHeader className="pb-3 pt-4">
-              <CardTitle className="text-sm font-semibold">Identity</CardTitle>
+              <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                <Hash className="h-3.5 w-3.5" /> ID Card & QR Code
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Field label="Farmer Code" value={f.farmerCode} icon={Hash} />
-              <Field label="Registered" value={f.createdAt ? new Date(f.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} />
-              {f.barcodeToken && (
-                <div className="pt-2 border-t text-center">
-                  <p className="text-xs text-muted-foreground mb-2">Farmer QR Code</p>
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${f.barcodeToken}`}
-                    alt="QR Code"
-                    className="mx-auto rounded border"
-                  />
-                </div>
-              )}
+            <CardContent>
+              <FarmerIdCard
+                farmer={{
+                  firstName:      f.firstName,
+                  lastName:       f.lastName,
+                  farmerCode:     f.farmerCode,
+                  barcodeToken:   f.barcodeToken,
+                  gender:         f.gender,
+                  districtName:   f.districtName,
+                  chiefdomName:   f.chiefdomName,
+                  valueChainName: f.valueChainName,
+                  status:         f.status,
+                  phone:          f.phone,
+                }}
+              />
             </CardContent>
           </Card>
         </div>
