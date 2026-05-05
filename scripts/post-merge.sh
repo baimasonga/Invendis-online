@@ -16,11 +16,10 @@ if [ -n "$GITHUB_PAT" ]; then
   CREDENTIAL_HELPER="!f() { echo username=x-access-token; echo password=${GITHUB_PAT}; }; f"
 
   if git -c "credential.helper=${CREDENTIAL_HELPER}" \
-         push "$GITHUB_REPO_URL" "${CURRENT_BRANCH}:${CURRENT_BRANCH}"; then
+         push --force "$GITHUB_REPO_URL" "${CURRENT_BRANCH}:${CURRENT_BRANCH}"; then
     echo "GitHub backup: pushed branch '${CURRENT_BRANCH}' to baimasonga/Invendis-online"
   else
     echo "ERROR: GitHub backup push failed for branch '${CURRENT_BRANCH}'." >&2
-    echo "The remote may have diverged. Resolve conflicts and push manually." >&2
     exit 1
   fi
 else

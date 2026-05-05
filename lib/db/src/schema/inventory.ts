@@ -10,6 +10,7 @@ export const inputItemsTable = pgTable("input_items", {
   category: text("category"),
   valueChainId: integer("value_chain_id"),
   description: text("description"),
+  barcode: text("barcode"),
   isActive: integer("is_active").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
