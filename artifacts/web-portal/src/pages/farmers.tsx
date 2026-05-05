@@ -5,11 +5,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
+import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -45,6 +46,7 @@ export default function Farmers() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
@@ -183,6 +185,15 @@ export default function Farmers() {
                               </Button>
                             </>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            onClick={() => setEditFarmer(farmer)}
+                          >
+                            <Pencil className="h-3 w-3 mr-1" />
+                            Edit
+                          </Button>
                           <Link href={`/farmers/${farmer.id}`}>
                             <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer ml-1">View</span>
                           </Link>
@@ -220,6 +231,7 @@ export default function Farmers() {
       </Card>
 
       <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
+      <EditFarmerModal open={!!editFarmer} farmer={editFarmer} onClose={() => setEditFarmer(null)} />
 
       <AlertDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) setRejectTarget(null); }}>
         <AlertDialogContent>

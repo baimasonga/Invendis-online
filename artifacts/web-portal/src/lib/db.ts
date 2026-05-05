@@ -214,6 +214,23 @@ export async function createFarmer(payload: any) {
   return cc(data);
 }
 
+export async function updateFarmer(id: number, payload: any) {
+  const { data, error } = await supabase.from("farmers").update({
+    first_name: payload.firstName,
+    last_name: payload.lastName,
+    gender: payload.gender ?? null,
+    phone: payload.phone ?? null,
+    national_id: payload.nationalId ?? null,
+    district_id: payload.districtId ?? null,
+    chiefdom_id: payload.chiefdomId ?? null,
+    value_chain_id: payload.valueChainId ?? null,
+    farm_size: payload.farmSize ?? null,
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "farmers", `Updated farmer #${id}`, "farmer", id);
+  return cc(data);
+}
+
 export async function approveFarmer(id: number) {
   const userId = await intUid();
   const { data, error } = await supabase.from("farmers")
@@ -296,6 +313,22 @@ export async function createCampaign(payload: any) {
   return cc(data);
 }
 
+export async function updateCampaign(id: number, payload: any) {
+  const { data, error } = await supabase.from("campaigns").update({
+    name: payload.name,
+    season: payload.season ?? null,
+    district_id: payload.districtId ?? null,
+    value_chain_id: payload.valueChainId ?? null,
+    start_date: payload.startDate ? new Date(payload.startDate).toISOString() : null,
+    end_date: payload.endDate ? new Date(payload.endDate).toISOString() : null,
+    notes: payload.description ?? payload.notes ?? null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "campaigns", `Updated campaign #${id}`, "campaign", id);
+  return cc(data);
+}
+
 export async function submitCampaign(id: number) {
   const { data, error } = await supabase.from("campaigns")
     .update({ status: "Submitted" }).eq("id", id).select().single();
@@ -356,6 +389,18 @@ export async function listInputItems() {
     .from("input_items").select("*").eq("is_active", 1).order("name");
   if (error) throw new Error(error.message);
   return cc(data ?? []);
+}
+
+export async function updateInputItem(id: number, payload: any) {
+  const { data, error } = await supabase.from("input_items").update({
+    name: payload.name,
+    category: payload.category ?? null,
+    unit: payload.unit ?? null,
+    value_chain_id: payload.valueChainId ?? null,
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "inventory", `Updated input item #${id}`, "input_item", id);
+  return cc(data);
 }
 
 export async function getStockBalance() {
@@ -467,6 +512,21 @@ export async function createVehicle(payload: any) {
   return cc(data);
 }
 
+export async function updateVehicle(id: number, payload: any) {
+  const { data, error } = await supabase.from("vehicles").update({
+    plate_number: payload.plateNumber,
+    vehicle_type: payload.vehicleType,
+    make: payload.make ?? null,
+    model: payload.model ?? null,
+    year: payload.year ? Number(payload.year) : null,
+    capacity: payload.capacity ? Number(payload.capacity) : null,
+    status: payload.status ?? "Active",
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "vehicles", `Updated vehicle #${id}`, "vehicle", id);
+  return cc(data);
+}
+
 export async function listDrivers(page = 1, limit = 50) {
   const { data, error, count } = await supabase
     .from("drivers").select("*", { count: "exact" })
@@ -474,6 +534,19 @@ export async function listDrivers(page = 1, limit = 50) {
     .range((page - 1) * limit, page * limit - 1);
   if (error) throw new Error(error.message);
   return { data: cc(data ?? []), total: count ?? 0 };
+}
+
+export async function updateDriver(id: number, payload: any) {
+  const { data, error } = await supabase.from("drivers").update({
+    full_name: payload.fullName,
+    phone: payload.phone ?? null,
+    license_number: payload.licenseNumber ?? null,
+    license_expiry: payload.licenseExpiry ? new Date(payload.licenseExpiry).toISOString() : null,
+    is_active: payload.isActive ?? 1,
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "vehicles", `Updated driver #${id}`, "driver", id);
+  return cc(data);
 }
 
 export async function createDriver(payload: any) {

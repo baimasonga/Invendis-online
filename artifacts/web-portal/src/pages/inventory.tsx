@@ -6,8 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowDownToLine, Box, PackageCheck } from "lucide-react";
+import { ArrowDownToLine, Box, PackageCheck, Pencil } from "lucide-react";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
+import { EditInputItemModal } from "@/components/modals/EditInputItemModal";
 
 const CATEGORY_STYLES: Record<string, string> = {
   seed:       "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
@@ -42,6 +43,7 @@ function StockBar({ available, total }: { available: number; total: number }) {
 
 export default function Inventory() {
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
 
   const { data: inputItems, isLoading: loadingItems } = useQuery({
     queryKey: KEYS.inventory(),
@@ -173,7 +175,8 @@ export default function Inventory() {
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead className="hidden md:table-cell">Unit</TableHead>
-                    <TableHead className="hidden lg:table-cell pr-4">Value Chain</TableHead>
+                    <TableHead className="hidden lg:table-cell">Value Chain</TableHead>
+                    <TableHead className="pr-4 text-right w-[70px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -184,7 +187,8 @@ export default function Inventory() {
                           <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                           <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-16" /></TableCell>
-                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="pr-4" />
                         </TableRow>
                       ))
                     : itemList.length > 0
@@ -194,12 +198,23 @@ export default function Inventory() {
                           <TableCell className="font-medium text-sm">{item.name}</TableCell>
                           <TableCell><CategoryBadge category={item.category} /></TableCell>
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{item.unit ?? item.unitOfMeasure ?? "—"}</TableCell>
-                          <TableCell className="hidden lg:table-cell pr-4 text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
+                          <TableCell className="pr-4 text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => setEditItem(item)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-32 text-center">
+                          <TableCell colSpan={6} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <PackageCheck className="h-8 w-8 opacity-30" />
                               <span className="text-sm">No input items found</span>
@@ -215,6 +230,7 @@ export default function Inventory() {
       </Tabs>
 
       <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
+      <EditInputItemModal open={!!editItem} item={editItem} onClose={() => setEditItem(null)} />
     </div>
   );
 }

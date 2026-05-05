@@ -6,9 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, Truck, User } from "lucide-react";
+import { Plus, Truck, User, Pencil } from "lucide-react";
 import { AddVehicleModal } from "@/components/modals/AddVehicleModal";
 import { AddDriverModal } from "@/components/modals/AddDriverModal";
+import { EditVehicleModal } from "@/components/modals/EditVehicleModal";
+import { EditDriverModal } from "@/components/modals/EditDriverModal";
 
 const VEHICLE_STATUS_STYLES: Record<string, string> = {
   active:     "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -59,6 +61,8 @@ export default function Vehicles() {
   const [tab, setTab] = useState("vehicles");
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const [driverOpen, setDriverOpen]   = useState(false);
+  const [editVehicle, setEditVehicle] = useState<any>(null);
+  const [editDriver, setEditDriver]   = useState<any>(null);
 
   const { data: vehiclesData, isLoading: loadingVehicles } = useQuery({
     queryKey: KEYS.vehicles(),
@@ -132,7 +136,8 @@ export default function Vehicles() {
                     <TableHead className="hidden md:table-cell">Type</TableHead>
                     <TableHead className="hidden lg:table-cell">Make / Model</TableHead>
                     <TableHead className="hidden lg:table-cell">Capacity</TableHead>
-                    <TableHead className="pr-4">Status</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="pr-4 text-right w-[70px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -144,7 +149,8 @@ export default function Vehicles() {
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-16" /></TableCell>
-                          <TableCell className="pr-4"><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell className="pr-4" />
                         </TableRow>
                       ))
                     : vehicleList.length > 0
@@ -166,12 +172,23 @@ export default function Vehicles() {
                           <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                             {v.capacity ? `${v.capacity} kg` : "—"}
                           </TableCell>
-                          <TableCell className="pr-4"><StatusBadge status={v.status} /></TableCell>
+                          <TableCell><StatusBadge status={v.status} /></TableCell>
+                          <TableCell className="pr-4 text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => setEditVehicle(v)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-32 text-center">
+                          <TableCell colSpan={7} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Truck className="h-8 w-8 opacity-30" />
                               <span className="text-sm">No vehicles registered</span>
@@ -198,7 +215,8 @@ export default function Vehicles() {
                     <TableHead className="hidden md:table-cell">Phone</TableHead>
                     <TableHead className="hidden lg:table-cell">Licence No.</TableHead>
                     <TableHead className="hidden lg:table-cell">Expiry</TableHead>
-                    <TableHead className="pr-4">Status</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="pr-4 text-right w-[70px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -209,7 +227,8 @@ export default function Vehicles() {
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell className="pr-4"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                          <TableCell className="pr-4" />
                         </TableRow>
                       ))
                     : driverList.length > 0
@@ -219,12 +238,23 @@ export default function Vehicles() {
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{d.phone ?? "—"}</TableCell>
                           <TableCell className="hidden lg:table-cell font-mono text-xs text-muted-foreground">{d.licenseNumber ?? "—"}</TableCell>
                           <TableCell className="hidden lg:table-cell"><LicenceStatus expiry={d.licenseExpiry} /></TableCell>
-                          <TableCell className="pr-4"><StatusBadge status={d.isActive ? "Active" : "Inactive"} /></TableCell>
+                          <TableCell><StatusBadge status={d.isActive ? "Active" : "Inactive"} /></TableCell>
+                          <TableCell className="pr-4 text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => setEditDriver(d)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-32 text-center">
+                          <TableCell colSpan={6} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <User className="h-8 w-8 opacity-30" />
                               <span className="text-sm">No drivers registered</span>
@@ -242,8 +272,10 @@ export default function Vehicles() {
         </TabsContent>
       </Tabs>
 
-      <AddVehicleModal open={vehicleOpen} onClose={() => setVehicleOpen(false)} />
-      <AddDriverModal  open={driverOpen}  onClose={() => setDriverOpen(false)} />
+      <AddVehicleModal  open={vehicleOpen}    onClose={() => setVehicleOpen(false)} />
+      <AddDriverModal   open={driverOpen}     onClose={() => setDriverOpen(false)} />
+      <EditVehicleModal open={!!editVehicle}  vehicle={editVehicle} onClose={() => setEditVehicle(null)} />
+      <EditDriverModal  open={!!editDriver}   driver={editDriver}   onClose={() => setEditDriver(null)} />
     </div>
   );
 }

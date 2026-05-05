@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays, Pencil } from "lucide-react";
 import { Link } from "wouter";
 import { CreateCampaignModal } from "@/components/modals/CreateCampaignModal";
+import { EditCampaignModal } from "@/components/modals/EditCampaignModal";
 
 const STATUS_STYLES: Record<string, string> = {
   active:    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -36,6 +37,7 @@ function formatDateRange(start: string, end: string) {
 export default function Campaigns() {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editCampaign, setEditCampaign] = useState<any>(null);
   const limit = 20;
 
   const { data: campaignsData, isLoading } = useQuery({
@@ -73,7 +75,7 @@ export default function Campaigns() {
                 <TableHead className="hidden md:table-cell">District</TableHead>
                 <TableHead className="hidden lg:table-cell">Dates</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="pr-4 text-right w-[70px]"></TableHead>
+                <TableHead className="pr-4 text-right w-[120px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -102,9 +104,20 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell><StatusBadge status={campaign.status} /></TableCell>
                       <TableCell className="pr-4 text-right">
-                        <Link href={`/campaigns/${campaign.id}`}>
-                          <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer">View</span>
-                        </Link>
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            onClick={() => setEditCampaign(campaign)}
+                          >
+                            <Pencil className="h-3 w-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Link href={`/campaigns/${campaign.id}`}>
+                            <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer">View</span>
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -141,6 +154,7 @@ export default function Campaigns() {
       </Card>
 
       <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <EditCampaignModal open={!!editCampaign} campaign={editCampaign} onClose={() => setEditCampaign(null)} />
     </div>
   );
 }
