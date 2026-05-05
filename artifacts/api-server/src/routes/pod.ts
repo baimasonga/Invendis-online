@@ -37,9 +37,32 @@ router.get("/api/pod/:id", requireAuth, async (req, res) => {
 
 router.post("/api/pod/submit", requireAuth, async (req, res) => {
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
-  const body = camelToSnake(req.body);
+  const body = camelToSnake(req.body) as Record<string, any>;
+
+  let campaignId: number | null = body.campaign_id ?? null;
+
+  if (!campaignId && body.dispatch_id) {
+    const { data: dispatch } = await supa
+      .from("dispatches")
+      .select("campaign_id")
+      .eq("id", Number(body.dispatch_id))
+      .single();
+    campaignId = (dispatch as any)?.campaign_id ?? null;
+  }
+
+  if (!campaignId) {
+    const { data: first } = await supa.from("campaigns").select("id").order("id").limit(1).single();
+    campaignId = (first as any)?.id ?? null;
+  }
+
+  if (!campaignId) {
+    res.status(400).json({ error: "campaign_id is required and could not be resolved" });
+    return;
+  }
+
   const { data, error } = await supa.from("pod").insert({
     ...body,
+    campaign_id: campaignId,
     pod_code: podCode,
     status: "Pending",
     submitted_at: new Date().toISOString(),

@@ -116,6 +116,16 @@ export default function DistributionDetailScreen() {
         </View>
       )}
 
+      {/* Record Delivery button */}
+      <TouchableOpacity
+        style={[styles.recordBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
+        onPress={() => router.push(`/scan-farmer?dispatchId=${dispatchId}`)}
+        activeOpacity={0.85}
+      >
+        <Feather name="camera" size={18} color="#fff" />
+        <Text style={styles.recordBtnText}>Record Delivery</Text>
+      </TouchableOpacity>
+
       {/* PoDs summary */}
       <View>
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
@@ -167,4 +177,6 @@ const styles = StyleSheet.create({
   podRow: { flexDirection: "row", alignItems: "center", padding: 12, borderWidth: 1, marginBottom: 8 },
   podCode: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   podMeta: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  recordBtn: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  recordBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

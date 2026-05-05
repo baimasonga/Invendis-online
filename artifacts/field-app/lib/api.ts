@@ -81,7 +81,7 @@ export interface PoD {
   farmerId: number | null;
   dispatchId: number | null;
   campaignId: number | null;
-  quantityReceived: number | null;
+  quantityDelivered: number | null;
   status: string;
   otpStatus: string | null;
   faceStatus: string | null;

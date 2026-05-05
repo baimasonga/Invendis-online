@@ -13,7 +13,28 @@ router.get("/api/dispatch", requireAuth, async (req, res) => {
   if (status) q = q.eq("status", status) as typeof q;
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
+  const rows = data ?? [];
+  const campaignIds = [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))];
+  const { data: campaigns } = campaignIds.length > 0
+    ? await supa.from("campaigns").select("id,name,district_id").in("id", campaignIds)
+    : { data: [] };
+  const districtIds = [...new Set((campaigns ?? []).map((c: any) => c.district_id).filter(Boolean))];
+  const { data: districts } = districtIds.length > 0
+    ? await supa.from("districts").select("id,name").in("id", districtIds)
+    : { data: [] };
+  const campaignMap = Object.fromEntries((campaigns ?? []).map((c: any) => [c.id, c]));
+  const districtMap = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d]));
+  const enriched = rows.map((r: any) => {
+    const campaign = campaignMap[r.campaign_id];
+    const district = campaign ? districtMap[campaign.district_id] : null;
+    return {
+      ...snakeToCamel(r),
+      campaignName: campaign?.name ?? null,
+      destinationDistrict: district?.name ?? null,
+      destinationCommunity: null,
+    };
+  });
+  res.json({ data: enriched, total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
 router.post("/api/dispatch", requireAuth, async (req, res) => {
@@ -63,7 +84,7 @@ router.post("/api/dispatch/:id/approve", requireAuth, async (req, res) => {
 });
 
 router.post("/api/dispatch/:id/dispatch", requireAuth, async (req, res) => {
-  const { data: row, error } = await supa.from("dispatches").update({ status: "Dispatched", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
+  const { data: row, error } = await supa.from("dispatches").update({ status: "In Transit", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   if ((row as any).vehicle_id) await supa.from("vehicles").update({ status: "InTransit" }).eq("id", (row as any).vehicle_id);
   await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${req.params.id}`, "dispatch", (row as any).id);

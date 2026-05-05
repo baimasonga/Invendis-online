@@ -541,7 +541,7 @@ export async function approveDispatch(id: number) {
 
 export async function dispatchManifest(id: number) {
   const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Dispatched", departed_at: new Date().toISOString() })
+    .update({ status: "In Transit", departed_at: new Date().toISOString() })
     .eq("id", id).select().single();
   if (error) throw new Error(error.message);
   return cc(data);

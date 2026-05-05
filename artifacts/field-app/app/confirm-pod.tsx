@@ -88,7 +88,7 @@ export default function ConfirmPodScreen() {
     const payload: Record<string, unknown> = {
       farmerId: Number(farmerId),
       ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
-      quantityReceived: qty,
+      quantityDelivered: qty,
       otpStatus: "Bypassed",
       faceStatus: "Bypassed",
       ...(gps ? { farmerLatitude: String(gps.latitude), farmerLongitude: String(gps.longitude) } : {}),
