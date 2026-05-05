@@ -191,7 +191,11 @@ export async function createFarmer(payload: any) {
   const userId = await intUid();
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
+  // Explicitly compute next id to work around a stuck sequence from seed data
+  const { data: maxRow } = await supabase.from("farmers").select("id").order("id", { ascending: false }).limit(1).single();
+  const nextId = ((maxRow as any)?.id ?? 0) + 1;
   const { data, error } = await supabase.from("farmers").insert({
+    id: nextId,
     first_name: payload.firstName,
     last_name: payload.lastName,
     gender: payload.gender ?? "Male",
