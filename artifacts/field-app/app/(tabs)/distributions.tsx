@@ -45,11 +45,11 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
             {item.totalPackages ?? 0} packages
           </Text>
         </View>
-        {item.departureTime && (
+        {item.departedAt && (
           <View style={styles.meta}>
             <Feather name="calendar" size={13} color={colors.mutedForeground} />
             <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-              {new Date(item.departureTime).toLocaleDateString()}
+              {new Date(item.departedAt).toLocaleDateString()}
             </Text>
           </View>
         )}

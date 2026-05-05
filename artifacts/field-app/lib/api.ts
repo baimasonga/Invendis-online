@@ -27,6 +27,7 @@ export interface Dispatch {
   id: number;
   manifestCode: string;
   campaignId: number;
+  campaignName: string | null;
   vehicleId: number | null;
   driverId: number | null;
   warehouseId: number | null;
@@ -34,8 +35,8 @@ export interface Dispatch {
   destinationCommunity: string | null;
   status: string;
   totalPackages: number | null;
-  departureTime: string | null;
-  arrivalTime: string | null;
+  departedAt: string | null;
+  arrivedAt: string | null;
   notes: string | null;
   createdAt: string;
   items?: DispatchItem[];
@@ -60,10 +61,12 @@ export interface Farmer {
   phone: string | null;
   gender: string | null;
   districtId: number | null;
+  communityId: number | null;
   status: string;
   barcodeToken: string;
   photoUrl: string | null;
-  village: string | null;
+  ageGroup: string | null;
+  farmSize: number | null;
   valueChainId: number | null;
   createdAt: string;
 }

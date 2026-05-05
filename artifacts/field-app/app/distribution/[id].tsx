@@ -86,10 +86,10 @@ export default function DistributionDetailScreen() {
             <Feather name="package" size={13} color="rgba(255,255,255,0.7)" />
             <Text style={styles.metaText}>{dispatch.totalPackages ?? 0} packages</Text>
           </View>
-          {dispatch.departureTime && (
+          {dispatch.departedAt && (
             <View style={styles.metaItem}>
               <Feather name="clock" size={13} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.metaText}>{new Date(dispatch.departureTime).toLocaleDateString()}</Text>
+              <Text style={styles.metaText}>{new Date(dispatch.departedAt).toLocaleDateString()}</Text>
             </View>
           )}
         </View>

@@ -44,9 +44,9 @@ function FarmerResult({ farmer, onIssue }: { farmer: Farmer; onIssue: () => void
           {farmer.firstName} {farmer.lastName}
         </Text>
         <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmer.farmerCode}</Text>
-        {farmer.village && (
+        {farmer.ageGroup && (
           <Text style={[styles.farmerMeta, { color: colors.mutedForeground }]}>
-            <Feather name="map-pin" size={11} /> {farmer.village}
+            <Feather name="user" size={11} /> {farmer.ageGroup} · {farmer.gender ?? ""}
           </Text>
         )}
       </View>
