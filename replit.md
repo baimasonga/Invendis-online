@@ -109,10 +109,10 @@ PostgreSQL is provisioned via Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SU
 **Web Portal (email login via Supabase):**
 | Role              | Email                      | Password     |
 |-------------------|----------------------------|--------------|
-| Admin             | admin@invendis.sl          | admin123     |
-| Project Manager   | pm.john@invendis.sl        | password123  |
-| Warehouse Manager | wm.amara@invendis.sl       | password123  |
-| Field Officer     | fo.fatima@invendis.sl      | password123  |
+| Admin             | admin@agripo.sl            | admin123     |
+| Project Manager   | john.kamara@agripo.sl      | password123  |
+| Warehouse Manager | amara.sesay@agripo.sl      | password123  |
+| Field Officer     | fatima.conteh@agripo.sl    | password123  |
 
 **Mobile App (username login via API server JWT):**
 | Role              | Username        | Password     |

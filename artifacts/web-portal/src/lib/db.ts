@@ -14,24 +14,39 @@ function cc<T = any>(obj: any): T {
   return obj;
 }
 
-async function uid(): Promise<string | null> {
+// Returns the Supabase session email
+async function sessionEmail(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
-  return session?.user?.id ?? null;
+  return session?.user?.email ?? null;
 }
 
-export async function logAudit(
+// Resolves the integer user ID from the users table by matching the session email.
+// All integer FK columns (registered_by, approved_by, created_by, etc.) must use this.
+let _intUidCache: { email: string; id: number } | null = null;
+async function intUid(): Promise<number | null> {
+  const email = await sessionEmail();
+  if (!email) return null;
+  if (_intUidCache?.email === email) return _intUidCache.id;
+  const { data } = await supabase.from("users").select("id").eq("email", email).limit(1).single();
+  if (!data) return null;
+  _intUidCache = { email, id: (data as any).id as number };
+  return _intUidCache.id;
+}
+
+export function logAudit(
   action: string, module: string, description: string,
   entityType?: string, entityId?: number
-) {
-  const userId = await uid();
-  const { data: { session } } = await supabase.auth.getSession();
-  await supabase.from("audit_logs").insert({
-    user_id: userId,
-    username: session?.user?.email ?? null,
-    action, module, description,
-    entity_type: entityType ?? null,
-    entity_id: entityId ?? null,
-  });
+): void {
+  // Fire-and-forget — never block the caller or throw
+  Promise.all([intUid(), sessionEmail()]).then(([userId, email]) =>
+    supabase.from("audit_logs").insert({
+      user_id: userId,
+      username: email,
+      action, module, description,
+      entity_type: entityType ?? null,
+      entity_id: entityId ?? null,
+    })
+  ).catch(() => { /* audit failures are non-fatal */ });
 }
 
 async function throwOnError<T>(promise: Promise<{ data: T | null; error: any; count?: number | null }>): Promise<{ data: T; count?: number | null }> {
@@ -163,8 +178,19 @@ export async function getFarmer(id: number) {
   };
 }
 
+function generateFarmerCode() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `FRM-${ts}${rnd}`;
+}
+function generateBarcode() {
+  return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
+}
+
 export async function createFarmer(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
+  const farmerCode = generateFarmerCode();
+  const barcodeToken = generateBarcode();
   const { data, error } = await supabase.from("farmers").insert({
     first_name: payload.firstName,
     last_name: payload.lastName,
@@ -176,6 +202,8 @@ export async function createFarmer(payload: any) {
     value_chain_id: payload.valueChainId ?? null,
     farm_size: payload.farmSize ?? null,
     registered_by: userId,
+    farmer_code: farmerCode,
+    barcode_token: barcodeToken,
   }).select().single();
   if (error) throw new Error(error.message);
   await logAudit("CREATE", "farmers", `Registered farmer ${(data as any).farmer_code}`, "farmer", (data as any).id);
@@ -183,7 +211,7 @@ export async function createFarmer(payload: any) {
 }
 
 export async function approveFarmer(id: number) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("farmers")
     .update({ status: "approved", approved_by: userId, approved_at: new Date().toISOString() })
     .eq("id", id).select().single();
@@ -248,7 +276,7 @@ export async function getCampaign(id: number) {
 }
 
 export async function createCampaign(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("campaigns").insert({
     name: payload.name,
     season: payload.season ?? null,
@@ -272,7 +300,7 @@ export async function submitCampaign(id: number) {
 }
 
 export async function approveCampaign(id: number) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("campaigns")
     .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
     .eq("id", id).select().single();
@@ -307,7 +335,7 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
 }
 
 export async function createAllocation(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("allocations").insert({
     campaign_id: payload.campaignId,
     farmer_id: payload.farmerId,
@@ -348,7 +376,7 @@ export async function getStockBalance() {
 }
 
 export async function receiveStock(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data: ledger, error } = await supabase.from("stock_ledger").insert({
     warehouse_id: payload.warehouseId,
     input_item_id: payload.inputItemId,
@@ -396,7 +424,7 @@ export async function listProcurementOrders() {
 }
 
 export async function createProcurementOrder(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("procurement_orders").insert({
     supplier_name: payload.supplierName,
     warehouse_id: payload.warehouseId,
@@ -515,7 +543,7 @@ export async function getDispatch(id: number) {
 }
 
 export async function createDispatch(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("dispatches").insert({
     campaign_id: payload.campaignId,
     vehicle_id: payload.vehicleId,
@@ -530,7 +558,7 @@ export async function createDispatch(payload: any) {
 }
 
 export async function approveDispatch(id: number) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("dispatches")
     .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
     .eq("id", id).select().single();
@@ -620,7 +648,7 @@ export async function getPodStats() {
 }
 
 export async function createPod(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("pod").insert({
     farmer_id: payload.farmerId,
     campaign_id: payload.campaignId ?? null,
@@ -689,7 +717,7 @@ export async function listReconciliations() {
 }
 
 export async function createReconciliation(payload: any) {
-  const userId = await uid();
+  const userId = await intUid();
   const variance = (payload.loadedQuantity ?? 0) - (payload.deliveredQuantity ?? 0)
     - (payload.returnedQuantity ?? 0) - (payload.damagedQuantity ?? 0);
   const { data, error } = await supabase.from("reconciliations").insert({
@@ -709,7 +737,7 @@ export async function createReconciliation(payload: any) {
 }
 
 export async function approveReconciliation(id: number) {
-  const userId = await uid();
+  const userId = await intUid();
   const { data, error } = await supabase.from("reconciliations")
     .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
     .eq("id", id).select().single();
@@ -896,4 +924,41 @@ export async function createValueChain(payload: any) {
   }).select().single();
   if (error) throw new Error(error.message);
   return cc(data);
+}
+
+// ── Face / Biometric helpers ──────────────────────────────────────────────────
+
+async function getApiToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+const API_BASE = "/api";
+
+export async function getFaceUploadUrl(farmerId: number, purpose: "reference" | "delivery"): Promise<{ uploadUrl: string; key: string; bucket: string }> {
+  const token = await getApiToken();
+  if (!token) throw new Error("Not authenticated");
+  const res = await fetch(`${API_BASE}/face/upload-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ farmerId, purpose }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to get upload URL"); }
+  return res.json();
+}
+
+export async function uploadBlobToS3(uploadUrl: string, blob: Blob): Promise<void> {
+  const res = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
+  if (!res.ok) throw new Error(`S3 upload failed: ${res.status}`);
+}
+
+export async function saveFaceReference(farmerId: number, key: string): Promise<void> {
+  const token = await getApiToken();
+  if (!token) throw new Error("Not authenticated");
+  const res = await fetch(`${API_BASE}/face/save-reference`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ farmerId, key }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to save reference"); }
 }

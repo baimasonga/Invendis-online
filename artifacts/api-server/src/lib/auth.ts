@@ -86,6 +86,40 @@ export async function requireSupabaseAuth(req: Request, res: Response, next: Nex
   }
 }
 
+export async function requireAnyAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized", message: "Missing token" });
+    return;
+  }
+  const token = authHeader.slice(7);
+  // Try mobile JWT first
+  try {
+    req.user = verifyToken(token);
+    next();
+    return;
+  } catch {
+    // Not a mobile JWT — try Supabase token
+  }
+  // Try Supabase session token
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    res.status(500).json({ error: "Auth not configured" });
+    return;
+  }
+  try {
+    const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
+    });
+    if (!resp.ok) { res.status(401).json({ error: "Unauthorized" }); return; }
+    req.supabaseUser = (await resp.json()) as { id: string; email: string };
+    next();
+  } catch {
+    res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
+  }
+}
+
 export function requireRoles(...roles: string[]) {
   const normalised = roles.map(r => r.toLowerCase());
   return (req: Request, res: Response, next: NextFunction): void => {

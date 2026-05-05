@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { requireAuth } from "../lib/auth.js";
+import { requireAnyAuth } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
 import { getPresignedUploadUrl, getPresignedViewUrl, compareFaces, bucket } from "../lib/aws.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
-router.post("/api/face/upload-url", requireAuth, async (req, res) => {
+router.post("/api/face/upload-url", requireAnyAuth, async (req, res) => {
   const { farmerId, purpose } = req.body as { farmerId?: number; purpose?: string };
   if (!farmerId) { res.status(400).json({ error: "farmerId is required" }); return; }
 
@@ -21,7 +21,7 @@ router.post("/api/face/upload-url", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/api/face/view-url", requireAuth, async (req, res) => {
+router.get("/api/face/view-url", requireAnyAuth, async (req, res) => {
   const { key } = req.query as { key?: string };
   if (!key) { res.status(400).json({ error: "key is required" }); return; }
   try {
@@ -33,7 +33,7 @@ router.get("/api/face/view-url", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/api/face/compare", requireAuth, async (req, res) => {
+router.post("/api/face/compare", requireAnyAuth, async (req, res) => {
   const { farmerId, deliveryKey } = req.body as { farmerId?: number; deliveryKey?: string };
   if (!farmerId || !deliveryKey) {
     res.status(400).json({ error: "farmerId and deliveryKey are required" });
@@ -59,7 +59,7 @@ router.post("/api/face/compare", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/api/face/save-reference", requireAuth, async (req, res) => {
+router.post("/api/face/save-reference", requireAnyAuth, async (req, res) => {
   const { farmerId, key } = req.body as { farmerId?: number; key?: string };
   if (!farmerId || !key) { res.status(400).json({ error: "farmerId and key are required" }); return; }
   const { data, error } = await supa.from("farmers").update({ photo_url: key }).eq("id", farmerId).select().single();
