@@ -3,32 +3,39 @@ set -e
 pnpm install --frozen-lockfile
 pnpm --filter db push
 
-# Automatically push to GitHub after every Replit checkpoint.
-# This hook runs via [postMerge] in .replit after each platform-managed commit.
-# GitHub backup is optional — missing PAT is a warning, not a hard failure.
+# Push the latest code to GitHub after every Replit checkpoint.
+# Requires GITHUB_PAT (repo scope) to be set in Replit Secrets.
 #
-# Security: the PAT is passed via a transient remote URL; nothing is written
-# to .git/config or disk. The remote is removed after use.
+# Note: git remote add/set-url writes temporarily to .git/config.
+# The remote is removed immediately after the push.
 if [ -z "$GITHUB_PAT" ]; then
-  echo "WARN: GITHUB_PAT is not set — skipping GitHub backup." >&2
-  exit 0
+  echo "ERROR: GITHUB_PAT is not set — add it in Replit Secrets (repo scope)." >&2
+  exit 1
 fi
 
 GITHUB_REPO_URL="https://x-access-token:${GITHUB_PAT}@github.com/baimasonga/Invendis-online.git"
 
-# Ensure a clean 'github' remote (add or update)
+# Register (or refresh) the transient 'github' remote
 if git remote get-url github >/dev/null 2>&1; then
   git remote set-url github "$GITHUB_REPO_URL"
 else
   git remote add github "$GITHUB_REPO_URL"
 fi
 
-# Always push HEAD to main on the remote (Replit main = GitHub main)
-if git push --force github HEAD:main; then
-  echo "GitHub backup: pushed HEAD to baimasonga/Invendis-online:main"
-else
-  echo "WARN: GitHub backup push failed — continuing without error." >&2
+# Try a normal push first; only force when the remote history is unrelated or empty
+if ! git push github HEAD:main 2>push_err.txt; then
+  if grep -qE "(non-fast-forward|fetch first|unrelated histories)" push_err.txt; then
+    echo "Remote history diverged — force-pushing to resolve"
+    git push --force github HEAD:main
+  else
+    cat push_err.txt >&2
+    git remote remove github
+    rm -f push_err.txt
+    echo "ERROR: GitHub backup push failed." >&2
+    exit 1
+  fi
 fi
 
-# Remove the remote so the PAT URL is not cached in .git/config
+rm -f push_err.txt
 git remote remove github
+echo "GitHub backup: pushed HEAD to baimasonga/Invendis-online:main"
