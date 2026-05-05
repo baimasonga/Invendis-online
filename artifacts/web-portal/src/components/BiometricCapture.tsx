@@ -65,8 +65,13 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
     if (phase !== "scanning") return;
     detectRef.current = setInterval(async () => {
       if (!videoRef.current || videoRef.current.readyState < 2) return;
-      const det = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions());
-      setFaceDetected(!!det);
+      if (!faceapi.nets.tinyFaceDetector.isLoaded) return;
+      try {
+        const det = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions());
+        setFaceDetected(!!det);
+      } catch {
+        // model not ready yet — skip this tick
+      }
     }, 350);
     return () => { if (detectRef.current) clearInterval(detectRef.current); };
   }, [phase]);
