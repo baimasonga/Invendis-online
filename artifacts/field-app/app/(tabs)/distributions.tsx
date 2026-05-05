@@ -146,7 +146,7 @@ export default function DistributionsScreen() {
               subtitle="Dispatches assigned to your district will appear here"
             />
           }
-          scrollEnabled={!!filtered.length}
+          scrollEnabled={true}
         />
       )}
     </View>

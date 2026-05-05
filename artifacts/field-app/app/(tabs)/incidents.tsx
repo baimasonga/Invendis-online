@@ -60,6 +60,7 @@ export default function IncidentsScreen() {
     "System Issue": "cpu",
     "Stock Discrepancy": "package",
     "Farmer Dispute": "users",
+    "Safety Concern": "shield",
     "Other": "flag",
   };
 
@@ -123,7 +124,7 @@ export default function IncidentsScreen() {
             ) : null}
           </View>
         )}
-        scrollEnabled={!!incidents.length}
+        scrollEnabled={true}
       />
     </View>
   );

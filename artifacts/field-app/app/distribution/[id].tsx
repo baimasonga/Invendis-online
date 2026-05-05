@@ -143,7 +143,7 @@ export default function DistributionDetailScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.podCode, { color: colors.primary }]}>{pod.podCode}</Text>
                 <Text style={[styles.podMeta, { color: colors.mutedForeground }]}>
-                  Farmer #{pod.farmerId} · {pod.quantityReceived ?? "?"} units
+                  Farmer #{pod.farmerId} · {pod.quantityDelivered ?? "?"} units
                 </Text>
               </View>
               <StatusBadge status={pod.status} small />
