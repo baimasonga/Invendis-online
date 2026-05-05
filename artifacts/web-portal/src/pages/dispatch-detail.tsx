@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
@@ -210,7 +211,7 @@ export default function DispatchDetail() {
                 </CardContent>
               </Card>
             </div>
-            <div>
+            <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-3 pt-4">
                   <CardTitle className="text-sm font-semibold">Delivery Summary</CardTitle>
@@ -231,6 +232,31 @@ export default function DispatchDetail() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">PoD Records</span>
                     <span className="font-semibold">{pods.length}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Field App QR code for mobile scanning */}
+              <Card>
+                <CardHeader className="pb-2 pt-4">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                    <Smartphone className="h-4 w-4" /> Field App QR
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col items-center gap-3 pb-4">
+                  <div className="p-2 bg-white rounded-lg border">
+                    <QRCodeSVG
+                      value={`dispatch:${d.id}:${d.manifestCode}`}
+                      size={140}
+                      level="M"
+                      includeMargin={false}
+                    />
+                  </div>
+                  <div className="text-center space-y-0.5">
+                    <p className="text-xs font-mono font-medium">{d.manifestCode}</p>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      Scan with field app to record delivery
+                    </p>
                   </div>
                 </CardContent>
               </Card>

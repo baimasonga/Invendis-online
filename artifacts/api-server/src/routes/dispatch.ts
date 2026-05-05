@@ -6,11 +6,12 @@ import { logAudit } from "../lib/audit.js";
 const router = Router();
 
 router.get("/api/dispatch", requireAuth, async (req, res) => {
-  const { campaignId, status, page = "1", limit = "20" } = req.query as Record<string, string>;
+  const { campaignId, status, manifestCode, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("dispatches").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
+  if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
   const rows = data ?? [];

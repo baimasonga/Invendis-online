@@ -102,6 +102,17 @@ export const listDispatches = (token: string, params?: Record<string, string>) =
 export const getDispatch = (token: string, id: number) =>
   apiFetch<Dispatch>(`/dispatch/${id}`, token);
 
+export const getDispatchByManifestCode = async (
+  token: string,
+  manifestCode: string
+): Promise<Dispatch | null> => {
+  const result = await apiFetch<{ data: Dispatch[]; total: number }>(
+    `/dispatch?manifestCode=${encodeURIComponent(manifestCode)}&limit=1`,
+    token
+  );
+  return result.data?.[0] ?? null;
+};
+
 export const listPoDs = (token: string, params: Record<string, string>) => {
   const qs = "?" + new URLSearchParams(params).toString();
   return apiFetch<{ data: PoD[]; total: number }>(`/pod${qs}`, token);
