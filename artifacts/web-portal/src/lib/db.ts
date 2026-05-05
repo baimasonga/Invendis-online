@@ -65,7 +65,8 @@ async function lookupMap(table: string, ids: (number | string)[], cols: string):
 // ── QUERY KEYS ───────────────────────────────────────────────────────────────
 export const KEYS = {
   dashboard:     () => ["dashboard"],
-  farmers:       (page?: number, search?: string) => ["farmers", page, search],
+  alertCounts:   () => ["alert-counts"],
+  farmers:       (page?: number, search?: string, status?: string, districtId?: number) => ["farmers", page, search, status, districtId],
   farmer:        (id: number) => ["farmer", id],
   campaigns:     (page?: number) => ["campaigns", page],
   campaign:      (id: number) => ["campaign", id],
@@ -77,10 +78,10 @@ export const KEYS = {
   drivers:       () => ["drivers"],
   dispatches:    (page?: number) => ["dispatches", page],
   dispatch:      (id: number) => ["dispatch", id],
-  pod:           (page?: number, dId?: number) => ["pod", page, dId],
+  pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
   podStats:      () => ["pod-stats"],
   reconciliations: () => ["reconciliations"],
-  reports:       (type: string) => ["reports", type],
+  reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
   auditLogs:     (page?: number) => ["audit-logs", page],
   users:         () => ["users"],
   districts:     () => ["districts"],
@@ -100,6 +101,9 @@ export async function getDashboardData() {
     { count: pendingPod },
     recentActivity,
     farmersByStatus,
+    campaignStatuses,
+    stockLedger,
+    podTrendRaw,
   ] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }),
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
@@ -109,6 +113,9 @@ export async function getDashboardData() {
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
     supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(10),
     supabase.from("farmers").select("status").limit(1000),
+    supabase.from("campaigns").select("status").limit(500),
+    supabase.from("stock_ledger").select("warehouse_id, quantity").limit(2000),
+    supabase.from("pod").select("submitted_at, status").gte("submitted_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).limit(500),
   ]);
 
   const statusMap: Record<string, number> = {};
@@ -116,6 +123,39 @@ export async function getDashboardData() {
     statusMap[r.status] = (statusMap[r.status] ?? 0) + 1;
   }
   const farmerStatusChart = Object.entries(statusMap).map(([name, value]) => ({ name, value }));
+
+  const campStatusMap: Record<string, number> = {};
+  for (const c of (campaignStatuses.data ?? [])) {
+    campStatusMap[c.status] = (campStatusMap[c.status] ?? 0) + 1;
+  }
+  const campaignCompletionChart = Object.entries(campStatusMap).map(([name, value]) => ({ name, value }));
+
+  const whStockMap: Record<number, number> = {};
+  for (const s of (stockLedger.data ?? [])) {
+    whStockMap[s.warehouse_id] = (whStockMap[s.warehouse_id] ?? 0) + Number(s.quantity);
+  }
+  const whIds = Object.keys(whStockMap).map(Number).filter(Boolean);
+  let warehouseStockChart: { name: string; stock: number }[] = [];
+  if (whIds.length) {
+    const { data: whs } = await supabase.from("warehouses").select("id,name").in("id", whIds);
+    warehouseStockChart = (whs ?? []).map((w: any) => ({ name: w.name, stock: Math.max(0, whStockMap[w.id] ?? 0) }));
+  }
+
+  const podByDay: Record<string, { date: string; verified: number; pending: number }> = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    podByDay[key] = { date: label, verified: 0, pending: 0 };
+  }
+  for (const p of (podTrendRaw.data ?? [])) {
+    if (!p.submitted_at) continue;
+    const key = p.submitted_at.slice(0, 10);
+    if (!podByDay[key]) continue;
+    if (p.status === "Verified") podByDay[key].verified++;
+    else podByDay[key].pending++;
+  }
+  const podTrendChart = Object.values(podByDay);
 
   return {
     summary: {
@@ -126,13 +166,13 @@ export async function getDashboardData() {
       totalAllocations: totalAllocations ?? 0,
       pendingPod: pendingPod ?? 0,
     },
-    charts: { farmerStatusChart },
+    charts: { farmerStatusChart, campaignCompletionChart, warehouseStockChart, podTrendChart },
     recentActivity: cc(recentActivity.data ?? []),
   };
 }
 
 // ── FARMERS ───────────────────────────────────────────────────────────────────
-export async function listFarmers(page = 1, limit = 20, search?: string, status?: string) {
+export async function listFarmers(page = 1, limit = 20, search?: string, status?: string, districtId?: number) {
   let q = supabase
     .from("farmers")
     .select("*", { count: "exact" })
@@ -140,6 +180,7 @@ export async function listFarmers(page = 1, limit = 20, search?: string, status?
     .range((page - 1) * limit, page * limit - 1);
   if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`);
   if (status) q = q.eq("status", status);
+  if (districtId) q = q.eq("district_id", districtId);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
@@ -691,13 +732,14 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
 }
 
 // ── POD ───────────────────────────────────────────────────────────────────────
-export async function listPod(page = 1, limit = 20, dispatchId?: number) {
+export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string) {
   let q = supabase
     .from("pod")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (dispatchId) q = q.eq("dispatch_id", dispatchId);
+  if (status) q = q.eq("status", status);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
@@ -861,12 +903,11 @@ export async function getFarmerBeneficiaryReport() {
   return { rows: reportRows, summary: { total, approved, female, pctApproved: total ? Math.round((approved / total) * 100) : 0 } };
 }
 
-export async function getStockMovementReport() {
-  const { data, error } = await supabase
-    .from("stock_ledger")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+export async function getStockMovementReport(from?: string, to?: string) {
+  let q = supabase.from("stock_ledger").select("*").order("created_at", { ascending: false }).limit(500);
+  if (from) q = q.gte("created_at", from);
+  if (to) q = q.lte("created_at", to + "T23:59:59");
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [whMap, itemMap] = await Promise.all([
@@ -881,12 +922,11 @@ export async function getStockMovementReport() {
   }));
 }
 
-export async function getDistributionReport() {
-  const { data, error } = await supabase
-    .from("dispatches")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+export async function getDistributionReport(from?: string, to?: string) {
+  let q = supabase.from("dispatches").select("*").order("created_at", { ascending: false }).limit(500);
+  if (from) q = q.gte("created_at", from);
+  if (to) q = q.lte("created_at", to + "T23:59:59");
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [campaignMap, whMap] = await Promise.all([
@@ -1053,4 +1093,25 @@ export async function getFaceViewUrl(key: string): Promise<string> {
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to get view URL"); }
   const { url } = await res.json();
   return url;
+}
+
+export async function getPhotoUrl(key: string): Promise<string | null> {
+  try { return await getFaceViewUrl(key); } catch { return null; }
+}
+
+export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendingPod: number }> {
+  const [farmers, pod] = await Promise.all([
+    supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
+  ]);
+  return { pendingFarmers: farmers.count ?? 0, pendingPod: pod.count ?? 0 };
+}
+
+export async function approvePod(id: number): Promise<void> {
+  const userId = await intUid();
+  const { error } = await supabase.from("pod")
+    .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("APPROVE", "pod", `Approved PoD #${id}`, "pod", id);
 }

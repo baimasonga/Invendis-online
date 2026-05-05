@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, MapPin, TrendingUp, Download, Truck, Package } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Users, MapPin, TrendingUp, Download, Truck, Package, CalendarDays, X } from "lucide-react";
 
 function downloadCSV(rows: any[], columns: { key: string; label: string }[], filename: string) {
   if (!rows.length) return;
@@ -20,12 +22,9 @@ function downloadCSV(rows: any[], columns: { key: string; label: string }[], fil
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 function KpiCard({ label, value, icon: Icon, color }: { label: string; value: number | string; icon: React.ElementType; color: string }) {
@@ -73,38 +72,77 @@ const DIST_STATUS_STYLES: Record<string, string> = {
   cancelled:  "bg-red-100    text-red-800",
 };
 
+function DateRangeFilter({
+  from, to, onFrom, onTo, onClear,
+}: {
+  from: string; to: string;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+  onClear: () => void;
+}) {
+  const hasRange = from || to;
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <Input
+        type="date"
+        value={from}
+        onChange={(e) => onFrom(e.target.value)}
+        className="h-8 text-xs w-[130px]"
+        placeholder="From"
+      />
+      <span className="text-xs text-muted-foreground">to</span>
+      <Input
+        type="date"
+        value={to}
+        onChange={(e) => onTo(e.target.value)}
+        className="h-8 text-xs w-[130px]"
+        placeholder="To"
+      />
+      {hasRange && (
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground" onClick={onClear}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 const today = new Date().toISOString().slice(0, 10);
 
 export default function Reports() {
-  const { data: benReport,   isLoading: loadingBen  } = useQuery({
+  const [stockFrom, setStockFrom] = useState("");
+  const [stockTo,   setStockTo]   = useState("");
+  const [distFrom,  setDistFrom]  = useState("");
+  const [distTo,    setDistTo]    = useState("");
+
+  const { data: benReport, isLoading: loadingBen } = useQuery({
     queryKey: KEYS.reports("beneficiary"),
     queryFn: getFarmerBeneficiaryReport,
   });
-  const { data: stockRows,   isLoading: loadingStock } = useQuery({
-    queryKey: KEYS.reports("stock"),
-    queryFn: getStockMovementReport,
+  const { data: stockRows, isLoading: loadingStock } = useQuery({
+    queryKey: KEYS.reports("stock", stockFrom || undefined, stockTo || undefined),
+    queryFn: () => getStockMovementReport(stockFrom || undefined, stockTo || undefined),
   });
-  const { data: distRows,    isLoading: loadingDist  } = useQuery({
-    queryKey: KEYS.reports("distribution"),
-    queryFn: getDistributionReport,
+  const { data: distRows, isLoading: loadingDist } = useQuery({
+    queryKey: KEYS.reports("distribution", distFrom || undefined, distTo || undefined),
+    queryFn: () => getDistributionReport(distFrom || undefined, distTo || undefined),
   });
 
   const beneficiaryCols = [
-    { key: "district",  label: "District" },
-    { key: "total",     label: "Total" },
-    { key: "approved",  label: "Approved" },
-    { key: "pending",   label: "Pending" },
-    { key: "female",    label: "Female" },
+    { key: "district", label: "District" },
+    { key: "total",    label: "Total" },
+    { key: "approved", label: "Approved" },
+    { key: "pending",  label: "Pending" },
+    { key: "female",   label: "Female" },
   ];
-
   const stockCols = [
-    { key: "createdAt", label: "Date" },
-    { key: "txnType",   label: "Type" },
-    { key: "itemName",  label: "Input Item" },
+    { key: "createdAt",    label: "Date" },
+    { key: "txnType",      label: "Type" },
+    { key: "itemName",     label: "Input Item" },
     { key: "warehouseName", label: "Warehouse" },
-    { key: "quantity",  label: "Quantity" },
+    { key: "quantity",     label: "Quantity" },
   ];
-
   const distributionCols = [
     { key: "manifestCode",  label: "Manifest" },
     { key: "campaignName",  label: "Campaign" },
@@ -113,8 +151,8 @@ export default function Reports() {
     { key: "completionPct", label: "Completion %" },
   ];
 
-  const benRows: any[] = (benReport as any)?.rows ?? [];
-  const summary: any   = (benReport as any)?.summary ?? {};
+  const benRows: any[]   = (benReport as any)?.rows ?? [];
+  const summary: any     = (benReport as any)?.summary ?? {};
   const stockList: any[] = Array.isArray(stockRows) ? stockRows : [];
   const distList: any[]  = Array.isArray(distRows)  ? distRows  : [];
 
@@ -127,12 +165,12 @@ export default function Reports() {
 
       <Tabs defaultValue="beneficiary">
         <TabsList className="h-8">
-          <TabsTrigger value="beneficiary" className="text-xs">Beneficiaries</TabsTrigger>
-          <TabsTrigger value="stock"       className="text-xs">Stock Movement</TabsTrigger>
-          <TabsTrigger value="distribution" className="text-xs">Distribution</TabsTrigger>
+          <TabsTrigger value="beneficiary"   className="text-xs">Beneficiaries</TabsTrigger>
+          <TabsTrigger value="stock"         className="text-xs">Stock Movement</TabsTrigger>
+          <TabsTrigger value="distribution"  className="text-xs">Distribution</TabsTrigger>
         </TabsList>
 
-        {/* Beneficiary tab */}
+        {/* ── Beneficiary tab ── */}
         <TabsContent value="beneficiary" className="mt-4 space-y-4">
           {loadingBen ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -140,10 +178,10 @@ export default function Reports() {
             </div>
           ) : benReport ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard label="Total Farmers"   value={summary.total ?? 0}    icon={Users}      color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
-              <KpiCard label="Approved"         value={summary.approved ?? 0} icon={TrendingUp}  color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" />
-              <KpiCard label="Female Farmers"   value={summary.female ?? 0}   icon={Users}      color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
-              <KpiCard label="Approval Rate"    value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp} color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
+              <KpiCard label="Total Farmers" value={summary.total ?? 0}    icon={Users}      color="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" />
+              <KpiCard label="Approved"       value={summary.approved ?? 0} icon={TrendingUp}  color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" />
+              <KpiCard label="Female Farmers" value={summary.female ?? 0}   icon={Users}      color="bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" />
+              <KpiCard label="Approval Rate"  value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp} color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
             </div>
           ) : null}
 
@@ -151,9 +189,7 @@ export default function Reports() {
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Farmers by District</CardTitle>
               <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
+                size="sm" variant="outline" className="h-7 text-xs"
                 disabled={!benRows.length}
                 onClick={() => downloadCSV(benRows, beneficiaryCols, `beneficiaries-${today}.csv`)}
               >
@@ -208,20 +244,25 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        {/* Stock movement tab */}
+        {/* ── Stock movement tab ── */}
         <TabsContent value="stock" className="mt-4">
           <Card>
-            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Stock Movement Ledger</CardTitle>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                disabled={!stockList.length}
-                onClick={() => downloadCSV(stockList, stockCols, `stock-movement-${today}.csv`)}
-              >
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-              </Button>
+            <CardHeader className="pb-2 pt-4 px-4 space-y-2">
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Stock Movement Ledger</CardTitle>
+                <Button
+                  size="sm" variant="outline" className="h-7 text-xs"
+                  disabled={!stockList.length}
+                  onClick={() => downloadCSV(stockList, stockCols, `stock-movement-${today}.csv`)}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+                </Button>
+              </div>
+              <DateRangeFilter
+                from={stockFrom} to={stockTo}
+                onFrom={(v) => setStockFrom(v)} onTo={(v) => setStockTo(v)}
+                onClear={() => { setStockFrom(""); setStockTo(""); }}
+              />
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -263,7 +304,9 @@ export default function Reports() {
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">No stock movement data</TableCell>
+                          <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">
+                            {(stockFrom || stockTo) ? "No stock movements in this date range" : "No stock movement data"}
+                          </TableCell>
                         </TableRow>
                       )}
                 </TableBody>
@@ -272,20 +315,25 @@ export default function Reports() {
           </Card>
         </TabsContent>
 
-        {/* Distribution tab */}
+        {/* ── Distribution tab ── */}
         <TabsContent value="distribution" className="mt-4">
           <Card>
-            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Distribution Manifests</CardTitle>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                disabled={!distList.length}
-                onClick={() => downloadCSV(distList, distributionCols, `distribution-${today}.csv`)}
-              >
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-              </Button>
+            <CardHeader className="pb-2 pt-4 px-4 space-y-2">
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Distribution Manifests</CardTitle>
+                <Button
+                  size="sm" variant="outline" className="h-7 text-xs"
+                  disabled={!distList.length}
+                  onClick={() => downloadCSV(distList, distributionCols, `distribution-${today}.csv`)}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
+                </Button>
+              </div>
+              <DateRangeFilter
+                from={distFrom} to={distTo}
+                onFrom={(v) => setDistFrom(v)} onTo={(v) => setDistTo(v)}
+                onClear={() => { setDistFrom(""); setDistTo(""); }}
+              />
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -335,7 +383,9 @@ export default function Reports() {
                           <TableCell colSpan={5} className="h-24 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Package className="h-8 w-8 opacity-30" />
-                              <span className="text-sm">No distribution data yet</span>
+                              <span className="text-sm">
+                                {(distFrom || distTo) ? "No dispatches in this date range" : "No distribution data yet"}
+                              </span>
                             </div>
                           </TableCell>
                         </TableRow>

@@ -4,10 +4,12 @@ import {
   LayoutDashboard, Users, Box, ShoppingCart, Flag,
   MapPin, Truck, Map, CheckSquare, RefreshCcw,
   BarChart3, ShieldAlert, Settings, LogOut, Package,
-  Navigation, ClipboardList, Menu, X, Lock
+  Navigation, ClipboardList, Menu, X, Lock, Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getAlertCounts, KEYS } from "@/lib/db";
 
 function normaliseRole(role?: string | null) {
   return (role ?? "").toLowerCase().replace(/[\s_-]/g, "");
@@ -148,6 +150,51 @@ export function ReadOnlyBanner() {
   );
 }
 
+function AlertBanner() {
+  const { data } = useQuery({
+    queryKey: KEYS.alertCounts(),
+    queryFn: getAlertCounts,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const pendingFarmers = data?.pendingFarmers ?? 0;
+  const pendingPod     = data?.pendingPod     ?? 0;
+  if (!pendingFarmers && !pendingPod) return null;
+
+  const parts: React.ReactNode[] = [];
+  if (pendingFarmers > 0) {
+    parts.push(
+      <Link key="farmers" href="/farmers?status=pending">
+        <span className="font-semibold underline underline-offset-2 cursor-pointer hover:text-amber-900">
+          {pendingFarmers} farmer{pendingFarmers !== 1 ? "s" : ""} pending approval
+        </span>
+      </Link>
+    );
+  }
+  if (pendingPod > 0) {
+    parts.push(
+      <Link key="pod" href="/pod?status=Pending">
+        <span className="font-semibold underline underline-offset-2 cursor-pointer hover:text-amber-900">
+          {pendingPod} PoD{pendingPod !== 1 ? "s" : ""} awaiting verification
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 flex items-center gap-2 shrink-0">
+      <Bell className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+      <span className="flex items-center gap-1.5 flex-wrap">
+        {parts.reduce<React.ReactNode[]>((acc, node, i) => {
+          if (i > 0) acc.push(<span key={`sep-${i}`} className="text-amber-400">·</span>);
+          acc.push(node);
+          return acc;
+        }, [])}
+      </span>
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location] = useLocation();
@@ -187,6 +234,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             Sign out
           </Button>
         </header>
+
+        {/* Alert banner — pending farmers + PoDs */}
+        <AlertBanner />
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}

@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, listDistricts, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,13 +36,20 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function Avatar({ name }: { name: string }) {
-  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  const initials = name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   return (
     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 text-xs font-semibold shrink-0">
       {initials}
     </span>
   );
 }
+
+const STATUS_CHIPS = [
+  { label: "All",      value: "" },
+  { label: "Pending",  value: "pending" },
+  { label: "Approved", value: "approved" },
+  { label: "Rejected", value: "rejected" },
+];
 
 export default function Farmers() {
   const qc = useQueryClient();
@@ -48,16 +58,26 @@ export default function Farmers() {
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
   const limit = 20;
+  const districtId = districtFilter && districtFilter !== "all" ? parseInt(districtFilter) : undefined;
+
   const { data: farmersData, isLoading } = useQuery({
-    queryKey: KEYS.farmers(page, search),
-    queryFn: () => listFarmers(page, limit, search || undefined),
+    queryKey: KEYS.farmers(page, search, statusFilter || undefined, districtId),
+    queryFn: () => listFarmers(page, limit, search || undefined, statusFilter || undefined, districtId),
   });
+
+  const { data: districts } = useQuery({
+    queryKey: KEYS.districts(),
+    queryFn: listDistricts,
+  });
+
   const total = farmersData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -69,6 +89,7 @@ export default function Farmers() {
     try {
       await approveMutation.mutateAsync(id);
       await qc.invalidateQueries({ queryKey: KEYS.farmers() });
+      await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
       toast({ title: "Farmer approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
@@ -81,11 +102,18 @@ export default function Farmers() {
     try {
       await rejectMutation.mutateAsync(rejectTarget.id);
       await qc.invalidateQueries({ queryKey: KEYS.farmers() });
+      await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
       toast({ title: "Farmer rejected" });
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
     } finally { setLoadingId(null); setRejectTarget(null); }
   }
+
+  function resetFilters() {
+    setSearch(""); setStatusFilter(""); setDistrictFilter(""); setPage(1);
+  }
+
+  const hasFilters = !!(search || statusFilter || districtFilter);
 
   return (
     <div className="space-y-5">
@@ -103,9 +131,10 @@ export default function Farmers() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3 pt-4 px-4">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-xs">
+        <CardHeader className="pb-3 pt-4 px-4 space-y-3">
+          {/* Row 1: search + district + count */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[160px] max-w-xs">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 type="search"
@@ -115,11 +144,45 @@ export default function Farmers() {
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               />
             </div>
+            <Select value={districtFilter || "all"} onValueChange={(v) => { setDistrictFilter(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="h-8 text-sm w-[160px]">
+                <SelectValue placeholder="All Districts" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Districts</SelectItem>
+                {(districts ?? []).map((d: any) => (
+                  <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasFilters && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={resetFilters}>
+                Clear filters
+              </Button>
+            )}
             {!isLoading && (
-              <span className="text-xs text-muted-foreground">{total.toLocaleString()} farmers</span>
+              <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} farmers</span>
             )}
           </div>
+
+          {/* Row 2: status chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {STATUS_CHIPS.map(({ label, value }) => (
+              <button
+                key={value}
+                onClick={() => { setStatusFilter(value); setPage(1); }}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === value
+                    ? "bg-green-700 text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
+
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -140,7 +203,7 @@ export default function Farmers() {
                       <TableCell><div className="flex items-center gap-2"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-4 w-28" /></div></TableCell>
                       <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-5 w-18 rounded-full" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
                       <TableCell className="pr-4"><Skeleton className="h-7 w-24 ml-auto" /></TableCell>
                     </TableRow>
                   ))
@@ -202,7 +265,10 @@ export default function Farmers() {
                       <TableCell colSpan={6} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Users className="h-8 w-8 opacity-30" />
-                          <span className="text-sm">No farmers found</span>
+                          <span className="text-sm">{hasFilters ? "No farmers match your filters" : "No farmers found"}</span>
+                          {hasFilters && (
+                            <Button size="sm" variant="outline" onClick={resetFilters}>Clear filters</Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
