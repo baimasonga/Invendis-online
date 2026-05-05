@@ -1,0 +1,4 @@
+[phases.install]
+# Replace the default `npm i` (which can't handle workspace:* deps) with pnpm.
+# The actual workspace install runs in the build phase via railway.toml buildCommand.
+cmds = ["npm install -g pnpm@9"]
