@@ -937,7 +937,9 @@ async function getApiToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
-const API_BASE = "/api";
+// On Railway the portal and API are separate services.
+// Set VITE_API_URL (e.g. https://invendis-api.up.railway.app) at build time.
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") + "/api";
 
 export async function getFaceUploadUrl(farmerId: number, purpose: "reference" | "delivery"): Promise<{ uploadUrl: string; key: string; bucket: string }> {
   const token = await getApiToken();

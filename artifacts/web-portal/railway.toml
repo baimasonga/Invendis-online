@@ -1,0 +1,14 @@
+[build]
+builder = "NIXPACKS"
+# Install from monorepo root so workspace catalogs resolve correctly,
+# then build the Vite bundle for the portal.
+# VITE_API_URL must be set to the Railway URL of the API server service
+# (e.g. https://invendis-api.up.railway.app) — it is baked into the JS at build time.
+buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @workspace/web-portal run build"
+
+[deploy]
+startCommand = "node server.mjs"
+healthcheckPath = "/"
+healthcheckTimeout = 10
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -25,7 +25,13 @@ app.use(
     },
   }),
 );
-app.use(cors());
+// CORS_ORIGIN can be a comma-separated list of allowed origins (e.g. Railway portal URL).
+// Defaults to open (*) so existing Replit / local setups continue to work.
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim())
+  : true; // true = reflect any origin
+
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
