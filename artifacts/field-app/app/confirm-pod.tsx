@@ -75,6 +75,7 @@ export default function ConfirmPodScreen() {
 
   // OTP step state
   const [otpResult, setOtpResult] = useState<OtpSendResult | null>(null);
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -117,14 +118,11 @@ export default function ConfirmPodScreen() {
     try {
       const result = await sendOtp(token!, Number(farmerId));
       setOtpResult(result);
+      setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
       setStep("otp");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // In dev/test mode, alert the code
-      if (result.devCode) {
-        Alert.alert("Dev Mode — OTP Code", `Twilio not configured. Test code: ${result.devCode}`);
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not send verification code";
       // If farmer has no phone, offer to bypass
@@ -202,11 +200,9 @@ export default function ConfirmPodScreen() {
     try {
       const result = await sendOtp(token!, Number(farmerId));
       setOtpResult(result);
+      setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
-      if (result.devCode) {
-        Alert.alert("Dev Mode — OTP Code", `New test code: ${result.devCode}`);
-      }
     } catch (e) {
       setOtpError(e instanceof Error ? e.message : "Failed to resend code");
     } finally {
@@ -410,6 +406,17 @@ export default function ConfirmPodScreen() {
           <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
         </TouchableOpacity>
 
+        {/* Dev mode code banner */}
+        {devCode && (
+          <View style={[styles.devBanner, { backgroundColor: "#fef3c7", borderColor: "#f59e0b", borderRadius: colors.radius }]}>
+            <Feather name="terminal" size={16} color="#92400e" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.devBannerLabel}>Dev Mode — SMS not delivered to handset</Text>
+              <Text style={styles.devBannerCode}>{devCode}</Text>
+            </View>
+          </View>
+        )}
+
         {/* OTP card */}
         <View style={[styles.otpCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
           {/* Shield header */}
@@ -552,6 +559,10 @@ const styles = StyleSheet.create({
   offlineBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
   submitBtn: { flex: 1, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   submitBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 15 },
+  // Dev banner
+  devBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1.5 },
+  devBannerLabel: { fontSize: 11, fontFamily: "Inter_500Medium", color: "#92400e", textTransform: "uppercase", letterSpacing: 0.5 },
+  devBannerCode: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#92400e", letterSpacing: 6, marginTop: 2 },
   // OTP step
   backBtn: { flexDirection: "row", alignItems: "center", gap: 6, padding: 10, borderWidth: 1, alignSelf: "flex-start" },
   backBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },

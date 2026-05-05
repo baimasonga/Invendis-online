@@ -49,29 +49,39 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   const twilioAuth = process.env.TWILIO_AUTH_TOKEN;
   const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
 
+  const isDev = process.env.NODE_ENV !== "production";
+  let smsSent = false;
+
   if (twilioSid && twilioAuth && twilioFrom) {
     try {
       const { default: twilio } = await import("twilio");
       const client = twilio(twilioSid, twilioAuth);
-      await client.messages.create({
+      const msg = await client.messages.create({
         body: `Agri-PoD Verification Code: ${code}\nDo not share this code. Valid for 5 minutes.\n- AVDP Sierra Leone`,
         from: twilioFrom,
         to: farmer.phone,
       });
+      smsSent = true;
+      req.log.info({ messageSid: msg.sid, to: farmer.phone, status: msg.status }, "Twilio SMS sent");
     } catch (err: any) {
       req.log.error({ err: err.message }, "Twilio SMS send failed");
-      res.status(502).json({ error: "Failed to send SMS. Please check the farmer's phone number." });
-      return;
+      // In dev, continue anyway so testing works; in prod, fail hard
+      if (!isDev) {
+        res.status(502).json({ error: "Failed to send SMS. Please check the farmer's phone number." });
+        return;
+      }
     }
   } else {
-    req.log.warn({ farmerId, code }, "Twilio not configured — OTP printed to log (dev mode)");
+    req.log.warn({ farmerId, code }, "Twilio not configured — OTP in devCode");
   }
 
   res.json({
     sent: true,
+    smsSent,
     maskedPhone: maskPhone(farmer.phone),
     farmerName: `${farmer.first_name} ${farmer.last_name}`,
-    devCode: (!twilioSid) ? code : undefined,
+    // Always expose code in dev so testing works even on trial Twilio accounts
+    devCode: isDev ? code : undefined,
   });
 });
 
