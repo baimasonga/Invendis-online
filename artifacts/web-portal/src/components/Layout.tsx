@@ -4,50 +4,54 @@ import {
   LayoutDashboard, Users, Box, ShoppingCart, Flag,
   MapPin, Truck, Map, CheckSquare, RefreshCcw,
   BarChart3, ShieldAlert, Settings, LogOut, Package,
-  Navigation, ClipboardList, Menu, X
+  Navigation, ClipboardList, Menu, X, Lock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+
+function normaliseRole(role?: string | null) {
+  return (role ?? "").toLowerCase().replace(/[\s_-]/g, "");
+}
 
 const NAV_GROUPS = [
   {
     label: "Overview",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: [] as string[] },
     ],
   },
   {
     label: "Field Operations",
     items: [
-      { href: "/farmers", label: "Farmers", icon: Users },
-      { href: "/campaigns", label: "Campaigns", icon: Flag },
-      { href: "/allocations", label: "Allocations", icon: MapPin },
+      { href: "/farmers",     label: "Farmers",     icon: Users,    roles: [] },
+      { href: "/campaigns",   label: "Campaigns",   icon: Flag,     roles: ["admin","projectmanager","districtcoordinator"] },
+      { href: "/allocations", label: "Allocations", icon: MapPin,   roles: ["admin","projectmanager","districtcoordinator"] },
     ],
   },
   {
     label: "Supply Chain",
     items: [
-      { href: "/inventory", label: "Inventory", icon: Box },
-      { href: "/procurement", label: "Procurement", icon: ShoppingCart },
+      { href: "/inventory",   label: "Inventory",   icon: Box,          roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/procurement", label: "Procurement", icon: ShoppingCart, roles: ["admin","projectmanager","warehousemanager"] },
     ],
   },
   {
     label: "Distribution",
     items: [
-      { href: "/vehicles", label: "Vehicles", icon: Truck },
-      { href: "/dispatch", label: "Dispatch", icon: Package },
-      { href: "/gps-tracking", label: "GPS Tracking", icon: Navigation },
-      { href: "/pod", label: "Proof of Delivery", icon: CheckSquare },
-      { href: "/reconciliation", label: "Reconciliation", icon: RefreshCcw },
+      { href: "/vehicles",      label: "Vehicles",          icon: Truck,         roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/dispatch",      label: "Dispatch",          icon: Package,       roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/gps-tracking",  label: "GPS Tracking",      icon: Navigation,    roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/pod",           label: "Proof of Delivery", icon: CheckSquare,   roles: [] },
+      { href: "/reconciliation",label: "Reconciliation",    icon: RefreshCcw,    roles: ["admin","projectmanager","warehousemanager"] },
     ],
   },
   {
     label: "Administration",
     items: [
-      { href: "/reports", label: "Reports", icon: BarChart3 },
-      { href: "/audit", label: "Audit Logs", icon: ShieldAlert },
-      { href: "/users", label: "Users", icon: ClipboardList },
-      { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/reports", label: "Reports",    icon: BarChart3,     roles: ["admin","projectmanager","districtcoordinator","warehousemanager"] },
+      { href: "/audit",   label: "Audit Logs", icon: ShieldAlert,   roles: ["admin","projectmanager"] },
+      { href: "/users",   label: "Users",      icon: ClipboardList, roles: ["admin"] },
+      { href: "/settings",label: "Settings",   icon: Settings,      roles: ["admin","projectmanager"] },
     ],
   },
 ];
@@ -58,6 +62,15 @@ function SidebarContent({ location, user, logout, onClose }: {
   logout: () => void;
   onClose?: () => void;
 }) {
+  const role = normaliseRole(user?.role);
+
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) =>
+      item.roles.length === 0 || item.roles.includes(role)
+    ),
+  })).filter((g) => g.items.length > 0);
+
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -75,7 +88,7 @@ function SidebarContent({ location, user, logout, onClose }: {
 
       {/* Nav groups */}
       <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-1.5">
-        {NAV_GROUPS.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.label}>
             <p className="px-2 pt-1 pb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
               {group.label}
@@ -111,7 +124,7 @@ function SidebarContent({ location, user, logout, onClose }: {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-medium truncate leading-tight">{user?.fullName}</p>
-            <p className="text-[10px] text-sidebar-foreground/60 truncate leading-tight">{user?.role}</p>
+            <p className="text-[10px] text-sidebar-foreground/60 truncate leading-tight capitalize">{user?.role}</p>
           </div>
           <button
             onClick={logout}
@@ -122,6 +135,15 @@ function SidebarContent({ location, user, logout, onClose }: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+export function ReadOnlyBanner() {
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-1.5">
+      <Lock className="h-3 w-3 shrink-0" />
+      <span>Your role has read-only access to this section.</span>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listDistricts, listValueChains, listWarehouses, createValueChain, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -61,6 +62,7 @@ function AddValueChainModal({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 export default function Settings() {
+  const can = usePermissions();
   const [whOpen, setWhOpen] = useState(false);
   const [vcOpen, setVcOpen] = useState(false);
 
@@ -94,9 +96,11 @@ export default function Settings() {
                 <CardTitle className="text-sm font-semibold">Warehouses</CardTitle>
                 {!loadingWh && <span className="text-xs text-muted-foreground ml-1">{warehouseList.length}</span>}
               </div>
-              <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setWhOpen(true)}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add
-              </Button>
+              {can.manageSettings && (
+                <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setWhOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -155,9 +159,11 @@ export default function Settings() {
                 <CardTitle className="text-sm font-semibold">Value Chains</CardTitle>
                 {!loadingVC && <span className="text-xs text-muted-foreground ml-1">{valueChainList.length}</span>}
               </div>
-              <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setVcOpen(true)}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add
-              </Button>
+              {can.manageSettings && (
+                <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setVcOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -242,8 +248,12 @@ export default function Settings() {
         </TabsContent>
       </Tabs>
 
-      <AddWarehouseModal  open={whOpen} onClose={() => setWhOpen(false)} />
-      <AddValueChainModal open={vcOpen} onClose={() => setVcOpen(false)} />
+      {can.manageSettings && (
+        <>
+          <AddWarehouseModal  open={whOpen} onClose={() => setWhOpen(false)} />
+          <AddValueChainModal open={vcOpen} onClose={() => setVcOpen(false)} />
+        </>
+      )}
     </div>
   );
 }

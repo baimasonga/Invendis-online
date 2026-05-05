@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listFarmers, approveFarmer, rejectFarmer, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ function Avatar({ name }: { name: string }) {
 export default function Farmers() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const can = usePermissions();
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -69,9 +72,7 @@ export default function Farmers() {
       toast({ title: "Farmer approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
-    } finally {
-      setLoadingId(null);
-    }
+    } finally { setLoadingId(null); }
   }
 
   async function handleRejectConfirm() {
@@ -83,10 +84,7 @@ export default function Farmers() {
       toast({ title: "Farmer rejected" });
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
-    } finally {
-      setLoadingId(null);
-      setRejectTarget(null);
-    }
+    } finally { setLoadingId(null); setRejectTarget(null); }
   }
 
   return (
@@ -96,10 +94,12 @@ export default function Farmers() {
           <h1 className="text-xl font-bold tracking-tight">Farmer Registry</h1>
           <p className="text-sm text-muted-foreground">Manage and verify registered farmers.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Register Farmer
-        </Button>
+        {can.registerFarmer && (
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Register Farmer
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -161,39 +161,35 @@ export default function Farmers() {
                       <TableCell><StatusBadge status={farmer.status} /></TableCell>
                       <TableCell className="pr-4">
                         <div className="flex items-center gap-1 justify-end">
-                          {farmer.status === "pending" && (
+                          {can.approveFarmer && farmer.status === "pending" && (
                             <>
                               <Button
-                                size="sm"
-                                variant="ghost"
+                                size="sm" variant="ghost"
                                 className="h-7 px-2 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50"
                                 disabled={loadingId === farmer.id}
                                 onClick={() => handleApprove(farmer.id)}
                               >
-                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                                Approve
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
                               </Button>
                               <Button
-                                size="sm"
-                                variant="ghost"
+                                size="sm" variant="ghost"
                                 className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                                 disabled={loadingId === farmer.id}
                                 onClick={() => setRejectTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
                               >
-                                <XCircle className="h-3.5 w-3.5 mr-1" />
-                                Reject
+                                <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                               </Button>
                             </>
                           )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                            onClick={() => setEditFarmer(farmer)}
-                          >
-                            <Pencil className="h-3 w-3 mr-1" />
-                            Edit
-                          </Button>
+                          {can.editFarmer && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => setEditFarmer(farmer)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" /> Edit
+                            </Button>
+                          )}
                           <Link href={`/farmers/${farmer.id}`}>
                             <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer ml-1">View</span>
                           </Link>
@@ -230,8 +226,12 @@ export default function Farmers() {
         </CardContent>
       </Card>
 
-      <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
-      <EditFarmerModal open={!!editFarmer} farmer={editFarmer} onClose={() => setEditFarmer(null)} />
+      {can.registerFarmer && (
+        <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
+      )}
+      {can.editFarmer && (
+        <EditFarmerModal open={!!editFarmer} farmer={editFarmer} onClose={() => setEditFarmer(null)} />
+      )}
 
       <AlertDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) setRejectTarget(null); }}>
         <AlertDialogContent>

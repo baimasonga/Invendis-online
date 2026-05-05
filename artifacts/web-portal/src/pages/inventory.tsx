@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listInputItems, getStockBalance, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,6 +43,7 @@ function StockBar({ available, total }: { available: number; total: number }) {
 }
 
 export default function Inventory() {
+  const can = usePermissions();
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
 
@@ -67,10 +69,12 @@ export default function Inventory() {
           <h1 className="text-xl font-bold tracking-tight">Inventory</h1>
           <p className="text-sm text-muted-foreground">Input catalogue and warehouse stock levels.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
-          <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
-          Receive Stock
-        </Button>
+        {can.manageInventory && (
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
+            <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
+            Receive Stock
+          </Button>
+        )}
       </div>
 
       {!loadingStock && (
@@ -98,7 +102,7 @@ export default function Inventory() {
 
       <Tabs defaultValue="stock">
         <TabsList className="h-8">
-          <TabsTrigger value="stock" className="text-xs">Stock Balances</TabsTrigger>
+          <TabsTrigger value="stock"     className="text-xs">Stock Balances</TabsTrigger>
           <TabsTrigger value="catalogue" className="text-xs">Input Catalogue</TabsTrigger>
         </TabsList>
 
@@ -152,9 +156,11 @@ export default function Inventory() {
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Box className="h-8 w-8 opacity-30" />
                               <span className="text-sm">No stock yet</span>
-                              <Button size="sm" variant="outline" onClick={() => setReceiveOpen(true)}>
-                                <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" /> Receive first stock
-                              </Button>
+                              {can.manageInventory && (
+                                <Button size="sm" variant="outline" onClick={() => setReceiveOpen(true)}>
+                                  <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" /> Receive first stock
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -176,7 +182,7 @@ export default function Inventory() {
                     <TableHead>Category</TableHead>
                     <TableHead className="hidden md:table-cell">Unit</TableHead>
                     <TableHead className="hidden lg:table-cell">Value Chain</TableHead>
-                    <TableHead className="pr-4 text-right w-[70px]"></TableHead>
+                    {can.manageInventory && <TableHead className="pr-4 text-right w-[70px]" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -188,7 +194,7 @@ export default function Inventory() {
                           <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-16" /></TableCell>
                           <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell className="pr-4" />
+                          {can.manageInventory && <TableCell className="pr-4" />}
                         </TableRow>
                       ))
                     : itemList.length > 0
@@ -199,22 +205,22 @@ export default function Inventory() {
                           <TableCell><CategoryBadge category={item.category} /></TableCell>
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{item.unit ?? item.unitOfMeasure ?? "—"}</TableCell>
                           <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
-                          <TableCell className="pr-4 text-right">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                              onClick={() => setEditItem(item)}
-                            >
-                              <Pencil className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                          </TableCell>
+                          {can.manageInventory && (
+                            <TableCell className="pr-4 text-right">
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                onClick={() => setEditItem(item)}
+                              >
+                                <Pencil className="h-3 w-3 mr-1" /> Edit
+                              </Button>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-32 text-center">
+                          <TableCell colSpan={can.manageInventory ? 6 : 5} className="h-32 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <PackageCheck className="h-8 w-8 opacity-30" />
                               <span className="text-sm">No input items found</span>
@@ -229,8 +235,12 @@ export default function Inventory() {
         </TabsContent>
       </Tabs>
 
-      <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
-      <EditInputItemModal open={!!editItem} item={editItem} onClose={() => setEditItem(null)} />
+      {can.manageInventory && (
+        <>
+          <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
+          <EditInputItemModal open={!!editItem} item={editItem} onClose={() => setEditItem(null)} />
+        </>
+      )}
     </div>
   );
 }

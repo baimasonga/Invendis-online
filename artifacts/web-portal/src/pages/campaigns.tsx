@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listCampaigns, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +36,7 @@ function formatDateRange(start: string, end: string) {
 }
 
 export default function Campaigns() {
+  const can = usePermissions();
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editCampaign, setEditCampaign] = useState<any>(null);
@@ -54,10 +56,12 @@ export default function Campaigns() {
           <h1 className="text-xl font-bold tracking-tight">Campaigns</h1>
           <p className="text-sm text-muted-foreground">Manage distribution campaigns and operations.</p>
         </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          New Campaign
-        </Button>
+        {can.createCampaign && (
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            New Campaign
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -105,15 +109,15 @@ export default function Campaigns() {
                       <TableCell><StatusBadge status={campaign.status} /></TableCell>
                       <TableCell className="pr-4 text-right">
                         <div className="flex items-center gap-1 justify-end">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                            onClick={() => setEditCampaign(campaign)}
-                          >
-                            <Pencil className="h-3 w-3 mr-1" />
-                            Edit
-                          </Button>
+                          {can.editCampaign && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => setEditCampaign(campaign)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" /> Edit
+                            </Button>
+                          )}
                           <Link href={`/campaigns/${campaign.id}`}>
                             <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer">View</span>
                           </Link>
@@ -127,9 +131,11 @@ export default function Campaigns() {
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Flag className="h-8 w-8 opacity-30" />
                           <span className="text-sm">No campaigns yet</span>
-                          <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
-                            <Plus className="h-3.5 w-3.5 mr-1.5" /> Create first campaign
-                          </Button>
+                          {can.createCampaign && (
+                            <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+                              <Plus className="h-3.5 w-3.5 mr-1.5" /> Create first campaign
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -153,8 +159,12 @@ export default function Campaigns() {
         </CardContent>
       </Card>
 
-      <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} />
-      <EditCampaignModal open={!!editCampaign} campaign={editCampaign} onClose={() => setEditCampaign(null)} />
+      {can.createCampaign && (
+        <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      )}
+      {can.editCampaign && (
+        <EditCampaignModal open={!!editCampaign} campaign={editCampaign} onClose={() => setEditCampaign(null)} />
+      )}
     </div>
   );
 }
