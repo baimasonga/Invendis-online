@@ -7,9 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowDownToLine, Box, PackageCheck, Pencil } from "lucide-react";
+import { ArrowDownToLine, Box, PackageCheck, Pencil, Printer } from "lucide-react";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
 import { EditInputItemModal } from "@/components/modals/EditInputItemModal";
+import { BarcodeLabelModal } from "@/components/modals/BarcodeLabelModal";
 
 const CATEGORY_STYLES: Record<string, string> = {
   seed:       "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
@@ -45,7 +46,8 @@ function StockBar({ available, total }: { available: number; total: number }) {
 export default function Inventory() {
   const can = usePermissions();
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const [editItem, setEditItem] = useState<any>(null);
+  const [editItem, setEditItem]       = useState<any>(null);
+  const [labelItem, setLabelItem]     = useState<any>(null);
 
   const { data: inputItems, isLoading: loadingItems } = useQuery({
     queryKey: KEYS.inventory(),
@@ -177,12 +179,12 @@ export default function Inventory() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-4 w-[130px]">Code</TableHead>
+                    <TableHead className="pl-4 w-[120px]">Code</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead className="hidden md:table-cell">Unit</TableHead>
-                    <TableHead className="hidden lg:table-cell">Value Chain</TableHead>
-                    {can.manageInventory && <TableHead className="pr-4 text-right w-[70px]" />}
+                    <TableHead className="hidden lg:table-cell">Barcode</TableHead>
+                    {can.manageInventory && <TableHead className="pr-4 text-right w-[120px]" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -193,7 +195,7 @@ export default function Inventory() {
                           <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                           <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-16" /></TableCell>
-                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-32" /></TableCell>
                           {can.manageInventory && <TableCell className="pr-4" />}
                         </TableRow>
                       ))
@@ -204,16 +206,32 @@ export default function Inventory() {
                           <TableCell className="font-medium text-sm">{item.name}</TableCell>
                           <TableCell><CategoryBadge category={item.category} /></TableCell>
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{item.unit ?? item.unitOfMeasure ?? "—"}</TableCell>
-                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {item.barcode ? (
+                              <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{item.barcode}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">not set</span>
+                            )}
+                          </TableCell>
                           {can.manageInventory && (
                             <TableCell className="pr-4 text-right">
-                              <Button
-                                size="sm" variant="ghost"
-                                className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                                onClick={() => setEditItem(item)}
-                              >
-                                <Pencil className="h-3 w-3 mr-1" /> Edit
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                                  title="Print barcode label"
+                                  onClick={() => setLabelItem(item)}
+                                >
+                                  <Printer className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                  onClick={() => setEditItem(item)}
+                                >
+                                  <Pencil className="h-3 w-3 mr-1" /> Edit
+                                </Button>
+                              </div>
                             </TableCell>
                           )}
                         </TableRow>
@@ -239,6 +257,19 @@ export default function Inventory() {
         <>
           <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
           <EditInputItemModal open={!!editItem} item={editItem} onClose={() => setEditItem(null)} />
+          {labelItem && (
+            <BarcodeLabelModal
+              open={!!labelItem}
+              onClose={() => setLabelItem(null)}
+              item={{
+                name: labelItem.name,
+                itemCode: labelItem.itemCode ?? labelItem.code ?? "",
+                barcode: labelItem.barcode ?? "",
+                category: labelItem.category,
+                unit: labelItem.unit ?? labelItem.unitOfMeasure,
+              }}
+            />
+          )}
         </>
       )}
     </div>

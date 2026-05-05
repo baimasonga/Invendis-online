@@ -55,8 +55,10 @@ export function ReceiveStockModal({ open, onClose }: Props) {
     if (!trimmed) return;
     setBarcodeInput("");
 
+    // Match against registered barcode first, then item code, then name
     const item = itemList.find(
       (i: any) =>
+        (i.barcode && i.barcode.toLowerCase() === trimmed.toLowerCase()) ||
         i.itemCode?.toLowerCase() === trimmed.toLowerCase() ||
         i.name?.toLowerCase() === trimmed.toLowerCase()
     );
@@ -71,7 +73,7 @@ export function ReceiveStockModal({ open, onClose }: Props) {
       // no item match — treat as reference / PO number
       setReference(trimmed);
       setBarcodeMatch(null);
-      setBarcodeError(`No item matched "${trimmed}" — filled in Reference field`);
+      setBarcodeError(`No item matched "${trimmed}" — filled in Reference field. Register this barcode on an item first.`);
     }
   }
 

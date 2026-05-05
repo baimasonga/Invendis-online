@@ -392,12 +392,14 @@ export async function listInputItems() {
 }
 
 export async function updateInputItem(id: number, payload: any) {
-  const { data, error } = await supabase.from("input_items").update({
+  const updateData: Record<string, any> = {
     name: payload.name,
     category: payload.category ?? null,
     unit: payload.unit ?? null,
     value_chain_id: payload.valueChainId ?? null,
-  }).eq("id", id).select().single();
+  };
+  if ("barcode" in payload) updateData.barcode = payload.barcode || null;
+  const { data, error } = await supabase.from("input_items").update(updateData).eq("id", id).select().single();
   if (error) throw new Error(error.message);
   await logAudit("UPDATE", "inventory", `Updated input item #${id}`, "input_item", id);
   return cc(data);

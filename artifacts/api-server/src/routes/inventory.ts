@@ -21,6 +21,23 @@ router.post("/api/inventory/input-items", requireAuth, async (req, res) => {
   res.status(201).json(snakeToCamel(data));
 });
 
+router.patch("/api/inventory/input-items/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const body = camelToSnake(req.body);
+  const { data, error } = await supa.from("input_items").update(body).eq("id", id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "Inventory", `Updated input item #${id}`, "input_item", id);
+  res.json(snakeToCamel(data));
+});
+
+// Lookup item by barcode
+router.get("/api/inventory/input-items/by-barcode/:code", requireAuth, async (req, res) => {
+  const code = decodeURIComponent(req.params.code).trim();
+  const { data, error } = await supa.from("input_items").select("*").eq("barcode", code).eq("is_active", 1).limit(1).single();
+  if (error || !data) { res.status(404).json({ error: "No item found for this barcode" }); return; }
+  res.json(snakeToCamel(data));
+});
+
 router.get("/api/inventory/stock-balance", requireAuth, async (req, res) => {
   const { warehouseId, inputItemId } = req.query;
   let q = supa.from("stock_balance").select("*");
