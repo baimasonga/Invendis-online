@@ -2,9 +2,41 @@ import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { Platform, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { useOfflineQueue } from "@/context/OfflineQueueContext";
+
+function SyncTabIcon({ color, size }: { color: string; size: number }) {
+  const colors = useColors();
+  const { queue } = useOfflineQueue();
+  const pending = queue.filter((i) => i.status === "pending").length;
+  return (
+    <View>
+      <Feather name="upload-cloud" size={size} color={color} />
+      {pending > 0 && (
+        <View style={[badgeStyles.badge, { backgroundColor: colors.warning }]}>
+          <Text style={badgeStyles.badgeText}>{pending > 9 ? "9+" : pending}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const badgeStyles = StyleSheet.create({
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: { color: "#fff", fontSize: 9, fontFamily: "Inter_700Bold" },
+});
 
 export default function TabLayout() {
   const colors = useColors();
@@ -95,9 +127,7 @@ export default function TabLayout() {
         name="sync"
         options={{
           title: "Sync",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="upload-cloud" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <SyncTabIcon color={color} size={size} />,
         }}
       />
     </Tabs>

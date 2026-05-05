@@ -1,9 +1,12 @@
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -31,12 +34,79 @@ function StatCard({ label, value, color, icon }: { label: string; value: string 
   );
 }
 
+function ProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const colors = useColors();
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          onClose();
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          await logout();
+          router.replace("/login");
+        },
+      },
+    ]);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={profileStyles.backdrop} activeOpacity={1} onPress={onClose} />
+      <View style={[profileStyles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[profileStyles.handle, { backgroundColor: colors.border }]} />
+        <View style={[profileStyles.avatarWrap, { backgroundColor: colors.primary + "18" }]}>
+          <Feather name="user" size={36} color={colors.primary} />
+        </View>
+        <Text style={[profileStyles.name, { color: colors.foreground }]}>{user?.fullName ?? user?.username ?? "Field Officer"}</Text>
+        <Text style={[profileStyles.sub, { color: colors.mutedForeground }]}>{user?.role ?? ""}</Text>
+        {user?.email ? (
+          <Text style={[profileStyles.email, { color: colors.mutedForeground }]}>{user.email}</Text>
+        ) : null}
+        <View style={[profileStyles.divider, { backgroundColor: colors.border }]} />
+        <TouchableOpacity
+          style={[profileStyles.logoutBtn, { borderColor: colors.destructive + "60", backgroundColor: colors.destructive + "10", borderRadius: colors.radius }]}
+          onPress={handleLogout}
+          activeOpacity={0.85}
+        >
+          <Feather name="log-out" size={18} color={colors.destructive} />
+          <Text style={[profileStyles.logoutText, { color: colors.destructive }]}>Sign Out</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={profileStyles.cancelBtn} onPress={onClose}>
+          <Text style={[profileStyles.cancelText, { color: colors.mutedForeground }]}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+const profileStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 12, alignItems: "center", borderTopWidth: 1 },
+  handle: { width: 40, height: 4, borderRadius: 2, marginBottom: 8 },
+  avatarWrap: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center" },
+  name: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 4 },
+  sub: { fontSize: 13, fontFamily: "Inter_400Regular", textTransform: "capitalize" },
+  email: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  divider: { width: "100%", height: 1, marginVertical: 4 },
+  logoutBtn: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, height: 50, borderWidth: 1 },
+  logoutText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  cancelBtn: { paddingVertical: 8 },
+  cancelText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+});
+
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
   const { queue } = useOfflineQueue();
   const router = useRouter();
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const podStatsQ = useQuery({
     queryKey: ["pod-stats"],
@@ -69,15 +139,22 @@ export default function DashboardScreen() {
       refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.primary} />}
     >
       {/* Header */}
+      <ProfileModal visible={profileOpen} onClose={() => setProfileOpen(false)} />
       <View style={styles.header}>
         <View>
           <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{greeting()}</Text>
           <Text style={[styles.name, { color: colors.foreground }]}>{user?.fullName ?? user?.username ?? "Officer"}</Text>
         </View>
-        <View style={[styles.onlineChip, { backgroundColor: colors.success + "18" }]}>
-          <View style={[styles.dot, { backgroundColor: colors.success }]} />
-          <Text style={[styles.onlineText, { color: colors.success }]}>Online</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.profileBtn, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
+          onPress={async () => {
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setProfileOpen(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Feather name="user" size={18} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       {/* Stats */}
@@ -174,11 +251,9 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 20, gap: 16 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  profileBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   greeting: { fontSize: 13, fontFamily: "Inter_400Regular" },
   name: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },
-  onlineChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  dot: { width: 7, height: 7, borderRadius: 4 },
-  onlineText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   sectionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   seeAll: { fontSize: 13, fontFamily: "Inter_500Medium" },

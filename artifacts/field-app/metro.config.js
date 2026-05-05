@@ -7,7 +7,13 @@ const config = getDefaultConfig(__dirname);
 const workspaceRoot = path.resolve(__dirname, "../..");
 const projectRoot = __dirname;
 
-config.watchFolders = [workspaceRoot];
+// Only watch the lib directory and workspace node_modules.
+// Watching the entire workspace root triggers ENOENT crashes when
+// Replit deletes temp skill directories mid-session.
+config.watchFolders = [
+  path.resolve(workspaceRoot, "lib"),
+  path.resolve(workspaceRoot, "node_modules"),
+];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(workspaceRoot, "node_modules"),
