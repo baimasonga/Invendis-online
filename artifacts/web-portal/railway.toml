@@ -1,5 +1,5 @@
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 # Install from monorepo root so workspace catalogs resolve correctly,
 # then build the Vite bundle for the portal.
 # VITE_API_URL must be set to the Railway URL of the API server service
