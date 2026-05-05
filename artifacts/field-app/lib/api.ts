@@ -118,3 +118,22 @@ export const searchFarmers = (token: string, search: string) =>
 
 export const submitPoD = (token: string, payload: Record<string, unknown>) =>
   apiFetch<PoD>("/pod/submit", token, { method: "POST", body: JSON.stringify(payload) });
+
+export interface OtpSendResult {
+  sent: boolean;
+  maskedPhone: string;
+  farmerName: string;
+  devCode?: string;
+}
+
+export const sendOtp = (token: string, farmerId: number) =>
+  apiFetch<OtpSendResult>("/pod/otp/send", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId }),
+  });
+
+export const verifyOtp = (token: string, farmerId: number, code: string) =>
+  apiFetch<{ verified: boolean; error?: string }>("/pod/otp/verify", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId, code }),
+  });

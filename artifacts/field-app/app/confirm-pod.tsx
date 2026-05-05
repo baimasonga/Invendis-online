@@ -1,10 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useOfflineQueue } from "@/context/OfflineQueueContext";
 import { useColors } from "@/hooks/useColors";
-import { submitPoD } from "@/lib/api";
+import { sendOtp, verifyOtp, submitPoD, type OtpSendResult } from "@/lib/api";
 
 interface GPSCoords {
   latitude: number;
@@ -47,6 +48,9 @@ async function getLocation(): Promise<GPSCoords | null> {
   }
 }
 
+const OTP_LENGTH = 6;
+const RESEND_SECONDS = 60;
+
 export default function ConfirmPodScreen() {
   const { farmerId, farmerName, farmerCode, dispatchId } = useLocalSearchParams<{
     farmerId: string;
@@ -60,16 +64,39 @@ export default function ConfirmPodScreen() {
   const { enqueue } = useOfflineQueue();
   const router = useRouter();
 
+  // Step: "details" | "otp"
+  const [step, setStep] = useState<"details" | "otp">("details");
+
+  // Details step state
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
   const [gps, setGps] = useState<GPSCoords | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
+
+  // OTP step state
+  const [otpResult, setOtpResult] = useState<OtpSendResult | null>(null);
+  const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [resendTimer, setResendTimer] = useState(0);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
+
+  // Submission
   const [submitting, setSubmitting] = useState(false);
+
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
     captureGPS();
   }, []);
+
+  // Resend countdown ticker
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
 
   const captureGPS = async () => {
     setGpsLoading(true);
@@ -78,23 +105,128 @@ export default function ConfirmPodScreen() {
     setGpsLoading(false);
   };
 
-  const handleSubmit = async (offline = false) => {
+  // ─── Send OTP ───────────────────────────────────────────────────────────────
+  const handleSendOtp = async () => {
     const qty = Number(quantity);
     if (isNaN(qty) || qty <= 0) {
-      Alert.alert("Invalid Quantity", "Please enter a valid quantity.");
+      Alert.alert("Invalid Quantity", "Please enter a valid quantity before verifying.");
       return;
     }
+    setSendingOtp(true);
+    setOtpError(null);
+    try {
+      const result = await sendOtp(token!, Number(farmerId));
+      setOtpResult(result);
+      setDigits(Array(OTP_LENGTH).fill(""));
+      setResendTimer(RESEND_SECONDS);
+      setStep("otp");
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // In dev/test mode, alert the code
+      if (result.devCode) {
+        Alert.alert("Dev Mode — OTP Code", `Twilio not configured. Test code: ${result.devCode}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not send verification code";
+      // If farmer has no phone, offer to bypass
+      if (msg.toLowerCase().includes("no registered phone")) {
+        Alert.alert(
+          "No Phone Number",
+          "This farmer has no registered phone number. You can submit without SMS verification, but the record will be flagged.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Submit Anyway", onPress: () => doSubmit("NoPhone") },
+          ]
+        );
+      } else {
+        Alert.alert("SMS Error", msg);
+      }
+    } finally {
+      setSendingOtp(false);
+    }
+  };
 
-    const payload: Record<string, unknown> = {
-      farmerId: Number(farmerId),
-      ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
-      quantityDelivered: qty,
-      otpStatus: "Bypassed",
-      faceStatus: "Bypassed",
-      ...(gps ? { farmerLatitude: String(gps.latitude), farmerLongitude: String(gps.longitude) } : {}),
-      notes: notes || "Mobile field issuance",
-    };
+  // ─── Handle digit input ──────────────────────────────────────────────────────
+  const handleDigitChange = (text: string, index: number) => {
+    const val = text.replace(/\D/g, "").slice(-1);
+    const next = [...digits];
+    next[index] = val;
+    setDigits(next);
+    setOtpError(null);
+    if (val && index < OTP_LENGTH - 1) {
+      inputRefs.current[index + 1]?.focus();
+    }
+    // Auto-verify when all 6 digits entered
+    if (val && next.every((d) => d !== "")) {
+      handleVerify(next.join(""));
+    }
+  };
 
+  const handleDigitKeyPress = (key: string, index: number) => {
+    if (key === "Backspace" && !digits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  // ─── Verify OTP ──────────────────────────────────────────────────────────────
+  const handleVerify = async (code?: string) => {
+    const enteredCode = code ?? digits.join("");
+    if (enteredCode.length < OTP_LENGTH) {
+      setOtpError("Please enter all 6 digits.");
+      return;
+    }
+    setVerifying(true);
+    setOtpError(null);
+    try {
+      const result = await verifyOtp(token!, Number(farmerId), enteredCode);
+      if (result.verified) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await doSubmit("Verified");
+      } else {
+        setOtpError(result.error ?? "Invalid code. Please try again.");
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Verification failed";
+      setOtpError(msg);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // ─── Resend ──────────────────────────────────────────────────────────────────
+  const handleResend = async () => {
+    if (resendTimer > 0) return;
+    setSendingOtp(true);
+    setOtpError(null);
+    try {
+      const result = await sendOtp(token!, Number(farmerId));
+      setOtpResult(result);
+      setDigits(Array(OTP_LENGTH).fill(""));
+      setResendTimer(RESEND_SECONDS);
+      if (result.devCode) {
+        Alert.alert("Dev Mode — OTP Code", `New test code: ${result.devCode}`);
+      }
+    } catch (e) {
+      setOtpError(e instanceof Error ? e.message : "Failed to resend code");
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
+  // ─── Build payload and submit ────────────────────────────────────────────────
+  const buildPayload = (otpStatus: string): Record<string, unknown> => ({
+    farmerId: Number(farmerId),
+    ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
+    quantityDelivered: Number(quantity),
+    otpStatus,
+    faceStatus: "Bypassed",
+    ...(gps ? { farmerLatitude: String(gps.latitude), farmerLongitude: String(gps.longitude) } : {}),
+    notes: notes || "Mobile field issuance",
+  });
+
+  const doSubmit = async (otpStatus: string, offline = false) => {
+    const payload = buildPayload(otpStatus);
     setSubmitting(true);
     try {
       if (offline) {
@@ -106,7 +238,7 @@ export default function ConfirmPodScreen() {
       } else {
         await submitPoD(token!, payload);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Success", "Proof of Delivery submitted successfully.", [
+        Alert.alert("Success", "Proof of Delivery recorded successfully.", [
           { text: "OK", onPress: () => router.back() },
         ]);
       }
@@ -114,10 +246,10 @@ export default function ConfirmPodScreen() {
       const msg = e instanceof Error ? e.message : "Failed to submit";
       Alert.alert(
         "Submission Failed",
-        `${msg}\n\nWould you like to save this PoD offline and sync later?`,
+        `${msg}\n\nSave offline and sync later?`,
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Save Offline", onPress: () => handleSubmit(true) },
+          { text: "Save Offline", onPress: () => doSubmit(otpStatus, true) },
         ]
       );
     } finally {
@@ -125,130 +257,274 @@ export default function ConfirmPodScreen() {
     }
   };
 
-  return (
-    <ScrollView
-      style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
-    >
-      {/* Farmer info */}
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Beneficiary</Text>
-        <View style={styles.farmerRow}>
-          <View style={[styles.farmerAvatar, { backgroundColor: colors.primary + "18" }]}>
-            <Feather name="user" size={24} color={colors.primary} />
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER — Step 1: Details
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (step === "details") {
+    return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          style={[styles.root, { backgroundColor: colors.background }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Farmer info */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Beneficiary</Text>
+            <View style={styles.farmerRow}>
+              <View style={[styles.farmerAvatar, { backgroundColor: colors.primary + "18" }]}>
+                <Feather name="user" size={24} color={colors.primary} />
+              </View>
+              <View>
+                <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerName}</Text>
+                <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmerCode}</Text>
+              </View>
+            </View>
           </View>
-          <View>
-            <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerName}</Text>
-            <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmerCode}</Text>
-          </View>
-        </View>
-      </View>
 
-      {/* GPS */}
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>GPS Location</Text>
-        {gpsLoading ? (
-          <View style={styles.gpsRow}>
-            <ActivityIndicator color={colors.primary} size="small" />
-            <Text style={[styles.gpsText, { color: colors.mutedForeground }]}>Acquiring location…</Text>
-          </View>
-        ) : gps ? (
-          <View style={styles.gpsRow}>
-            <Feather name="map-pin" size={16} color={colors.success} />
-            <Text style={[styles.gpsText, { color: colors.foreground }]}>
-              {gps.latitude.toFixed(5)}, {gps.longitude.toFixed(5)}
-            </Text>
-            {gps.accuracy && (
-              <Text style={[styles.gpsAccuracy, { color: colors.mutedForeground }]}>±{Math.round(gps.accuracy)}m</Text>
+          {/* GPS */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>GPS Location</Text>
+            {gpsLoading ? (
+              <View style={styles.gpsRow}>
+                <ActivityIndicator color={colors.primary} size="small" />
+                <Text style={[styles.gpsText, { color: colors.mutedForeground }]}>Acquiring location…</Text>
+              </View>
+            ) : gps ? (
+              <View style={styles.gpsRow}>
+                <Feather name="map-pin" size={16} color={colors.success} />
+                <Text style={[styles.gpsText, { color: colors.foreground }]}>
+                  {gps.latitude.toFixed(5)}, {gps.longitude.toFixed(5)}
+                </Text>
+                {gps.accuracy && (
+                  <Text style={[styles.gpsAccuracy, { color: colors.mutedForeground }]}>±{Math.round(gps.accuracy)}m</Text>
+                )}
+              </View>
+            ) : (
+              <View style={styles.gpsRow}>
+                <Feather name="alert-circle" size={16} color={colors.warning} />
+                <Text style={[styles.gpsText, { color: colors.warning }]}>Location unavailable</Text>
+                <TouchableOpacity onPress={captureGPS}>
+                  <Text style={[styles.retry, { color: colors.primary }]}>Retry</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
-        ) : (
-          <View style={styles.gpsRow}>
-            <Feather name="alert-circle" size={16} color={colors.warning} />
-            <Text style={[styles.gpsText, { color: colors.warning }]}>Location unavailable</Text>
-            <TouchableOpacity onPress={captureGPS}>
-              <Text style={[styles.retry, { color: colors.primary }]}>Retry</Text>
+
+          {/* Quantity */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
+            <View style={styles.qtyRow}>
+              <TouchableOpacity
+                style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
+              >
+                <Feather name="minus" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+              <TextInput
+                style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="numeric"
+                textAlign="center"
+              />
+              <TouchableOpacity
+                style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                onPress={() => setQuantity((v) => String(Number(v) + 1))}
+              >
+                <Feather name="plus" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Notes */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Notes (optional)</Text>
+            <TextInput
+              style={[styles.notesInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.muted, borderRadius: colors.radius }]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Any additional notes…"
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+
+          {/* Dispatch badge */}
+          {dispatchId && (
+            <View style={[styles.dispatchBadge, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+              <Feather name="truck" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.dispatchText, { color: colors.mutedForeground }]}>Dispatch #{dispatchId}</Text>
+            </View>
+          )}
+
+          {/* Actions */}
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+              onPress={() => doSubmit("Bypassed", true)}
+              disabled={sendingOtp || submitting}
+              activeOpacity={0.8}
+            >
+              <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
+              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: sendingOtp ? 0.7 : 1 }]}
+              onPress={handleSendOtp}
+              disabled={sendingOtp || submitting}
+              activeOpacity={0.85}
+            >
+              {sendingOtp ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Feather name="shield" size={18} color="#fff" />
+                  <Text style={styles.submitBtnText}>Verify Farmer</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
-        )}
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
-      {/* Quantity */}
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
-        <View style={styles.qtyRow}>
-          <TouchableOpacity
-            style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-            onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
-          >
-            <Feather name="minus" size={18} color={colors.foreground} />
-          </TouchableOpacity>
-          <TextInput
-            style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="numeric"
-            textAlign="center"
-          />
-          <TouchableOpacity
-            style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-            onPress={() => setQuantity((v) => String(Number(v) + 1))}
-          >
-            <Feather name="plus" size={18} color={colors.foreground} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Notes */}
-      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Notes (optional)</Text>
-        <TextInput
-          style={[styles.notesInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.muted, borderRadius: colors.radius }]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Any additional notes…"
-          placeholderTextColor={colors.mutedForeground}
-          multiline
-          numberOfLines={3}
-        />
-      </View>
-
-      {/* Dispatch info */}
-      {dispatchId && (
-        <View style={[styles.dispatchBadge, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
-          <Feather name="truck" size={14} color={colors.mutedForeground} />
-          <Text style={[styles.dispatchText, { color: colors.mutedForeground }]}>Dispatch #{dispatchId}</Text>
-        </View>
-      )}
-
-      {/* Actions */}
-      <View style={styles.actions}>
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER — Step 2: OTP Verification
+  // ═══════════════════════════════════════════════════════════════════════════
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView
+        style={[styles.root, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Back to details */}
         <TouchableOpacity
-          style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-          onPress={() => handleSubmit(true)}
-          disabled={submitting}
-          activeOpacity={0.8}
+          style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+          onPress={() => { setStep("details"); setOtpError(null); }}
         >
-          <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
-          <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
+          <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
+          <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: submitting ? 0.7 : 1 }]}
-          onPress={() => handleSubmit(false)}
-          disabled={submitting}
-          activeOpacity={0.85}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Feather name="check-circle" size={18} color="#fff" />
-              <Text style={styles.submitBtnText}>Submit PoD</Text>
-            </>
+
+        {/* OTP card */}
+        <View style={[styles.otpCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
+          {/* Shield header */}
+          <View style={[styles.otpIconWrap, { backgroundColor: colors.primary + "12" }]}>
+            <Feather name="shield" size={32} color={colors.primary} />
+          </View>
+          <Text style={[styles.otpTitle, { color: colors.foreground }]}>Farmer Verification</Text>
+          <Text style={[styles.otpSubtitle, { color: colors.mutedForeground }]}>
+            A 6-digit code was sent to
+          </Text>
+          <Text style={[styles.otpPhone, { color: colors.foreground }]}>
+            {otpResult?.maskedPhone ?? "the farmer's phone"}
+          </Text>
+
+          {/* 6-digit boxes */}
+          <View style={styles.digitRow}>
+            {digits.map((d, i) => (
+              <TextInput
+                key={i}
+                ref={(r) => { inputRefs.current[i] = r; }}
+                style={[
+                  styles.digitBox,
+                  {
+                    borderColor: otpError ? colors.destructive : d ? colors.primary : colors.border,
+                    color: colors.foreground,
+                    backgroundColor: colors.muted,
+                    borderRadius: colors.radius,
+                  },
+                ]}
+                value={d}
+                onChangeText={(t) => handleDigitChange(t, i)}
+                onKeyPress={({ nativeEvent }) => handleDigitKeyPress(nativeEvent.key, i)}
+                keyboardType="number-pad"
+                maxLength={1}
+                textAlign="center"
+                selectTextOnFocus
+              />
+            ))}
+          </View>
+
+          {/* Error message */}
+          {otpError && (
+            <View style={styles.errorRow}>
+              <Feather name="alert-circle" size={14} color={colors.destructive} />
+              <Text style={[styles.errorText, { color: colors.destructive }]}>{otpError}</Text>
+            </View>
           )}
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+
+          {/* Resend */}
+          <View style={styles.resendRow}>
+            <Text style={[styles.resendLabel, { color: colors.mutedForeground }]}>Didn't receive it?</Text>
+            {resendTimer > 0 ? (
+              <Text style={[styles.resendTimer, { color: colors.mutedForeground }]}>Resend in {resendTimer}s</Text>
+            ) : (
+              <TouchableOpacity onPress={handleResend} disabled={sendingOtp}>
+                <Text style={[styles.resendLink, { color: colors.primary }]}>
+                  {sendingOtp ? "Sending…" : "Resend Code"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Summary card */}
+        <View style={[styles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+          <View style={styles.summaryRow}>
+            <Feather name="user" size={14} color={colors.mutedForeground} />
+            <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{farmerName} · {farmerCode}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Feather name="package" size={14} color={colors.mutedForeground} />
+            <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{quantity} unit{Number(quantity) !== 1 ? "s" : ""} to be issued</Text>
+          </View>
+          {gps && (
+            <View style={styles.summaryRow}>
+              <Feather name="map-pin" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>
+                {gps.latitude.toFixed(4)}, {gps.longitude.toFixed(4)}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Actions */}
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+            onPress={() => doSubmit("Bypassed", true)}
+            disabled={verifying || submitting}
+            activeOpacity={0.8}
+          >
+            <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.submitBtn,
+              { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: (verifying || submitting) ? 0.7 : 1 },
+            ]}
+            onPress={() => handleVerify()}
+            disabled={verifying || submitting}
+            activeOpacity={0.85}
+          >
+            {(verifying || submitting) ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Feather name="check-circle" size={18} color="#fff" />
+                <Text style={styles.submitBtnText}>Confirm & Submit</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -276,4 +552,29 @@ const styles = StyleSheet.create({
   offlineBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
   submitBtn: { flex: 1, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   submitBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 15 },
+  // OTP step
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, padding: 10, borderWidth: 1, alignSelf: "flex-start" },
+  backBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  otpCard: { padding: 24, borderWidth: 1.5, alignItems: "center", gap: 8 },
+  otpIconWrap: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  otpTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  otpSubtitle: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  otpPhone: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 8 },
+  digitRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  digitBox: {
+    width: 44,
+    height: 52,
+    borderWidth: 1.5,
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+  },
+  errorRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  errorText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  resendRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  resendLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  resendTimer: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  resendLink: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  summaryCard: { padding: 14, gap: 8 },
+  summaryRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  summaryText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 });
