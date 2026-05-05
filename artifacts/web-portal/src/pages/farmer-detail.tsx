@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getFarmer, approveFarmer, rejectFarmer, KEYS } from "@/lib/db";
+import { getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,7 +9,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -41,6 +41,14 @@ export default function FarmerDetail() {
     queryKey: KEYS.farmer(id),
     queryFn: () => getFarmer(id),
     enabled: !!id,
+  });
+
+  const photoKey: string | null = (farmer as any)?.photoUrl ?? null;
+  const { data: photoSrc, isLoading: photoLoading } = useQuery({
+    queryKey: ["face-view-url", photoKey],
+    queryFn: () => getFaceViewUrl(photoKey!),
+    enabled: !!photoKey,
+    staleTime: 1000 * 60 * 10, // signed URLs last 10 min
   });
 
   const approveMutation = useMutation({ mutationFn: () => approveFarmer(id) });
@@ -160,6 +168,34 @@ export default function FarmerDetail() {
         </div>
 
         <div className="space-y-5">
+          {/* Biometric photo */}
+          <Card>
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5" /> Biometric Photo
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-2">
+              {photoLoading ? (
+                <Skeleton className="h-36 w-36 rounded-full" />
+              ) : photoSrc ? (
+                <img
+                  src={photoSrc}
+                  alt={`${f.firstName} ${f.lastName}`}
+                  className="h-36 w-36 rounded-full object-cover border-2 border-emerald-200 shadow"
+                />
+              ) : (
+                <div className="h-36 w-36 rounded-full bg-slate-100 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-slate-200 text-muted-foreground">
+                  <Camera className="h-6 w-6 opacity-40" />
+                  <span className="text-[10px] text-center px-2">No photo captured</span>
+                </div>
+              )}
+              {photoSrc && (
+                <p className="text-[10px] text-muted-foreground">Reference biometric on file</p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3 pt-4">
               <CardTitle className="text-sm font-semibold">Identity</CardTitle>

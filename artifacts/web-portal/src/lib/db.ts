@@ -966,3 +966,14 @@ export async function saveFaceReference(farmerId: number, key: string): Promise<
   });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to save reference"); }
 }
+
+export async function getFaceViewUrl(key: string): Promise<string> {
+  const token = await getApiToken();
+  if (!token) throw new Error("Not authenticated");
+  const res = await fetch(`${API_BASE}/face/view-url?key=${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to get view URL"); }
+  const { url } = await res.json();
+  return url;
+}
