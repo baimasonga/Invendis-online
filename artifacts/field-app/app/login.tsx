@@ -22,21 +22,21 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPass, setShowPass] = useState(false);
 
   const handleLogin = async () => {
-    if (!username.trim() || !password.trim()) {
-      setError("Please enter your username and password");
+    if (!email.trim() || !password.trim()) {
+      setError("Please enter your email and password");
       return;
     }
     setError("");
     setLoading(true);
     try {
-      await login(username.trim(), password);
+      await login(email.trim().toLowerCase(), password);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)/");
     } catch (e: unknown) {
@@ -70,7 +70,7 @@ export default function LoginScreen() {
           <View style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius * 2 }]}>
             <Text style={[styles.heading, { color: colors.foreground }]}>Sign In</Text>
             <Text style={[styles.sub, { color: colors.mutedForeground }]}>
-              Use your Invendis account credentials
+              Use your Invendis account email and password
             </Text>
 
             {error ? (
@@ -82,15 +82,17 @@ export default function LoginScreen() {
 
             <View style={styles.fields}>
               <View>
-                <Text style={[styles.label, { color: colors.mutedForeground }]}>Username</Text>
+                <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
                 <TextInput
                   style={[styles.input, { borderColor: colors.border, backgroundColor: colors.muted, color: colors.foreground, borderRadius: colors.radius }]}
-                  value={username}
-                  onChangeText={setUsername}
-                  placeholder="Enter username"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Enter email address"
                   placeholderTextColor={colors.mutedForeground}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
                   returnKeyType="next"
                 />
               </View>
@@ -105,6 +107,7 @@ export default function LoginScreen() {
                     placeholder="Enter password"
                     placeholderTextColor={colors.mutedForeground}
                     secureTextEntry={!showPass}
+                    textContentType="password"
                     returnKeyType="done"
                     onSubmitEditing={handleLogin}
                   />
