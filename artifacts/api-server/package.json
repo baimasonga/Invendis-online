@@ -10,6 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1041.0",
+    "@aws-sdk/client-s3": "^3.1041.0",
+    "@aws-sdk/s3-request-presigner": "^3.1041.0",
     "@supabase/supabase-js": "^2.105.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
