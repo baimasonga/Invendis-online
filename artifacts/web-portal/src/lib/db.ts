@@ -40,6 +40,13 @@ async function throwOnError<T>(promise: Promise<{ data: T | null; error: any; co
   return { data: data as T, count };
 }
 
+// ── lookup helpers (replaces Supabase FK joins) ───────────────────────────────
+async function lookupMap(table: string, ids: (number | string)[], cols: string): Promise<Record<string | number, any>> {
+  if (!ids.length) return {};
+  const { data } = await supabase.from(table).select(cols).in("id", ids);
+  return Object.fromEntries((data ?? []).map((r: any) => [r.id, r]));
+}
+
 // ── QUERY KEYS ───────────────────────────────────────────────────────────────
 export const KEYS = {
   dashboard:     () => ["dashboard"],
@@ -113,39 +120,46 @@ export async function getDashboardData() {
 export async function listFarmers(page = 1, limit = 20, search?: string, status?: string) {
   let q = supabase
     .from("farmers")
-    .select("*, districts(name), chiefdoms(name), value_chains(name)", { count: "exact" })
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`);
   if (status) q = q.eq("status", status);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [districtMap, chiefdomMap, vcMap] = await Promise.all([
+    lookupMap("districts", [...new Set(rows.map((r: any) => r.district_id).filter(Boolean))], "id,name"),
+    lookupMap("chiefdoms", [...new Set(rows.map((r: any) => r.chiefdom_id).filter(Boolean))], "id,name"),
+    lookupMap("value_chains", [...new Set(rows.map((r: any) => r.value_chain_id).filter(Boolean))], "id,name"),
+  ]);
   return {
-    data: (data ?? []).map((r: any) => ({
+    data: rows.map((r: any) => ({
       ...cc(r),
-      districtName: r.districts?.name ?? null,
-      chiefdomName: r.chiefdoms?.name ?? null,
-      valueChainName: r.value_chains?.name ?? null,
-      districts: undefined, chiefdoms: undefined, value_chains: undefined,
+      districtName: districtMap[r.district_id]?.name ?? null,
+      chiefdomName: chiefdomMap[r.chiefdom_id]?.name ?? null,
+      valueChainName: vcMap[r.value_chain_id]?.name ?? null,
     })),
     total: count ?? 0,
   };
 }
 
 export async function getFarmer(id: number) {
-  const { data, error } = await supabase
-    .from("farmers")
-    .select("*, districts(name), chiefdoms(name), sections(name), value_chains(name)")
-    .eq("id", id)
-    .single();
+  const { data, error } = await supabase.from("farmers").select("*").eq("id", id).single();
   if (error) throw new Error(error.message);
+  const r = data as any;
+  const [districtMap, chiefdomMap, sectionMap, vcMap] = await Promise.all([
+    lookupMap("districts", r.district_id ? [r.district_id] : [], "id,name"),
+    lookupMap("chiefdoms", r.chiefdom_id ? [r.chiefdom_id] : [], "id,name"),
+    lookupMap("sections", r.section_id ? [r.section_id] : [], "id,name"),
+    lookupMap("value_chains", r.value_chain_id ? [r.value_chain_id] : [], "id,name"),
+  ]);
   return {
-    ...cc(data),
-    districtName: (data as any).districts?.name ?? null,
-    chiefdomName: (data as any).chiefdoms?.name ?? null,
-    sectionName: (data as any).sections?.name ?? null,
-    valueChainName: (data as any).value_chains?.name ?? null,
-    districts: undefined, chiefdoms: undefined, sections: undefined, value_chains: undefined,
+    ...cc(r),
+    districtName: districtMap[r.district_id]?.name ?? null,
+    chiefdomName: chiefdomMap[r.chiefdom_id]?.name ?? null,
+    sectionName: sectionMap[r.section_id]?.name ?? null,
+    valueChainName: vcMap[r.value_chain_id]?.name ?? null,
   };
 }
 
@@ -191,32 +205,45 @@ export async function rejectFarmer(id: number, reason = "Rejected by administrat
 export async function listCampaigns(page = 1, limit = 20) {
   const { data, error, count } = await supabase
     .from("campaigns")
-    .select("*, districts(name), value_chains(name)", { count: "exact" })
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [districtMap, vcMap] = await Promise.all([
+    lookupMap("districts", [...new Set(rows.map((r: any) => r.district_id).filter(Boolean))], "id,name"),
+    lookupMap("value_chains", [...new Set(rows.map((r: any) => r.value_chain_id).filter(Boolean))], "id,name"),
+  ]);
   return {
-    data: (data ?? []).map((r: any) => ({
+    data: rows.map((r: any) => ({
       ...cc(r),
-      districtName: r.districts?.name ?? null,
-      valueChainName: r.value_chains?.name ?? null,
-      districts: undefined, value_chains: undefined,
+      districtName: districtMap[r.district_id]?.name ?? null,
+      valueChainName: vcMap[r.value_chain_id]?.name ?? null,
     })),
     total: count ?? 0,
   };
 }
 
 export async function getCampaign(id: number) {
-  const { data, error } = await supabase
-    .from("campaigns")
-    .select("*, districts(name), value_chains(name), campaign_items(*, input_items(name,unit))")
-    .eq("id", id).single();
+  const { data, error } = await supabase.from("campaigns").select("*").eq("id", id).single();
   if (error) throw new Error(error.message);
+  const r = data as any;
+  const { data: items } = await supabase.from("campaign_items").select("*").eq("campaign_id", id);
+  const itemIds = (items ?? []).map((i: any) => i.input_item_id).filter(Boolean);
+  const [districtMap, vcMap, inputItemMap] = await Promise.all([
+    lookupMap("districts", r.district_id ? [r.district_id] : [], "id,name"),
+    lookupMap("value_chains", r.value_chain_id ? [r.value_chain_id] : [], "id,name"),
+    lookupMap("input_items", itemIds, "id,name,unit"),
+  ]);
   return {
-    ...cc(data),
-    districtName: (data as any).districts?.name ?? null,
-    valueChainName: (data as any).value_chains?.name ?? null,
-    districts: undefined, value_chains: undefined,
+    ...cc(r),
+    districtName: districtMap[r.district_id]?.name ?? null,
+    valueChainName: vcMap[r.value_chain_id]?.name ?? null,
+    campaignItems: (items ?? []).map((i: any) => ({
+      ...cc(i),
+      inputItemName: inputItemMap[i.input_item_id]?.name ?? null,
+      unit: inputItemMap[i.input_item_id]?.unit ?? null,
+    })),
   };
 }
 
@@ -257,19 +284,23 @@ export async function approveCampaign(id: number) {
 export async function listAllocations(page = 1, limit = 20, campaignId?: number) {
   let q = supabase
     .from("allocations")
-    .select("*, farmers(first_name,last_name,farmer_code), campaigns(name,campaign_code)", { count: "exact" })
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (campaignId) q = q.eq("campaign_id", campaignId);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [farmerMap, campaignMap] = await Promise.all([
+    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code"),
+    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
+  ]);
   return {
-    data: (data ?? []).map((r: any) => ({
+    data: rows.map((r: any) => ({
       ...cc(r),
-      farmerName: r.farmers ? `${r.farmers.first_name} ${r.farmers.last_name}` : null,
-      farmerCode: r.farmers?.farmer_code ?? null,
-      campaignName: r.campaigns?.name ?? null,
-      farmers: undefined, campaigns: undefined,
+      farmerName: farmerMap[r.farmer_id] ? `${farmerMap[r.farmer_id].first_name} ${farmerMap[r.farmer_id].last_name}` : null,
+      farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
+      campaignName: campaignMap[r.campaign_id]?.name ?? null,
     })),
     total: count ?? 0,
   };
@@ -298,17 +329,21 @@ export async function listInputItems() {
 export async function getStockBalance() {
   const { data, error } = await supabase
     .from("stock_balance")
-    .select("*, warehouses(name,code), input_items(name,unit,category)")
+    .select("*")
     .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
+  const rows = data ?? [];
+  const [whMap, itemMap] = await Promise.all([
+    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name,code"),
+    lookupMap("input_items", [...new Set(rows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,unit,category"),
+  ]);
+  return rows.map((r: any) => ({
     ...cc(r),
-    warehouseName: r.warehouses?.name ?? null,
-    warehouseCode: r.warehouses?.code ?? null,
-    itemName: r.input_items?.name ?? null,
-    unit: r.input_items?.unit ?? null,
-    category: r.input_items?.category ?? null,
-    warehouses: undefined, input_items: undefined,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
+    warehouseCode: whMap[r.warehouse_id]?.code ?? null,
+    itemName: itemMap[r.input_item_id]?.name ?? null,
+    unit: itemMap[r.input_item_id]?.unit ?? null,
+    category: itemMap[r.input_item_id]?.category ?? null,
   }));
 }
 
@@ -349,13 +384,14 @@ export async function receiveStock(payload: any) {
 export async function listProcurementOrders() {
   const { data, error } = await supabase
     .from("procurement_orders")
-    .select("*, warehouses(name,code)")
+    .select("*")
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
+  const rows = data ?? [];
+  const whMap = await lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name,code");
+  return rows.map((r: any) => ({
     ...cc(r),
-    warehouseName: r.warehouses?.name ?? null,
-    warehouses: undefined,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
   }));
 }
 
@@ -424,47 +460,57 @@ export async function createDriver(payload: any) {
 export async function listDispatches(page = 1, limit = 20) {
   const { data, error, count } = await supabase
     .from("dispatches")
-    .select("*, campaigns(name), vehicles(plate_number), drivers(full_name), warehouses(name)", { count: "exact" })
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [campaignMap, vehicleMap, driverMap, whMap] = await Promise.all([
+    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name"),
+    lookupMap("vehicles", [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))], "id,plate_number"),
+    lookupMap("drivers", [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))], "id,full_name"),
+    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name"),
+  ]);
   return {
-    data: (data ?? []).map((r: any) => ({
+    data: rows.map((r: any) => ({
       ...cc(r),
-      campaignName: r.campaigns?.name ?? null,
-      plateNumber: r.vehicles?.plate_number ?? null,
-      driverName: r.drivers?.full_name ?? null,
-      warehouseName: r.warehouses?.name ?? null,
-      campaigns: undefined, vehicles: undefined, drivers: undefined, warehouses: undefined,
+      campaignName: campaignMap[r.campaign_id]?.name ?? null,
+      plateNumber: vehicleMap[r.vehicle_id]?.plate_number ?? null,
+      driverName: driverMap[r.driver_id]?.full_name ?? null,
+      warehouseName: whMap[r.warehouse_id]?.name ?? null,
     })),
     total: count ?? 0,
   };
 }
 
 export async function getDispatch(id: number) {
-  const { data, error } = await supabase
-    .from("dispatches")
-    .select("*, campaigns(name,campaign_code), vehicles(plate_number,vehicle_type), drivers(full_name,driver_code), warehouses(name,code), dispatch_items(*, input_items(name,unit))")
-    .eq("id", id).single();
+  const { data, error } = await supabase.from("dispatches").select("*").eq("id", id).single();
   if (error) throw new Error(error.message);
   const r = data as any;
+  const { data: items } = await supabase.from("dispatch_items").select("*").eq("dispatch_id", id);
+  const itemIds = (items ?? []).map((i: any) => i.input_item_id).filter(Boolean);
+  const [campaignMap, vehicleMap, driverMap, whMap, inputItemMap] = await Promise.all([
+    lookupMap("campaigns", r.campaign_id ? [r.campaign_id] : [], "id,name,campaign_code"),
+    lookupMap("vehicles", r.vehicle_id ? [r.vehicle_id] : [], "id,plate_number,vehicle_type"),
+    lookupMap("drivers", r.driver_id ? [r.driver_id] : [], "id,full_name,driver_code"),
+    lookupMap("warehouses", r.warehouse_id ? [r.warehouse_id] : [], "id,name,code"),
+    lookupMap("input_items", itemIds, "id,name,unit"),
+  ]);
   return {
     ...cc(r),
-    campaignName: r.campaigns?.name ?? null,
-    campaignCode: r.campaigns?.campaign_code ?? null,
-    plateNumber: r.vehicles?.plate_number ?? null,
-    vehicleType: r.vehicles?.vehicle_type ?? null,
-    driverName: r.drivers?.full_name ?? null,
-    driverCode: r.drivers?.driver_code ?? null,
-    warehouseName: r.warehouses?.name ?? null,
-    warehouseCode: r.warehouses?.code ?? null,
-    items: (r.dispatch_items ?? []).map((di: any) => ({
+    campaignName: campaignMap[r.campaign_id]?.name ?? null,
+    campaignCode: campaignMap[r.campaign_id]?.campaign_code ?? null,
+    plateNumber: vehicleMap[r.vehicle_id]?.plate_number ?? null,
+    vehicleType: vehicleMap[r.vehicle_id]?.vehicle_type ?? null,
+    driverName: driverMap[r.driver_id]?.full_name ?? null,
+    driverCode: driverMap[r.driver_id]?.driver_code ?? null,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
+    warehouseCode: whMap[r.warehouse_id]?.code ?? null,
+    items: (items ?? []).map((di: any) => ({
       ...cc(di),
-      itemName: di.input_items?.name ?? null,
-      unit: di.input_items?.unit ?? null,
-      input_items: undefined,
+      itemName: inputItemMap[di.input_item_id]?.name ?? null,
+      unit: inputItemMap[di.input_item_id]?.unit ?? null,
     })),
-    campaigns: undefined, vehicles: undefined, drivers: undefined, warehouses: undefined, dispatch_items: undefined,
   };
 }
 
@@ -541,19 +587,23 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
 export async function listPod(page = 1, limit = 20, dispatchId?: number) {
   let q = supabase
     .from("pod")
-    .select("*, farmers(first_name,last_name,farmer_code), campaigns(name,campaign_code)", { count: "exact" })
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
   if (dispatchId) q = q.eq("dispatch_id", dispatchId);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [farmerMap, campaignMap] = await Promise.all([
+    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code"),
+    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
+  ]);
   return {
-    data: (data ?? []).map((r: any) => ({
+    data: rows.map((r: any) => ({
       ...cc(r),
-      farmerName: r.farmers ? `${r.farmers.first_name} ${r.farmers.last_name}` : null,
-      farmerCode: r.farmers?.farmer_code ?? null,
-      campaignName: r.campaigns?.name ?? null,
-      farmers: undefined, campaigns: undefined,
+      farmerName: farmerMap[r.farmer_id] ? `${farmerMap[r.farmer_id].first_name} ${farmerMap[r.farmer_id].last_name}` : null,
+      farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
+      campaignName: campaignMap[r.campaign_id]?.name ?? null,
     })),
     total: count ?? 0,
   };
@@ -623,14 +673,18 @@ export async function verifyOtp(farmerId: number, code: string): Promise<{ verif
 export async function listReconciliations() {
   const { data, error } = await supabase
     .from("reconciliations")
-    .select("*, dispatches(manifest_code), warehouses(name,code)")
+    .select("*")
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
+  const rows = data ?? [];
+  const [dispatchMap, whMap] = await Promise.all([
+    lookupMap("dispatches", [...new Set(rows.map((r: any) => r.dispatch_id).filter(Boolean))], "id,manifest_code"),
+    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name,code"),
+  ]);
+  return rows.map((r: any) => ({
     ...cc(r),
-    manifestCode: r.dispatches?.manifest_code ?? null,
-    warehouseName: r.warehouses?.name ?? null,
-    dispatches: undefined, warehouses: undefined,
+    manifestCode: dispatchMap[r.dispatch_id]?.manifest_code ?? null,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
   }));
 }
 
@@ -675,55 +729,68 @@ export async function rejectReconciliation(id: number) {
 export async function getFarmerBeneficiaryReport() {
   const { data, error } = await supabase
     .from("farmers")
-    .select("status, districts(name), value_chains(name), gender")
+    .select("status, district_id, value_chain_id, gender")
     .limit(500);
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const [districtMap, vcMap] = await Promise.all([
+    lookupMap("districts", [...new Set(rows.map((r: any) => r.district_id).filter(Boolean))], "id,name"),
+    lookupMap("value_chains", [...new Set(rows.map((r: any) => r.value_chain_id).filter(Boolean))], "id,name"),
+  ]);
 
   const byDistrict: Record<string, any> = {};
-  for (const f of (data ?? [])) {
-    const d = (f as any).districts?.name ?? "Unknown";
+  for (const f of rows) {
+    const d = districtMap[(f as any).district_id]?.name ?? "Unknown";
     if (!byDistrict[d]) byDistrict[d] = { district: d, total: 0, approved: 0, pending: 0, female: 0 };
     byDistrict[d].total++;
     if ((f as any).status === "approved") byDistrict[d].approved++;
     if ((f as any).status === "pending") byDistrict[d].pending++;
     if ((f as any).gender === "Female") byDistrict[d].female++;
   }
-  const rows = Object.values(byDistrict).sort((a, b) => b.total - a.total);
-  const total = rows.reduce((s, r) => s + r.total, 0);
-  const approved = rows.reduce((s, r) => s + r.approved, 0);
-  const female = rows.reduce((s, r) => s + r.female, 0);
-  return { rows, summary: { total, approved, female, pctApproved: total ? Math.round((approved / total) * 100) : 0 } };
+  const reportRows = Object.values(byDistrict).sort((a, b) => b.total - a.total);
+  const total = reportRows.reduce((s, r) => s + r.total, 0);
+  const approved = reportRows.reduce((s, r) => s + r.approved, 0);
+  const female = reportRows.reduce((s, r) => s + r.female, 0);
+  return { rows: reportRows, summary: { total, approved, female, pctApproved: total ? Math.round((approved / total) * 100) : 0 } };
 }
 
 export async function getStockMovementReport() {
   const { data, error } = await supabase
     .from("stock_ledger")
-    .select("*, warehouses(name), input_items(name,unit)")
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
+  const rows = data ?? [];
+  const [whMap, itemMap] = await Promise.all([
+    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name"),
+    lookupMap("input_items", [...new Set(rows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,unit"),
+  ]);
+  return rows.map((r: any) => ({
     ...cc(r),
-    warehouseName: r.warehouses?.name ?? null,
-    itemName: r.input_items?.name ?? null,
-    unit: r.input_items?.unit ?? null,
-    warehouses: undefined, input_items: undefined,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
+    itemName: itemMap[r.input_item_id]?.name ?? null,
+    unit: itemMap[r.input_item_id]?.unit ?? null,
   }));
 }
 
 export async function getDistributionReport() {
   const { data, error } = await supabase
     .from("dispatches")
-    .select("*, campaigns(name), warehouses(name)")
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
+  const rows = data ?? [];
+  const [campaignMap, whMap] = await Promise.all([
+    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name"),
+    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name"),
+  ]);
+  return rows.map((r: any) => ({
     ...cc(r),
-    campaignName: r.campaigns?.name ?? null,
-    warehouseName: r.warehouses?.name ?? null,
+    campaignName: campaignMap[r.campaign_id]?.name ?? null,
+    warehouseName: whMap[r.warehouse_id]?.name ?? null,
     completionPct: r.total_packages > 0 ? Math.round((r.delivered_packages / r.total_packages) * 100) : 0,
-    campaigns: undefined, warehouses: undefined,
   }));
 }
 
@@ -804,10 +871,12 @@ export async function listValueChains() {
 }
 
 export async function listWarehouses() {
-  const { data, error } = await supabase.from("warehouses").select("*, districts(name)").order("name");
+  const { data, error } = await supabase.from("warehouses").select("*").order("name");
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r: any) => ({
-    ...cc(r), districtName: r.districts?.name ?? null, districts: undefined,
+  const rows = data ?? [];
+  const districtMap = await lookupMap("districts", [...new Set(rows.map((r: any) => r.district_id).filter(Boolean))], "id,name");
+  return rows.map((r: any) => ({
+    ...cc(r), districtName: districtMap[r.district_id]?.name ?? null,
   }));
 }
 
