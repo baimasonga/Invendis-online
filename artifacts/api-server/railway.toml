@@ -1,6 +1,9 @@
 [build]
 builder = "RAILPACK"
-buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build"
+# npm auto-install runs first (from service root package.json — now npm-compatible).
+# Our build command then removes the npm node_modules, goes to the monorepo root,
+# installs everything properly with pnpm, and compiles the bundle.
+buildCommand = "rm -rf node_modules && cd ../.. && npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build"
 
 [deploy]
 startCommand = "node --enable-source-maps dist/index.mjs"

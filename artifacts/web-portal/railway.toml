@@ -1,8 +1,10 @@
 [build]
 builder = "RAILPACK"
-# VITE_API_URL must be set as a build variable — it is baked into the JS bundle at build time.
-# Example: https://invendis-api.up.railway.app
-buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @workspace/web-portal run build"
+# npm auto-install runs first (from service root package.json — now npm-compatible).
+# Our build command then removes the npm node_modules, goes to the monorepo root,
+# installs everything properly with pnpm, and compiles the Vite bundle.
+# VITE_API_URL must be set as a Railway build variable — baked into the JS bundle.
+buildCommand = "rm -rf node_modules && cd ../.. && npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm --filter @workspace/web-portal run build"
 
 [deploy]
 startCommand = "node server.mjs"
