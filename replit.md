@@ -42,11 +42,27 @@ Expo app for field officers to:
 - `lib/api.ts` — Typed API helpers using `EXPO_PUBLIC_DOMAIN`
 - `app/_layout.tsx` — Root layout with providers + auth guard redirect
 - `app/(tabs)/_layout.tsx` — 5-tab bar (Home, Dispatch, Scan, Incidents, Sync)
-- `app/confirm-pod.tsx` — GPS capture + PoD submission with offline fallback
+- `app/confirm-pod.tsx` — 3-step PoD flow: Details → OTP → Face Verification
 - `app/scan-farmer.tsx` — Camera barcode scanner + manual search
 
-### New API Route (added for mobile)
-- `GET /api/farmers/barcode/:token` — Look up farmer by `barcodeToken` field
+### Confirm PoD Flow (3 steps)
+1. **Details** — quantity, GPS, notes
+2. **OTP** — WhatsApp/SMS 6-digit code with dev-mode bypass banner
+3. **Face Verification** — camera photo → S3 upload → AWS Rekognition CompareFaces
+
+### API Routes
+- `GET /api/farmers/barcode/:token` — Look up farmer by `barcodeToken`
+- `POST /api/face/upload-url` — Get presigned S3 URL for photo upload
+- `GET /api/face/view-url?key=...` — Get presigned S3 view URL
+- `POST /api/face/compare` — Compare delivery photo against reference via Rekognition
+- `POST /api/face/save-reference` — Save reference photo key to farmer record
+
+### Face Verification Logic
+- Field officer takes live photo → uploaded to `invendimages` S3 bucket
+- API calls `CompareFaces` against `farmers.photo_url` (stored S3 key)
+- `faceStatus`: `Verified` (≥80% similarity), `Failed` (<80%), `NoFace`, `NoReference`, `Error`
+- `NoReference`: photo saved, future deliveries will compare against it
+- Officer can Override a failed match (flagged for supervisor review)
 
 ## Data Layer Pattern (web-portal)
 
@@ -158,5 +174,15 @@ Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `Fi
 - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (used in api-server)
 - `SESSION_SECRET` — Session/JWT signing secret (api-server)
 - `DATABASE_URL` — Direct PostgreSQL connection string (api-server + drizzle)
-- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` — SMS OTP
+- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` — WhatsApp/SMS OTP
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — IAM user `invendis-edge-system`
+- `AWS_REGION` — `eu-west-2` (London)
+- `AWS_S3_BUCKET` — `invendimages` (farmer reference + delivery photos)
 - `EXPO_PUBLIC_DOMAIN` — Injected at runtime; mobile app uses this to reach the API
+
+## AWS Infrastructure
+- **S3 bucket:** `invendimages` (eu-west-2) — stores farmer photos at `farmers/{id}/reference/` and `farmers/{id}/delivery/`
+- **Rekognition:** `CompareFaces` API — threshold 80% for match
+- **IAM user:** `invendis-edge-system` — needs `AmazonS3FullAccess` + `AmazonRekognitionFullAccess`
+- Photos are private; access via presigned URLs (5 min upload, 1 hr view)
+- Metro config blocks `@aws-sdk`, `@aws-crypto`, `@smithy` from field-app bundle (server-only)

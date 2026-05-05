@@ -15,6 +15,7 @@ import reconciliationRouter from "./reconciliation";
 import reportsRouter from "./reports";
 import auditRouter from "./audit";
 import usersRouter from "./users";
+import faceRouter from "./face";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(reconciliationRouter);
 router.use(reportsRouter);
 router.use(auditRouter);
 router.use(usersRouter);
+router.use(faceRouter);
 
 export default router;

@@ -139,3 +139,40 @@ export const verifyOtp = (token: string, farmerId: number, code: string) =>
     method: "POST",
     body: JSON.stringify({ farmerId, code }),
   });
+
+export interface FaceUploadResult {
+  uploadUrl: string;
+  key: string;
+  bucket: string;
+}
+
+export interface FaceCompareResult {
+  matched: boolean;
+  similarity: number | null;
+  reason: string;
+  faceStatus: "Verified" | "Failed" | "NoFace" | "NoReference" | "Error";
+  detail?: string;
+}
+
+export const getFaceUploadUrl = (token: string, farmerId: number, purpose: "reference" | "delivery") =>
+  apiFetch<FaceUploadResult>("/face/upload-url", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId, purpose }),
+  });
+
+export const compareFace = (token: string, farmerId: number, deliveryKey: string) =>
+  apiFetch<FaceCompareResult>("/face/compare", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId, deliveryKey }),
+  });
+
+export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
+  const response = await fetch(photoUri);
+  const blob = await response.blob();
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "image/jpeg" },
+    body: blob,
+  });
+  if (!putRes.ok) throw new Error(`S3 upload failed: ${putRes.status}`);
+}
