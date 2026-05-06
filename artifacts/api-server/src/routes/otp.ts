@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAnyAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -68,7 +68,7 @@ async function sendViaSms(to: string, text: string): Promise<string> {
 
 // ── POST /api/pod/otp/send ────────────────────────────────────────────────────
 
-router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
+router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   const { farmerId } = req.body as { farmerId: number };
   if (!farmerId) {
     res.status(400).json({ error: "farmerId is required" });
@@ -143,7 +143,7 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
 
 // ── POST /api/pod/otp/verify ──────────────────────────────────────────────────
 
-router.post("/api/pod/otp/verify", requireAuth, async (req, res) => {
+router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };
   if (!farmerId || !code) {
     res.status(400).json({ verified: false, error: "farmerId and code are required" });
