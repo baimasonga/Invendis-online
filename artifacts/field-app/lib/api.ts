@@ -88,8 +88,9 @@ export interface PoD {
   status: string;
   otpStatus: string | null;
   faceStatus: string | null;
-  farmerLatitude: string | null;
-  farmerLongitude: string | null;
+  gpsStatus: string | null;
+  farmerLatitude: number | null;
+  farmerLongitude: number | null;
   notes: string | null;
   submittedAt: string | null;
 }

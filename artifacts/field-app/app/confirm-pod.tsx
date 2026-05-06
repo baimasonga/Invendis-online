@@ -28,6 +28,7 @@ import {
   uploadPhotoToS3,
   type OtpSendResult,
   type FaceCompareResult,
+  type PoD,
 } from "@/lib/api";
 
 interface GPSCoords {
@@ -82,7 +83,7 @@ async function takeCameraPhoto(): Promise<string | null> {
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
 
-type Step = "details" | "otp" | "face";
+type Step = "details" | "otp" | "face" | "result";
 
 export default function ConfirmPodScreen() {
   const { farmerId, farmerName, farmerCode, dispatchId } = useLocalSearchParams<{
@@ -123,6 +124,7 @@ export default function ConfirmPodScreen() {
 
   // Submit
   const [submitting, setSubmitting] = useState(false);
+  const [submittedPod, setSubmittedPod] = useState<PoD | null>(null);
 
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -291,11 +293,10 @@ export default function ConfirmPodScreen() {
           { text: "OK", onPress: () => router.back() },
         ]);
       } else {
-        await submitPoD(token!, payload);
+        const pod = await submitPoD(token!, payload);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert("Success", "Proof of Delivery recorded successfully.", [
-          { text: "OK", onPress: () => router.back() },
-        ]);
+        setSubmittedPod(pod);
+        setStep("result");
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to submit";
@@ -352,6 +353,80 @@ export default function ConfirmPodScreen() {
       </View>
     );
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 4 — Result (GPS verification outcome)
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (step === "result" && submittedPod) {
+    const gpsStatus = submittedPod.gpsStatus;
+    const gpsCfg: Record<string, { icon: "map-pin" | "alert-triangle" | "wifi-off" | "clock"; title: string; desc: string; colorKey: "success" | "warning" | "mutedForeground" }> = {
+      Verified:   { icon: "map-pin",       title: "Location Verified",     desc: "Delivery confirmed within the expected distribution zone.",          colorKey: "success"          },
+      Mismatch:   { icon: "alert-triangle", title: "Location Outside Zone", desc: "Delivery recorded outside the expected area — flagged for review.", colorKey: "warning"          },
+      NoLocation: { icon: "wifi-off",       title: "No GPS Captured",       desc: "No coordinates were recorded for this delivery.",                   colorKey: "mutedForeground"  },
+    };
+    const cfg = gpsCfg[gpsStatus ?? ""] ?? { icon: "clock" as const, title: "GPS Pending", desc: "No destination coordinates configured for this campaign.", colorKey: "mutedForeground" as const };
+    const gpsColor = colors[cfg.colorKey as keyof typeof colors] as string;
+    const faceOk = submittedPod.faceStatus === "Verified" || submittedPod.faceStatus === "NoReference";
+
+    return (
+      <ScrollView
+        style={[styles.root, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 40, alignItems: "center" }]}
+      >
+        {/* Success icon */}
+        <View style={[resultStyles.successRing, { backgroundColor: colors.success + "18", borderColor: colors.success + "35" }]}>
+          <View style={[resultStyles.successInner, { backgroundColor: colors.success + "30" }]}>
+            <Feather name="check-circle" size={44} color={colors.success} />
+          </View>
+        </View>
+
+        <Text style={[resultStyles.successTitle, { color: colors.foreground }]}>PoD Recorded!</Text>
+        <Text style={[resultStyles.podCode, { color: colors.primary }]}>{submittedPod.podCode}</Text>
+        <Text style={[resultStyles.farmerLabel, { color: colors.mutedForeground }]}>
+          {farmerName} · {quantity} unit{Number(quantity) !== 1 ? "s" : ""}
+        </Text>
+
+        {/* GPS status card */}
+        <View style={[resultStyles.gpsCard, { backgroundColor: gpsColor + "14", borderColor: gpsColor + "35", borderRadius: colors.radius, width: "100%" }]}>
+          <View style={[resultStyles.gpsIconWrap, { backgroundColor: gpsColor + "22" }]}>
+            <Feather name={cfg.icon} size={26} color={gpsColor} />
+          </View>
+          <Text style={[resultStyles.gpsTitle, { color: gpsColor }]}>{cfg.title}</Text>
+          <Text style={[resultStyles.gpsDesc, { color: colors.mutedForeground }]}>{cfg.desc}</Text>
+          {submittedPod.farmerLatitude != null && submittedPod.farmerLongitude != null && (
+            <Text style={[resultStyles.gpsCoords, { color: colors.mutedForeground }]}>
+              {(submittedPod.farmerLatitude as number).toFixed(5)}, {(submittedPod.farmerLongitude as number).toFixed(5)}
+            </Text>
+          )}
+        </View>
+
+        {/* Verification summary */}
+        <View style={[resultStyles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius, width: "100%" }]}>
+          {[
+            { icon: "shield" as const,   label: "OTP",        val: submittedPod.otpStatus ?? "—",  ok: submittedPod.otpStatus === "Verified" },
+            { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
+            { icon: "map-pin" as const,  label: "GPS",        val: gpsStatus ?? "Pending",          ok: gpsStatus === "Verified" },
+          ].map(({ icon, label, val, ok }) => (
+            <View key={label} style={resultStyles.summaryRow}>
+              <Feather name={icon} size={14} color={ok ? colors.success : colors.mutedForeground} />
+              <Text style={[resultStyles.summaryLabel, { color: colors.mutedForeground }]}>{label}</Text>
+              <Text style={[resultStyles.summaryVal, { color: ok ? colors.success : colors.mutedForeground }]}>{val}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Done button */}
+        <TouchableOpacity
+          style={[resultStyles.doneBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, width: "100%" }]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Feather name="check" size={18} color="#fff" />
+          <Text style={resultStyles.doneBtnText}>Done</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // STEP 1 — Details
@@ -792,6 +867,25 @@ export default function ConfirmPodScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const resultStyles = StyleSheet.create({
+  successRing: { width: 120, height: 120, borderRadius: 60, alignItems: "center", justifyContent: "center", borderWidth: 2, marginTop: 24, marginBottom: 8 },
+  successInner: { width: 90, height: 90, borderRadius: 45, alignItems: "center", justifyContent: "center" },
+  successTitle: { fontSize: 24, fontFamily: "Inter_700Bold", marginTop: 12 },
+  podCode: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginTop: 4, letterSpacing: 1 },
+  farmerLabel: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4, marginBottom: 20 },
+  gpsCard: { padding: 20, borderWidth: 1.5, alignItems: "center", gap: 8, marginBottom: 12 },
+  gpsIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  gpsTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
+  gpsDesc: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
+  gpsCoords: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4 },
+  summaryCard: { padding: 14, gap: 10, marginBottom: 20 },
+  summaryRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  summaryLabel: { fontSize: 13, fontFamily: "Inter_500Medium", width: 56 },
+  summaryVal: { fontSize: 13, fontFamily: "Inter_600SemiBold", flex: 1 },
+  doneBtn: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  doneBtnText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 16 },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
