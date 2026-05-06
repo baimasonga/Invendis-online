@@ -7,8 +7,11 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
-  ChevronRight, RefreshCw, Wifi, WifiOff,
+  ChevronRight, RefreshCw, Wifi, WifiOff, Target,
+  AlertTriangle, CheckCircle2, RouteOff,
 } from "lucide-react";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return "No signal";
@@ -61,6 +64,37 @@ function SignalBadge({ lastPing }: { lastPing: string | null | undefined }) {
   );
 }
 
+type ArrivalStatus = "arrived" | "en_route" | "not_reached" | "no_destination" | "no_signal";
+
+function getArrivalStatus(v: any): ArrivalStatus {
+  if (v.arrivedAt || v.withinGeofence === true) return "arrived";
+  if (!v.hasDestination) return "no_destination";
+  if (v.lastLatitude == null) return "no_signal";
+  const tier = getSignalTier(v.lastPing);
+  if (tier === "offline" && !v.arrivedAt) return "not_reached";
+  return "en_route";
+}
+
+const ARRIVAL_CONFIG: Record<ArrivalStatus, { label: string; cls: string; icon: any }> = {
+  arrived:        { label: "Arrived",       cls: "bg-teal-100    text-teal-700",   icon: CheckCircle2 },
+  en_route:       { label: "En Route",      cls: "bg-blue-100    text-blue-700",   icon: Navigation   },
+  not_reached:    { label: "Not Reached",   cls: "bg-red-100     text-red-700",    icon: AlertTriangle },
+  no_destination: { label: "No Destination",cls: "bg-amber-100   text-amber-700",  icon: Target       },
+  no_signal:      { label: "No Signal",     cls: "bg-slate-100   text-slate-500",  icon: RouteOff     },
+};
+
+function ArrivalBadge({ vehicle }: { vehicle: any }) {
+  const status = getArrivalStatus(vehicle);
+  const c = ARRIVAL_CONFIG[status];
+  const Icon = c.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${c.cls}`}>
+      <Icon className="h-2.5 w-2.5 shrink-0" />
+      {c.label}
+    </span>
+  );
+}
+
 function CoordDisplay({ lat, lng }: { lat: number | null | undefined; lng: number | null | undefined }) {
   if (lat == null || lng == null) return <span className="text-xs text-muted-foreground">No position</span>;
   return (
@@ -102,6 +136,8 @@ function TrackPoint({ point, index, isLast }: { point: any; index: number; isLas
   );
 }
 
+// ── Main Component ─────────────────────────────────────────────────────────────
+
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
 
@@ -122,12 +158,13 @@ export default function GpsTracking() {
   const trackPoints: any[] = Array.isArray(track) ? (track as any[]).slice().reverse() : [];
   const selectedData = vehicleList.find((v: any) => v.id === selectedVehicle);
   const liveCount = vehicleList.filter((v: any) => getSignalTier(v.lastPing) === "live").length;
+  const arrivedCount = vehicleList.filter((v: any) => getArrivalStatus(v) === "arrived").length;
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Live Vehicle Tracking"
-        subtitle="Real-time GPS positions for in-transit vehicles. Refreshes every 30 seconds."
+        subtitle="Real-time GPS positions and destination monitoring. Refreshes every 30 seconds."
         badge={
           liveCount > 0 ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
@@ -147,6 +184,24 @@ export default function GpsTracking() {
         }
       />
 
+      {/* Summary strip */}
+      {!isLoading && vehicleList.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "In Transit",  value: vehicleList.length,  cls: "text-blue-700",  bg: "bg-blue-50 dark:bg-blue-900/20" },
+            { label: "Arrived",     value: arrivedCount,         cls: "text-teal-700",  bg: "bg-teal-50 dark:bg-teal-900/20" },
+            { label: "Live Signal", value: liveCount,            cls: "text-emerald-700", bg: "bg-emerald-50 dark:bg-emerald-900/20" },
+          ].map((s) => (
+            <Card key={s.label} className={`${s.bg} border-transparent`}>
+              <CardContent className="p-3 text-center">
+                <p className={`text-xl font-bold ${s.cls}`}>{s.value}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Vehicle list */}
         <div className="lg:col-span-1 space-y-2">
@@ -160,7 +215,7 @@ export default function GpsTracking() {
 
           {isLoading ? (
             Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i}><CardContent className="p-4"><Skeleton className="h-20 w-full" /></CardContent></Card>
+              <Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full" /></CardContent></Card>
             ))
           ) : vehicleList.length === 0 ? (
             <Card>
@@ -168,7 +223,7 @@ export default function GpsTracking() {
                 <Truck className="h-10 w-10 opacity-20" />
                 <div className="text-center">
                   <p className="text-sm font-medium">No vehicles in transit</p>
-                  <p className="text-xs mt-1 text-muted-foreground">GPS data will appear here when vehicles are dispatched.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">GPS data appears here when vehicles are dispatched.</p>
                 </div>
               </CardContent>
             </Card>
@@ -181,8 +236,9 @@ export default function GpsTracking() {
                 className={`cursor-pointer transition-all hover:shadow-md ${isSelected ? "ring-2 ring-emerald-500 shadow-md" : "hover:border-emerald-200"}`}
                 onClick={() => setSelectedVehicle(isSelected ? null : v.id)}
               >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                <CardContent className="p-4 space-y-3">
+                  {/* Row 1: Vehicle identity + signal */}
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="relative shrink-0">
                         <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
@@ -197,7 +253,7 @@ export default function GpsTracking() {
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-sm leading-tight">{v.plateNumber ?? "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}</p>
+                        <p className="text-xs text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}{v.driverName ? ` · ${v.driverName}` : ""}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -206,6 +262,7 @@ export default function GpsTracking() {
                     </div>
                   </div>
 
+                  {/* Row 2: Position + ping */}
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t">
                     <div>
                       <p className="text-[10px] text-muted-foreground flex items-center gap-1 mb-0.5"><MapPin className="h-2.5 w-2.5" /> Position</p>
@@ -216,30 +273,131 @@ export default function GpsTracking() {
                       <p className="text-xs font-medium">{formatAgo(v.lastPing)}</p>
                     </div>
                   </div>
+
+                  {/* Row 3: Destination + arrival status */}
+                  <div className="pt-2 border-t space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Target className="h-2.5 w-2.5" /> Destination
+                      </p>
+                      <ArrivalBadge vehicle={v} />
+                    </div>
+                    {v.destinationLabel ? (
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-xs font-medium truncate max-w-[140px]">{v.destinationLabel}</p>
+                        {v.distanceLabel && (
+                          <p className="text-xs text-muted-foreground tabular-nums">{v.distanceLabel}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">No distribution site configured</p>
+                    )}
+                    {v.campaignName && (
+                      <p className="text-[10px] text-muted-foreground truncate">{v.campaignName}</p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
           })}
         </div>
 
-        {/* Track history panel */}
+        {/* Detail panel */}
         <div className="lg:col-span-2">
           {!selectedVehicle ? (
             <Card className="h-full min-h-[300px]">
               <CardContent className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-12">
-                <div className="relative">
-                  <MapPin className="h-12 w-12 opacity-10" />
-                </div>
+                <MapPin className="h-12 w-12 opacity-10" />
                 <div className="text-center">
                   <p className="text-sm font-medium">Select a vehicle</p>
-                  <p className="text-xs mt-1 text-muted-foreground">Click any vehicle card to see its GPS track history.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">Click any vehicle card to see its GPS track and destination details.</p>
                 </div>
               </CardContent>
             </Card>
           ) : (
-            <Card>
-              <CardHeader className="pb-3 pt-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="space-y-4">
+              {/* Destination summary card */}
+              {selectedData && (
+                <Card className={
+                  getArrivalStatus(selectedData) === "arrived"
+                    ? "border-teal-200 bg-teal-50/50 dark:bg-teal-900/10"
+                    : getArrivalStatus(selectedData) === "not_reached"
+                    ? "border-red-200 bg-red-50/50 dark:bg-red-900/10"
+                    : ""
+                }>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
+                          <ArrivalBadge vehicle={selectedData} />
+                        </div>
+                        {selectedData.destinationLabel ? (
+                          <p className="text-sm font-semibold">{selectedData.destinationLabel}</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">No distribution site set on this campaign</p>
+                        )}
+                        {selectedData.effectiveDestLat != null && (
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {selectedData.effectiveDestLat.toFixed(5)}, {selectedData.effectiveDestLng?.toFixed(5)}
+                          </p>
+                        )}
+                        {selectedData.distanceLabel && (
+                          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                            {selectedData.distanceLabel} from current position
+                          </p>
+                        )}
+                        {selectedData.arrivedAt && (
+                          <p className="text-xs text-teal-700 dark:text-teal-400">
+                            Arrived {new Date(selectedData.arrivedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        )}
+                        {selectedData.departedAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Departed {new Date(selectedData.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 shrink-0">
+                        {selectedData.lastLatitude != null && (
+                          <a
+                            href={`https://www.google.com/maps?q=${selectedData.lastLatitude},${selectedData.lastLongitude}`}
+                            target="_blank" rel="noopener noreferrer"
+                          >
+                            <Button size="sm" variant="outline" className="h-7 text-xs w-full">
+                              <MapPin className="h-3.5 w-3.5 mr-1" /> Vehicle in Maps
+                            </Button>
+                          </a>
+                        )}
+                        {selectedData.effectiveDestLat != null && (
+                          <a
+                            href={`https://www.google.com/maps?q=${selectedData.effectiveDestLat},${selectedData.effectiveDestLng}`}
+                            target="_blank" rel="noopener noreferrer"
+                          >
+                            <Button size="sm" variant="outline" className="h-7 text-xs w-full">
+                              <Target className="h-3.5 w-3.5 mr-1" /> Destination in Maps
+                            </Button>
+                          </a>
+                        )}
+                        {selectedData.lastLatitude != null && selectedData.effectiveDestLat != null && (
+                          <a
+                            href={`https://www.google.com/maps/dir/${selectedData.lastLatitude},${selectedData.lastLongitude}/${selectedData.effectiveDestLat},${selectedData.effectiveDestLng}`}
+                            target="_blank" rel="noopener noreferrer"
+                          >
+                            <Button size="sm" variant="outline" className="h-7 text-xs w-full text-blue-600 border-blue-200 hover:bg-blue-50">
+                              <Navigation className="h-3.5 w-3.5 mr-1" /> Get Directions
+                            </Button>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Track history */}
+              <Card>
+                <CardHeader className="pb-3 pt-4">
                   <div className="flex items-center gap-2.5">
                     <div className="relative">
                       <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
@@ -254,45 +412,37 @@ export default function GpsTracking() {
                     </div>
                     <div>
                       <CardTitle className="text-sm font-semibold">
-                        {selectedData?.plateNumber ?? `Vehicle #${selectedVehicle}`}
+                        {selectedData?.plateNumber ?? `Vehicle #${selectedVehicle}`} — GPS Track
                       </CardTitle>
-                      {selectedData?.vehicleType && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{selectedData.vehicleType}</p>
+                      {selectedData?.manifestCode && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Manifest {selectedData.manifestCode}
+                          {selectedData.campaignName ? ` · ${selectedData.campaignName}` : ""}
+                        </p>
                       )}
                     </div>
                   </div>
-                  {selectedData?.lastLatitude != null && (
-                    <a
-                      href={`https://www.google.com/maps?q=${selectedData.lastLatitude},${selectedData.lastLongitude}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button size="sm" variant="outline" className="h-7 text-xs">
-                        <MapPin className="h-3.5 w-3.5 mr-1" /> Open in Maps
-                      </Button>
-                    </a>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {loadingTrack ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                    </div>
+                  ) : trackPoints.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+                      <Radio className="h-8 w-8 opacity-20" />
+                      <p className="text-sm">No GPS pings recorded yet for this vehicle.</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[380px] overflow-y-auto pr-2">
+                      {trackPoints.map((pt: any, i: number) => (
+                        <TrackPoint key={pt.id ?? i} point={pt} index={i} isLast={i === trackPoints.length - 1} />
+                      ))}
+                    </div>
                   )}
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {loadingTrack ? (
-                  <div className="space-y-3">
-                    {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
-                  </div>
-                ) : trackPoints.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-                    <Radio className="h-8 w-8 opacity-20" />
-                    <p className="text-sm">No GPS pings recorded yet for this vehicle.</p>
-                  </div>
-                ) : (
-                  <div className="max-h-[420px] overflow-y-auto pr-2">
-                    {trackPoints.map((pt: any, i: number) => (
-                      <TrackPoint key={pt.id ?? i} point={pt} index={i} isLast={i === trackPoints.length - 1} />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </div>

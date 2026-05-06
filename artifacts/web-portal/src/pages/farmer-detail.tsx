@@ -166,33 +166,42 @@ export default function FarmerDetail() {
         <div className="space-y-5">
           {/* Biometric photo */}
           <Card className="overflow-hidden">
-            <div className="relative h-28 bg-gradient-to-br from-emerald-700 to-emerald-900">
-              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_70%_50%,white,transparent)]" />
+            <div className="relative h-32 bg-gradient-to-br from-emerald-700 via-emerald-800 to-emerald-950">
+              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_80%_40%,white,transparent)]" />
+              <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/20 to-transparent" />
             </div>
-            <CardContent className="px-4 pb-4 pt-0">
-              <div className="flex flex-col items-center -mt-14 gap-2">
+            <CardContent className="px-4 pb-5 pt-0">
+              <div className="flex flex-col items-center -mt-16 gap-3">
                 {photoLoading ? (
-                  <Skeleton className="h-28 w-28 rounded-full ring-4 ring-background" />
+                  <Skeleton className="h-32 w-32 rounded-full ring-4 ring-background" />
                 ) : photoSrc ? (
-                  <img
-                    src={photoSrc}
-                    alt={`${f.firstName} ${f.lastName}`}
-                    className="h-28 w-28 rounded-full object-cover ring-4 ring-background shadow-lg border border-emerald-200"
-                  />
+                  <div className="relative">
+                    <img
+                      src={photoSrc}
+                      alt={`${f.firstName} ${f.lastName}`}
+                      className="h-32 w-32 rounded-full object-cover ring-4 ring-background shadow-xl border-2 border-emerald-200"
+                    />
+                    <span className="absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-background">
+                      <Camera className="h-2.5 w-2.5 text-white" />
+                    </span>
+                  </div>
                 ) : (
-                  <div className="h-28 w-28 rounded-full bg-slate-100 flex flex-col items-center justify-center gap-1.5 ring-4 ring-background shadow border-2 border-dashed border-slate-200 text-muted-foreground">
-                    <Camera className="h-7 w-7 opacity-30" />
+                  <div className="h-32 w-32 rounded-full bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-center gap-1.5 ring-4 ring-background shadow-md border-2 border-dashed border-slate-200 dark:border-slate-700 text-muted-foreground">
+                    <Camera className="h-8 w-8 opacity-25" />
                     <span className="text-[10px] text-center px-2 leading-tight">No photo</span>
                   </div>
                 )}
-                <div className="text-center">
-                  <p className="text-sm font-semibold">{f.firstName} {f.lastName}</p>
-                  <p className="text-xs text-muted-foreground font-mono mt-0.5">{f.farmerCode}</p>
-                  {photoSrc && (
-                    <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium">
-                      <Camera className="h-2.5 w-2.5" /> Biometric on file
-                    </span>
-                  )}
+                <div className="text-center space-y-1.5">
+                  <p className="text-base font-bold leading-tight">{f.firstName} {f.lastName}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
+                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                    <StatusBadge status={status} size="sm" />
+                    {photoSrc && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] font-medium">
+                        <Camera className="h-2.5 w-2.5" /> Biometric on file
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardContent>

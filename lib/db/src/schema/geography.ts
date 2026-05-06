@@ -6,6 +6,8 @@ export const districtsTable = pgTable("districts", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

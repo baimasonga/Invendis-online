@@ -687,21 +687,25 @@ export async function addDispatchItem(payload: any) {
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
+async function gpsToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
 export async function listVehicleGpsStatus() {
-  const { data, error } = await supabase
-    .from("vehicles")
-    .select("id, vehicle_code, plate_number, vehicle_type, status, last_latitude, last_longitude, last_ping")
-    .order("last_ping", { ascending: false, nullsFirst: false });
-  if (error) throw new Error(error.message);
-  return cc(data ?? []);
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/vehicles", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS vehicles fetch failed: ${resp.statusText}`);
+  return resp.json();
 }
 
 export async function listGpsTrack(vehicleId?: number, limit = 50) {
-  let q = supabase.from("gps_track").select("*").order("recorded_at", { ascending: false }).limit(limit);
-  if (vehicleId) q = q.eq("vehicle_id", vehicleId);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  return cc(data ?? []);
+  if (!vehicleId) return [];
+  const token = await gpsToken();
+  const resp = await fetch(`/api/gps/track/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS track fetch failed: ${resp.statusText}`);
+  return resp.json();
 }
 
 // ── POD ───────────────────────────────────────────────────────────────────────

@@ -130,6 +130,23 @@ export const searchFarmers = (token: string, search: string) =>
 export const submitPoD = (token: string, payload: Record<string, unknown>) =>
   apiFetch<PoD>("/pod/submit", token, { method: "POST", body: JSON.stringify(payload) });
 
+export interface GpsPingResult {
+  success: boolean;
+  arrivalStatus: "arrived" | null;
+}
+
+export const pingGps = (
+  token: string,
+  vehicleId: number,
+  latitude: number,
+  longitude: number,
+  opts?: { dispatchId?: number; speed?: number; heading?: number; accuracy?: number }
+) =>
+  apiFetch<GpsPingResult>("/gps/ping", token, {
+    method: "POST",
+    body: JSON.stringify({ vehicleId, latitude, longitude, ...opts }),
+  });
+
 export interface OtpSendResult {
   sent: boolean;
   smsSent?: boolean;

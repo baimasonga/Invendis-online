@@ -276,7 +276,7 @@ export default function ConfirmPodScreen() {
     quantityDelivered: Number(quantity),
     otpStatus,
     faceStatus,
-    ...(gps ? { farmerLatitude: String(gps.latitude), farmerLongitude: String(gps.longitude) } : {}),
+    ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
     notes: notes || "Mobile field issuance",
   });
 

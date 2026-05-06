@@ -6,6 +6,16 @@ import { randomBytes } from "crypto";
 
 const router = Router();
 
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 router.get("/api/pod", requireAuth, async (req, res) => {
   const { campaignId, dispatchId, status, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
@@ -60,11 +70,63 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     return;
   }
 
+  // ── GPS status evaluation ──────────────────────────────────────────────────
+  let gpsStatus = "Pending";
+  const farmerLat = body.farmer_latitude != null ? Number(body.farmer_latitude) : null;
+  const farmerLng = body.farmer_longitude != null ? Number(body.farmer_longitude) : null;
+
+  if (farmerLat == null || farmerLng == null || isNaN(farmerLat) || isNaN(farmerLng)) {
+    gpsStatus = "NoLocation";
+  } else {
+    // Look up the campaign's distribution site
+    const { data: campaign } = await supa
+      .from("campaigns")
+      .select("distribution_site_id, district_id")
+      .eq("id", campaignId)
+      .single();
+
+    const siteId = (campaign as any)?.distribution_site_id;
+    let destLat: number | null = null;
+    let destLng: number | null = null;
+    let geofenceRadius = 500;
+
+    if (siteId) {
+      const { data: site } = await supa
+        .from("distribution_sites")
+        .select("latitude, longitude, geofence_radius")
+        .eq("id", siteId)
+        .single();
+      destLat = (site as any)?.latitude ?? null;
+      destLng = (site as any)?.longitude ?? null;
+      geofenceRadius = (site as any)?.geofence_radius ?? 500;
+    }
+
+    // Fall back to district centre if no distribution site coordinates
+    if ((destLat == null || destLng == null) && (campaign as any)?.district_id) {
+      const { data: district } = await supa
+        .from("districts")
+        .select("latitude, longitude")
+        .eq("id", (campaign as any).district_id)
+        .single();
+      destLat = (district as any)?.latitude ?? null;
+      destLng = (district as any)?.longitude ?? null;
+      geofenceRadius = 2000; // wider radius for district-level reference
+    }
+
+    if (destLat != null && destLng != null) {
+      const distM = haversineMeters(farmerLat, farmerLng, destLat, destLng);
+      gpsStatus = distM <= geofenceRadius ? "Verified" : "Mismatch";
+    } else {
+      gpsStatus = "Pending"; // no reference coordinates configured
+    }
+  }
+
   const { data, error } = await supa.from("pod").insert({
     ...body,
     campaign_id: campaignId,
     pod_code: podCode,
     status: "Pending",
+    gps_status: gpsStatus,
     submitted_at: new Date().toISOString(),
     field_officer_id: req.user!.userId,
   }).select().single();
