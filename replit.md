@@ -22,7 +22,7 @@ A full-stack web application + mobile field app for managing agricultural input 
 - **Backend:** Express 5, TypeScript, bcrypt+JWT auth, pino logging
 - **Database:** PostgreSQL (Supabase) via Drizzle ORM + direct Supabase client in `db.ts`
 - **Web Auth:** Supabase Auth (`signInWithPassword`) — email + password
-- **Mobile Auth:** Custom JWT (`POST /api/auth/login` returns token, stored in AsyncStorage)
+- **Mobile Auth:** Email + password via `POST /api/auth/login` (Supabase verify → JWT returned, stored in AsyncStorage)
 
 ## Mobile Field App (`artifacts/field-app`)
 
@@ -116,17 +116,17 @@ PostgreSQL is provisioned via Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SU
 | Warehouse Manager | amara.sesay@agripo.sl      | password123  |
 | Field Officer     | fatima.conteh@agripo.sl    | password123  |
 
-**Mobile App (username login via API server JWT):**
-| Role              | Username        | Password     |
-|-------------------|-----------------|--------------|
-| Admin             | admin           | admin123     |
-| Field Officer     | fo.fatima       | password123  |
+**Mobile App (same email credentials as web portal):**
+| Role              | Email                      | Password     |
+|-------------------|----------------------------|--------------|
+| Admin             | admin@agripo.sl            | admin123     |
+| Field Officer     | fatima.conteh@agripo.sl    | password123  |
 
 ## Authentication
 
 **Web portal:** Supabase Auth — `signInWithPassword({ email, password })`. Session maintained by Supabase client. `AuthProvider` in `use-auth.tsx` exposes `login`, `logout`, `user`, `isAuthenticated`.
 
-**Mobile app:** API server JWT — `POST /api/auth/login` returns `{ token, user }`. Token stored in AsyncStorage `@auth`. Sent as `Authorization: Bearer <token>` on all requests.
+**Mobile app:** Same email/password as web portal — `POST /api/auth/login` verifies via Supabase then returns a JWT `{ token, user }`. Token stored in AsyncStorage `@auth`. Sent as `Authorization: Bearer <token>` on all API requests. `requireAnyAuth` middleware accepts both Supabase tokens (web) and mobile JWTs.
 
 Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `FieldOfficer`, `Viewer`
 

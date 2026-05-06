@@ -125,7 +125,7 @@ export default function Dispatch() {
                     </TableRow>
                   ))
                 : dispatchData?.data && dispatchData.data.length > 0
-                ? dispatchData.data.map((d) => {
+                ? dispatchData.data.map((d: any) => {
                     const status = d.status?.toLowerCase().replace(/\s+/g, "");
                     const busy = loadingId === d.id;
                     return (

@@ -1128,3 +1128,22 @@ export async function approvePod(id: number): Promise<void> {
   if (error) throw new Error(error.message);
   await logAudit("APPROVE", "pod", `Approved PoD #${id}`, "pod", id);
 }
+
+export async function flagPodException(id: number, notes?: string): Promise<void> {
+  const { error } = await supabase.from("pod")
+    .update({ status: "Exception", ...(notes ? { notes } : {}) })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "pod", `Flagged PoD #${id} as Exception`, "pod", id);
+}
+
+export async function batchApprovePods(ids: number[]): Promise<void> {
+  if (!ids.length) return;
+  const userId = await intUid();
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("pod")
+    .update({ status: "Verified", approved_by: userId, approved_at: now })
+    .in("id", ids);
+  if (error) throw new Error(error.message);
+  await logAudit("APPROVE", "pod", `Batch approved ${ids.length} PoD(s): [${ids.join(",")}]`, "pod", ids[0]);
+}
