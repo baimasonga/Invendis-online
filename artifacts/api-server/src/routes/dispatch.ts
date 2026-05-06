@@ -155,39 +155,96 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
   });
 });
 
-router.post("/api/dispatch/:id/items", requireAuth, async (req, res) => {
+// ── Helper: resolve integer user ID from JWT or Supabase token ────────────────
+async function resolveUserId(req: import("express").Request): Promise<number | null> {
+  if (req.user?.userId) return req.user.userId;
+  if (req.supabaseUser?.email) {
+    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
+    return (u as any)?.id ?? null;
+  }
+  return null;
+}
+
+router.post("/api/dispatch/:id/items", requireAnyAuth, async (req, res) => {
   const dispatchId = Number(req.params.id);
   const { inputItemId, quantityLoaded } = req.body as { inputItemId: number; quantityLoaded: number };
-  const { data: item, error } = await supa.from("dispatch_items").insert({ dispatch_id: dispatchId, input_item_id: inputItemId, quantity_loaded: quantityLoaded }).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  const { data: allItems } = await supa.from("dispatch_items").select("quantity_loaded").eq("dispatch_id", dispatchId);
-  const total = (allItems ?? []).reduce((s: number, i: any) => s + (i.quantity_loaded ?? 0), 0);
-  await supa.from("dispatches").update({ total_packages: Math.round(total), updated_at: new Date().toISOString() }).eq("id", dispatchId);
-  await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
-  res.status(201).json(snakeToCamel(item));
+  try {
+    const itemRes = await query(
+      `INSERT INTO dispatch_items (dispatch_id, input_item_id, quantity_loaded)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [dispatchId, inputItemId, quantityLoaded]
+    );
+    const totRes = await query(
+      `SELECT COALESCE(SUM(quantity_loaded),0) AS total FROM dispatch_items WHERE dispatch_id=$1`,
+      [dispatchId]
+    );
+    const total = Number(totRes.rows[0].total);
+    await query(
+      `UPDATE dispatches SET total_packages=$1, updated_at=NOW() WHERE id=$2`,
+      [Math.round(total), dispatchId]
+    );
+    await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
+    res.status(201).json(snakeToCamel(itemRes.rows[0]));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post("/api/dispatch/:id/approve", requireAuth, async (req, res) => {
-  const { data: row, error } = await supa.from("dispatches").update({ status: "Approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${req.params.id}`, "dispatch", (row as any).id);
-  res.json(snakeToCamel(row));
+router.post("/api/dispatch/:id/approve", requireAnyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const userId = await resolveUserId(req);
+    const result = await query(
+      `UPDATE dispatches SET status='Approved', approved_by=$1, approved_at=NOW(), updated_at=NOW()
+       WHERE id=$2 RETURNING *`,
+      [userId, id]
+    );
+    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
+    await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${id}`, "dispatch", id);
+    res.json(snakeToCamel(result.rows[0]));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post("/api/dispatch/:id/dispatch", requireAuth, async (req, res) => {
-  const { data: row, error } = await supa.from("dispatches").update({ status: "In Transit", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  if ((row as any).vehicle_id) await supa.from("vehicles").update({ status: "InTransit" }).eq("id", (row as any).vehicle_id);
-  await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${req.params.id}`, "dispatch", (row as any).id);
-  res.json(snakeToCamel(row));
+router.post("/api/dispatch/:id/dispatch", requireAnyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const result = await query(
+      `UPDATE dispatches SET status='In Transit', departed_at=NOW(), updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [id]
+    );
+    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
+    const row = result.rows[0];
+    if (row.vehicle_id) {
+      await query(`UPDATE vehicles SET status='InTransit' WHERE id=$1`, [row.vehicle_id]);
+    }
+    await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
+    res.json(snakeToCamel(row));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post("/api/dispatch/:id/arrive", requireAuth, async (req, res) => {
-  const { data: row, error } = await supa.from("dispatches").update({ status: "Arrived", arrived_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  if ((row as any).vehicle_id) await supa.from("vehicles").update({ status: "Active" }).eq("id", (row as any).vehicle_id);
-  await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${req.params.id} arrived`, "dispatch", (row as any).id);
-  res.json(snakeToCamel(row));
+router.post("/api/dispatch/:id/arrive", requireAnyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const result = await query(
+      `UPDATE dispatches SET status='Arrived', arrived_at=NOW(), updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [id]
+    );
+    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
+    const row = result.rows[0];
+    if (row.vehicle_id) {
+      await query(`UPDATE vehicles SET status='Active' WHERE id=$1`, [row.vehicle_id]);
+    }
+    await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${id} arrived`, "dispatch", id);
+    res.json(snakeToCamel(row));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

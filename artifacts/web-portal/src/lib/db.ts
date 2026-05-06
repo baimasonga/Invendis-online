@@ -651,39 +651,59 @@ export async function createDispatch(payload: any) {
 }
 
 export async function approveDispatch(id: number) {
-  const userId = await intUid();
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "dispatch", `Approved dispatch #${id}`, "dispatch", id);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to approve dispatch");
+  }
+  return resp.json();
 }
 
 export async function dispatchManifest(id: number) {
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "In Transit", departed_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/dispatch`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to dispatch manifest");
+  }
+  return resp.json();
 }
 
 export async function arriveDispatch(id: number) {
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Arrived", arrived_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/arrive`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to mark arrival");
+  }
+  return resp.json();
 }
 
 export async function addDispatchItem(payload: any) {
-  const { data, error } = await supabase.from("dispatch_items").insert({
-    dispatch_id: payload.dispatchId,
-    input_item_id: payload.inputItemId,
-    quantity_loaded: payload.quantityLoaded,
-  }).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${payload.dispatchId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      inputItemId: payload.inputItemId,
+      quantityLoaded: payload.quantityLoaded,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to add item");
+  }
+  return resp.json();
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
