@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ShieldAlert } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 
 const ACTION_STYLES: Record<string, string> = {
   CREATE:   "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -70,15 +71,13 @@ export default function AuditLogs() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Audit Logs</h1>
-          <p className="text-sm text-muted-foreground">Full system event trail for compliance and debugging.</p>
-        </div>
-        {!isLoading && total > 0 && (
+      <PageHeader
+        title="Audit Logs"
+        subtitle="Full system event trail for compliance and debugging."
+        badge={!isLoading && total > 0 ? (
           <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full">{total.toLocaleString()} events</span>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <Card>
         <CardContent className="p-0">

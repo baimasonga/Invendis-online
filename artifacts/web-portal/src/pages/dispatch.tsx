@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -140,8 +140,16 @@ export default function Dispatch() {
                         <TableCell className="text-sm font-medium">{d.campaignName ?? "—"}</TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div>
-                            <p className="text-sm font-medium">{d.plateNumber ?? "—"}</p>
-                            <p className="text-xs text-muted-foreground">{d.driverName ?? "Unassigned"}</p>
+                            <div className="flex items-center gap-1.5">
+                              {d.isHired
+                                ? <Truck className="h-3 w-3 text-amber-600 shrink-0" />
+                                : <Car className="h-3 w-3 text-muted-foreground shrink-0" />}
+                              <p className="text-sm font-medium">{d.plateNumber ?? "—"}</p>
+                              {d.isHired && (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">Hired</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground ml-4.5">{d.driverName ?? "Unassigned"}</p>
                           </div>
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{d.warehouseName ?? "—"}</TableCell>

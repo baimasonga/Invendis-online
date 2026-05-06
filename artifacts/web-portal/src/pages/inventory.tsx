@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ArrowDownToLine, Box, PackageCheck, Pencil, Printer } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
 import { EditInputItemModal } from "@/components/modals/EditInputItemModal";
 import { BarcodeLabelModal } from "@/components/modals/BarcodeLabelModal";
@@ -66,18 +67,16 @@ export default function Inventory() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Inventory</h1>
-          <p className="text-sm text-muted-foreground">Input catalogue and warehouse stock levels.</p>
-        </div>
-        {can.manageInventory && (
+      <PageHeader
+        title="Inventory"
+        subtitle="Input catalogue and warehouse stock levels."
+        actions={can.manageInventory ? (
           <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
             <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
             Receive Stock
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {!loadingStock && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

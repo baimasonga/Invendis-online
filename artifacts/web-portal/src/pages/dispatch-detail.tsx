@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
@@ -192,7 +192,18 @@ export default function DispatchDetail() {
                 <CardContent className="grid grid-cols-2 gap-4">
                   <Field label="Campaign"   value={d.campaignName}   icon={Package2} />
                   <Field label="Warehouse"  value={d.warehouseName}  icon={Warehouse} />
-                  <Field label="Vehicle"    value={d.plateNumber}    icon={Truck} />
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      {d.isHired ? <Truck className="h-3 w-3" /> : <Car className="h-3 w-3" />}
+                      Vehicle
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{d.plateNumber ?? "—"}</p>
+                      {d.isHired && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">Hired Truck</span>
+                      )}
+                    </div>
+                  </div>
                   <Field label="Driver"     value={d.driverName}     icon={User} />
                   <Field label="Scheduled"  value={d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} icon={CalendarDays} />
                   <Field label="Departed"   value={d.departedAt ? new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} />

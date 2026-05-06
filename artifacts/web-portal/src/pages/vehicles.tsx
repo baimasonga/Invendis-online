@@ -8,24 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Plus, Truck, User, Pencil } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
 import { AddVehicleModal } from "@/components/modals/AddVehicleModal";
 import { AddDriverModal } from "@/components/modals/AddDriverModal";
 import { EditVehicleModal } from "@/components/modals/EditVehicleModal";
 import { EditDriverModal } from "@/components/modals/EditDriverModal";
 
-const VEHICLE_STATUS_STYLES: Record<string, string> = {
-  active:      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  intransit:   "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
-  maintenance: "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
-  inactive:    "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = VEHICLE_STATUS_STYLES[status?.toLowerCase().replace(/\s+/g, "")] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>
-  );
-}
 
 function DriverAvatar({ name }: { name?: string }) {
   if (!name) return <span className="text-sm text-muted-foreground">—</span>;
@@ -80,12 +69,10 @@ export default function Vehicles() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Fleet Management</h1>
-          <p className="text-sm text-muted-foreground">Vehicles and drivers for distribution operations.</p>
-        </div>
-        {can.manageFleet && (
+      <PageHeader
+        title="Fleet Management"
+        subtitle="Vehicles and drivers for distribution operations."
+        actions={can.manageFleet ? (
           tab === "vehicles" ? (
             <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setVehicleOpen(true)}>
               <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Vehicle
@@ -95,8 +82,8 @@ export default function Vehicles() {
               <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Driver
             </Button>
           )
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <Card>

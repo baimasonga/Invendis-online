@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, UserCog, UserCheck, UserX, Lock } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserModal } from "@/components/modals/InviteUserModal";
 
@@ -97,10 +98,7 @@ export default function Users() {
   if (!can.manageUsers) {
     return (
       <div className="space-y-5">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">User Management</h1>
-          <p className="text-sm text-muted-foreground">Manage system access and role assignments.</p>
-        </div>
+        <PageHeader title="User Management" subtitle="Manage system access and role assignments." />
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-300">
           <Lock className="h-4 w-4 shrink-0" />
           <span>Only administrators can manage users and role assignments.</span>
@@ -111,16 +109,16 @@ export default function Users() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">User Management</h1>
-          <p className="text-sm text-muted-foreground">Manage system access and role assignments.</p>
-        </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setInviteOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Add User
-        </Button>
-      </div>
+      <PageHeader
+        title="User Management"
+        subtitle="Manage system access and role assignments."
+        actions={
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setInviteOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Add User
+          </Button>
+        }
+      />
 
       <Card>
         <CardContent className="p-0">

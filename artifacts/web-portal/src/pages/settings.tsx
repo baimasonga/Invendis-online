@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, MapPin, Layers, Warehouse } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { AddWarehouseModal } from "@/components/modals/AddWarehouseModal";
 
@@ -76,10 +77,10 @@ export default function Settings() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Settings & Master Data</h1>
-        <p className="text-sm text-muted-foreground">Configure locations, value chains, and warehouses used across the system.</p>
-      </div>
+      <PageHeader
+        title="Settings & Master Data"
+        subtitle="Configure locations, value chains, and warehouses used across the system."
+      />
 
       <Tabs defaultValue="warehouses">
         <TabsList className="h-8">

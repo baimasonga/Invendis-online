@@ -606,76 +606,48 @@ export async function createDriver(payload: any) {
 }
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
+async function dispatchToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
 export async function listDispatches(page = 1, limit = 20) {
-  const { data, error, count } = await supabase
-    .from("dispatches")
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range((page - 1) * limit, page * limit - 1);
-  if (error) throw new Error(error.message);
-  const rows = data ?? [];
-  const [campaignMap, vehicleMap, driverMap, whMap] = await Promise.all([
-    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name"),
-    lookupMap("vehicles", [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))], "id,plate_number"),
-    lookupMap("drivers", [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))], "id,full_name"),
-    lookupMap("warehouses", [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))], "id,name"),
-  ]);
-  return {
-    data: rows.map((r: any) => ({
-      ...cc(r),
-      campaignName: campaignMap[r.campaign_id]?.name ?? null,
-      plateNumber: vehicleMap[r.vehicle_id]?.plate_number ?? null,
-      driverName: driverMap[r.driver_id]?.full_name ?? null,
-      warehouseName: whMap[r.warehouse_id]?.name ?? null,
-    })),
-    total: count ?? 0,
-  };
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch?page=${page}&limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Failed to list dispatches: ${resp.statusText}`);
+  return resp.json();
 }
 
 export async function getDispatch(id: number) {
-  const { data, error } = await supabase.from("dispatches").select("*").eq("id", id).single();
-  if (error) throw new Error(error.message);
-  const r = data as any;
-  const { data: items } = await supabase.from("dispatch_items").select("*").eq("dispatch_id", id);
-  const itemIds = (items ?? []).map((i: any) => i.input_item_id).filter(Boolean);
-  const [campaignMap, vehicleMap, driverMap, whMap, inputItemMap] = await Promise.all([
-    lookupMap("campaigns", r.campaign_id ? [r.campaign_id] : [], "id,name,campaign_code"),
-    lookupMap("vehicles", r.vehicle_id ? [r.vehicle_id] : [], "id,plate_number,vehicle_type"),
-    lookupMap("drivers", r.driver_id ? [r.driver_id] : [], "id,full_name,driver_code"),
-    lookupMap("warehouses", r.warehouse_id ? [r.warehouse_id] : [], "id,name,code"),
-    lookupMap("input_items", itemIds, "id,name,unit"),
-  ]);
-  return {
-    ...cc(r),
-    campaignName: campaignMap[r.campaign_id]?.name ?? null,
-    campaignCode: campaignMap[r.campaign_id]?.campaign_code ?? null,
-    plateNumber: vehicleMap[r.vehicle_id]?.plate_number ?? null,
-    vehicleType: vehicleMap[r.vehicle_id]?.vehicle_type ?? null,
-    driverName: driverMap[r.driver_id]?.full_name ?? null,
-    driverCode: driverMap[r.driver_id]?.driver_code ?? null,
-    warehouseName: whMap[r.warehouse_id]?.name ?? null,
-    warehouseCode: whMap[r.warehouse_id]?.code ?? null,
-    items: (items ?? []).map((di: any) => ({
-      ...cc(di),
-      itemName: inputItemMap[di.input_item_id]?.name ?? null,
-      unit: inputItemMap[di.input_item_id]?.unit ?? null,
-    })),
-  };
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Failed to get dispatch: ${resp.statusText}`);
+  return resp.json();
 }
 
 export async function createDispatch(payload: any) {
-  const userId = await intUid();
-  const { data, error } = await supabase.from("dispatches").insert({
-    campaign_id: payload.campaignId,
-    vehicle_id: payload.vehicleId,
-    driver_id: payload.driverId,
-    warehouse_id: payload.warehouseId,
-    notes: payload.notes ?? null,
-    created_by: userId,
-  }).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("CREATE", "dispatch", `Created manifest ${(data as any).manifest_code}`, "dispatch", (data as any).id);
-  return cc(data);
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+
+  const resp = await fetch("/api/dispatch", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to create dispatch");
+  }
+  return cc(await resp.json());
 }
 
 export async function approveDispatch(id: number) {
