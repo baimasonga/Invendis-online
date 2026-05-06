@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa } from "../lib/supabase.js";
-import { requireSupabaseAuth, requireAuth } from "../lib/auth.js";
+import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -23,6 +23,51 @@ function maskPhone(phone: string): string {
   return phone.replace(/\d(?=\d{4})/g, "*");
 }
 
+/**
+ * Normalise a phone number for EasySendSMS:
+ *  - Strip leading +  (e.g. +23276123456  → 23276123456)
+ *  - Strip leading 00 (e.g. 0023276123456 → 23276123456)
+ */
+function normalisePhone(phone: string): string {
+  return phone.trim().replace(/^\+/, "").replace(/^00/, "");
+}
+
+/**
+ * Send an SMS via EasySendSMS HTTP API.
+ * Returns the message ID on success, throws on failure.
+ */
+async function sendViaSms(to: string, text: string): Promise<string> {
+  const username = process.env.EASYSENDSMS_USERNAME;
+  const password = process.env.EASYSENDSMS_PASSWORD;
+  const sender   = process.env.EASYSENDSMS_SENDER ?? "AgriPoD";
+
+  if (!username || !password) {
+    throw new Error("EASYSENDSMS_USERNAME or EASYSENDSMS_PASSWORD not configured");
+  }
+
+  const params = new URLSearchParams({
+    username,
+    password,
+    from: sender,
+    to: normalisePhone(to),
+    text,
+    type: "0",
+  });
+
+  const url = `https://api.easysendsms.app/bulksms?${params.toString()}`;
+  const resp = await fetch(url, { method: "GET" });
+  const body = (await resp.text()).trim();
+
+  if (!body.toUpperCase().startsWith("OK:")) {
+    throw new Error(`EasySendSMS error: ${body}`);
+  }
+
+  // body format: "OK: <uuid>"
+  return body.slice(4).trim();
+}
+
+// ── POST /api/pod/otp/send ────────────────────────────────────────────────────
+
 router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   const { farmerId } = req.body as { farmerId: number };
   if (!farmerId) {
@@ -30,7 +75,11 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
     return;
   }
 
-  const { data: farmers } = await supa.from("farmers").select("id,first_name,last_name,phone").eq("id", Number(farmerId)).limit(1);
+  const { data: farmers } = await supa
+    .from("farmers")
+    .select("id,first_name,last_name,phone")
+    .eq("id", Number(farmerId))
+    .limit(1);
   const farmer = farmers?.[0];
 
   if (!farmer) {
@@ -43,67 +92,56 @@ router.post("/api/pod/otp/send", requireAuth, async (req, res) => {
   }
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(String(farmerId), { code, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 });
-
-  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-  const twilioAuth = process.env.TWILIO_AUTH_TOKEN;
-  const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
+  otpStore.set(String(farmerId), {
+    code,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+    attempts: 0,
+  });
 
   const isDev = process.env.NODE_ENV !== "production";
   let smsSent = false;
+  let messageId: string | undefined;
 
-  // WhatsApp sandbox number — override with TWILIO_WHATSAPP_FROM for approved senders
-  const whatsappFrom = process.env.TWILIO_WHATSAPP_FROM ?? "whatsapp:+14155238886";
-  let channel: "whatsapp" | "sms" | "none" = "none";
+  const smsConfigured =
+    !!process.env.EASYSENDSMS_USERNAME && !!process.env.EASYSENDSMS_PASSWORD;
 
-  if (twilioSid && twilioAuth && twilioFrom) {
-    const { default: twilio } = await import("twilio");
-    const client = twilio(twilioSid, twilioAuth);
-
-    // Try WhatsApp first
+  if (smsConfigured) {
+    const body =
+      `Agri-PoD Verification Code: ${code}\n` +
+      `Valid for 5 minutes. Do not share this code.\n` +
+      `- AVDP Sierra Leone`;
     try {
-      const msg = await client.messages.create({
-        body: `*Agri-PoD Verification*\n\nYour delivery verification code is:\n\n*${code}*\n\nValid for 5 minutes. Do not share this code.\n— AVDP Sierra Leone`,
-        from: whatsappFrom,
-        to: `whatsapp:${farmer.phone}`,
-      });
+      messageId = await sendViaSms(farmer.phone, body);
       smsSent = true;
-      channel = "whatsapp";
-      req.log.info({ messageSid: msg.sid, to: farmer.phone, channel: "whatsapp", status: msg.status }, "WhatsApp OTP sent");
-    } catch (waErr: any) {
-      req.log.warn({ err: waErr.message }, "WhatsApp send failed, falling back to SMS");
-      // Fall back to plain SMS
-      try {
-        const msg = await client.messages.create({
-          body: `Agri-PoD Verification Code: ${code}\nDo not share this code. Valid for 5 minutes.\n- AVDP Sierra Leone`,
-          from: twilioFrom,
-          to: farmer.phone,
-        });
-        smsSent = true;
-        channel = "sms";
-        req.log.info({ messageSid: msg.sid, to: farmer.phone, channel: "sms", status: msg.status }, "SMS OTP sent");
-      } catch (smsErr: any) {
-        req.log.error({ err: smsErr.message }, "SMS fallback also failed");
-        if (!isDev) {
-          res.status(502).json({ error: "Could not send verification code via WhatsApp or SMS." });
-          return;
-        }
+      req.log.info(
+        { messageId, to: farmer.phone, channel: "sms" },
+        "SMS OTP sent via EasySendSMS"
+      );
+    } catch (err: any) {
+      req.log.error({ err: err.message }, "EasySendSMS send failed");
+      if (!isDev) {
+        res.status(502).json({ error: "Could not send verification code via SMS." });
+        return;
       }
     }
   } else {
-    req.log.warn({ farmerId, code }, "Twilio not configured — OTP in devCode");
+    req.log.warn(
+      { farmerId, code },
+      "EasySendSMS not configured — OTP available in devCode"
+    );
   }
 
   res.json({
     sent: true,
     smsSent,
-    channel,
+    channel: smsSent ? "sms" : "none",
     maskedPhone: maskPhone(farmer.phone),
     farmerName: `${farmer.first_name} ${farmer.last_name}`,
-    // Always expose code in dev so testing works without verified numbers
     devCode: isDev ? code : undefined,
   });
 });
+
+// ── POST /api/pod/otp/verify ──────────────────────────────────────────────────
 
 router.post("/api/pod/otp/verify", requireAuth, async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };

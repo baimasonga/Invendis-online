@@ -177,7 +177,9 @@ Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `Fi
 - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (used in api-server)
 - `SESSION_SECRET` — Session/JWT signing secret (api-server)
 - `DATABASE_URL` — Direct PostgreSQL connection string (api-server + drizzle)
-- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` — WhatsApp/SMS OTP
+- `EASYSENDSMS_USERNAME` — EasySendSMS account username (OTP delivery)
+- `EASYSENDSMS_PASSWORD` — EasySendSMS account password or API password
+- `EASYSENDSMS_SENDER` — Sender name shown on SMS (max 11 alphanumeric, default `AgriPoD`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — IAM user `invendis-edge-system`
 - `AWS_REGION` — `eu-west-2` (London)
 - `AWS_S3_BUCKET` — `invendimages` (farmer reference + delivery photos)
