@@ -62,6 +62,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const [otpBypassReason, setOtpBypassReason] = useState("");
   const [otpMaskedPhone, setOtpMaskedPhone] = useState("");
   const [otpDevCode, setOtpDevCode] = useState<string | null>(null);
+  const [otpResendSecs, setOtpResendSecs] = useState(0);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpError, setOtpError]     = useState("");
