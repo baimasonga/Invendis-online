@@ -16,6 +16,7 @@ import reportsRouter from "./reports";
 import auditRouter from "./audit";
 import usersRouter from "./users";
 import faceRouter from "./face";
+import incidentsRouter from "./incidents";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use(reportsRouter);
 router.use(auditRouter);
 router.use(usersRouter);
 router.use(faceRouter);
+router.use(incidentsRouter);
 
 export default router;

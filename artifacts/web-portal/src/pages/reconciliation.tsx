@@ -8,22 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Plus, RefreshCcw, TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateReconciliationModal } from "@/components/modals/CreateReconciliationModal";
-
-const STATUS_STYLES: Record<string, string> = {
-  pending:  "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
-  approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  rejected: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-400",
-  draft:    "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      {status}
-    </span>
-  );
-}
+import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 
 function Variance({ value }: { value: number }) {
   if (value === 0) {
@@ -73,16 +59,15 @@ export default function Reconciliation() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Stock Reconciliation</h1>
-          <p className="text-sm text-muted-foreground">Post-dispatch stock reconciliation and variance analysis.</p>
-        </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          New Reconciliation
-        </Button>
-      </div>
+      <PageHeader
+        title="Stock Reconciliation"
+        subtitle="Post-dispatch stock reconciliation and variance analysis."
+        actions={
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> New Reconciliation
+          </Button>
+        }
+      />
 
       <Card>
         <CardContent className="p-0">

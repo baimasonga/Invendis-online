@@ -109,9 +109,16 @@ export default function Dashboard() {
             Here's what's happening in the field today.
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full self-start sm:self-auto">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Live
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {(user as any)?.role && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 capitalize">
+              {(user as any).role.replace(/([A-Z])/g, " $1").trim()}
+            </span>
+          )}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live
+          </div>
         </div>
       </div>
 

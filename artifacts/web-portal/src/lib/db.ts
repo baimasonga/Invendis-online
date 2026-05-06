@@ -82,6 +82,7 @@ export const KEYS = {
   podStats:      () => ["pod-stats"],
   reconciliations: () => ["reconciliations"],
   reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
+  incidents:     (page?: number, status?: string) => ["incidents", page, status],
   auditLogs:     (page?: number) => ["audit-logs", page],
   users:         () => ["users"],
   districts:     () => ["districts"],
@@ -1105,6 +1106,42 @@ export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendin
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
   ]);
   return { pendingFarmers: farmers.count ?? 0, pendingPod: pod.count ?? 0 };
+}
+
+// ── INCIDENTS ─────────────────────────────────────────────────────────────────
+export async function listIncidents(page = 1, limit = 50, status?: string) {
+  let q = supabase
+    .from("incidents")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * limit, page * limit - 1);
+  if (status) q = q.eq("status", status);
+  const { data, error, count } = await q;
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const officerIds = [...new Set(rows.map((r: any) => r.field_officer_id).filter(Boolean))];
+  const officerMap: Record<number, any> = {};
+  if (officerIds.length) {
+    const { data: officers } = await supabase.from("users").select("id,full_name").in("id", officerIds);
+    for (const o of (officers ?? [])) officerMap[(o as any).id] = o;
+  }
+  return {
+    data: rows.map((r: any) => ({
+      ...cc(r),
+      officerName: officerMap[r.field_officer_id]?.full_name ?? r.reported_by ?? "Unknown",
+    })),
+    total: count ?? 0,
+  };
+}
+
+export async function resolveIncident(id: number, resolutionNotes?: string) {
+  const userId = await intUid();
+  const { data, error } = await supabase.from("incidents")
+    .update({ status: "Resolved", resolved_by: userId, resolved_at: new Date().toISOString(), resolution_notes: resolutionNotes ?? null })
+    .eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "incidents", `Resolved incident #${id}`, "incident", id);
+  return cc(data);
 }
 
 export async function approvePod(id: number): Promise<void> {

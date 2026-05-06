@@ -7,19 +7,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck, TrendingUp } from "lucide-react";
+import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { AddAllocationModal } from "@/components/modals/AddAllocationModal";
 
-const STATUS_STYLES: Record<string, string> = {
-  active:    "bg-emerald-100 text-emerald-800 border border-emerald-200",
-  approved:  "bg-emerald-100 text-emerald-800 border border-emerald-200",
-  draft:     "bg-slate-100   text-slate-600   border border-slate-200",
-  pending:   "bg-amber-100   text-amber-800   border border-amber-200",
-  submitted: "bg-blue-100    text-blue-800    border border-blue-200",
-  completed: "bg-blue-100    text-blue-800    border border-blue-200",
-  cancelled: "bg-red-100     text-red-800     border border-red-200",
-};
+function DeliveryProgress({ delivered, allocated }: { delivered: number; allocated: number }) {
+  const pct = allocated > 0 ? Math.min(100, Math.round((delivered / allocated) * 100)) : 0;
+  const color = pct >= 100 ? "bg-emerald-500" : pct >= 60 ? "bg-blue-500" : "bg-amber-500";
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>Delivery progress</span>
+        <span className="font-semibold tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>{delivered} delivered</span>
+        <span>{allocated} allocated</span>
+      </div>
+    </div>
+  );
+}
 
 function Field({ label, value, icon: Icon }: { label: string; value?: string | null; icon?: React.ElementType }) {
   return (
@@ -110,9 +121,7 @@ export default function CampaignDetail() {
           <p className="text-xs text-muted-foreground font-mono">{c.campaignCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
-            {c.status}
-          </span>
+          <StatusBadge status={c.status} />
           {status === "draft" && (
             <Button size="sm" className="h-7 text-xs" variant="outline" disabled={actionLoading} onClick={() => handleAction("submit")}>
               <Send className="h-3.5 w-3.5 mr-1" /> Submit
@@ -173,10 +182,14 @@ export default function CampaignDetail() {
                     <span className="text-sm text-muted-foreground">Target</span>
                     <span className="font-semibold">{c.totalFarmers ?? allocationList.length}</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Delivered</span>
+                  <div className="flex justify-between items-center pb-3 border-b">
+                    <span className="text-sm text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5 text-emerald-600" /> Delivered</span>
                     <span className="font-semibold text-emerald-700">{c.deliveredCount ?? 0}</span>
                   </div>
+                  <DeliveryProgress
+                    delivered={c.deliveredCount ?? 0}
+                    allocated={c.totalFarmers ?? allocationList.length}
+                  />
                 </CardContent>
               </Card>
             </div>

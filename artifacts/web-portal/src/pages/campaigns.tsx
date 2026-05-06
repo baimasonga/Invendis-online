@@ -10,29 +10,25 @@ import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays, Pencil } from "luc
 import { Link } from "wouter";
 import { CreateCampaignModal } from "@/components/modals/CreateCampaignModal";
 import { EditCampaignModal } from "@/components/modals/EditCampaignModal";
-
-const STATUS_STYLES: Record<string, string> = {
-  active:    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  approved:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  draft:     "bg-slate-100   text-slate-600   dark:bg-slate-800       dark:text-slate-300",
-  pending:   "bg-amber-100   text-amber-800   dark:bg-amber-900/30    dark:text-amber-400",
-  submitted: "bg-blue-100    text-blue-800    dark:bg-blue-900/30     dark:text-blue-400",
-  completed: "bg-blue-100    text-blue-800    dark:bg-blue-900/30     dark:text-blue-400",
-  cancelled: "bg-red-100     text-red-800     dark:bg-red-900/30      dark:text-red-400",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      {status}
-    </span>
-  );
-}
+import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 
 function formatDateRange(start: string, end: string) {
   const fmt = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function ProgressBar({ value, total }: { value: number; total: number }) {
+  if (!total) return <span className="text-xs text-muted-foreground">—</span>;
+  const pct = Math.min(100, Math.round((value / total) * 100));
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden min-w-[60px]">
+        <div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : pct >= 60 ? "bg-blue-500" : "bg-amber-500"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs tabular-nums text-muted-foreground w-8 text-right">{pct}%</span>
+    </div>
+  );
 }
 
 export default function Campaigns() {
@@ -51,18 +47,15 @@ export default function Campaigns() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Campaigns</h1>
-          <p className="text-sm text-muted-foreground">Manage distribution campaigns and operations.</p>
-        </div>
-        {can.createCampaign && (
+      <PageHeader
+        title="Campaigns"
+        subtitle="Manage distribution campaigns and operations."
+        actions={can.createCampaign ? (
           <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            New Campaign
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> New Campaign
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">
@@ -76,9 +69,10 @@ export default function Campaigns() {
               <TableRow className="hover:bg-transparent border-t">
                 <TableHead className="pl-4 w-[130px]">Code</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead className="hidden md:table-cell">District</TableHead>
+                <TableHead className="hidden md:table-cell">District / Chain</TableHead>
                 <TableHead className="hidden lg:table-cell">Dates</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="hidden sm:table-cell">Progress</TableHead>
                 <TableHead className="pr-4 text-right w-[120px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -95,26 +89,30 @@ export default function Campaigns() {
                     </TableRow>
                   ))
                 : campaignsData?.data && campaignsData.data.length > 0
-                ? campaignsData.data.map((campaign) => (
+                ? campaignsData.data.map((campaign: any) => (
                     <TableRow key={campaign.id} className="hover:bg-muted/40">
                       <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{campaign.campaignCode}</TableCell>
                       <TableCell className="font-medium text-sm">{campaign.name}</TableCell>
-                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{campaign.districtName ?? "—"}</TableCell>
+                      <TableCell className="hidden md:table-cell text-sm">
+                        <p>{campaign.districtName ?? "—"}</p>
+                        <p className="text-xs text-muted-foreground">{campaign.valueChainName ?? ""}</p>
+                      </TableCell>
                       <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <CalendarDays className="h-3 w-3 shrink-0" />
-                          {formatDateRange(campaign.startDate, campaign.endDate)}
-                        </div>
+                        {campaign.startDate && campaign.endDate ? (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarDays className="h-3 w-3 shrink-0" />
+                            {formatDateRange(campaign.startDate, campaign.endDate)}
+                          </div>
+                        ) : "—"}
                       </TableCell>
                       <TableCell><StatusBadge status={campaign.status} /></TableCell>
+                      <TableCell className="hidden sm:table-cell w-[160px]">
+                        <ProgressBar value={campaign.deliveredCount ?? 0} total={campaign.totalFarmers ?? 0} />
+                      </TableCell>
                       <TableCell className="pr-4 text-right">
                         <div className="flex items-center gap-1 justify-end">
                           {can.editCampaign && (
-                            <Button
-                              size="sm" variant="ghost"
-                              className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                              onClick={() => setEditCampaign(campaign)}
-                            >
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => setEditCampaign(campaign)}>
                               <Pencil className="h-3 w-3 mr-1" /> Edit
                             </Button>
                           )}
@@ -127,7 +125,7 @@ export default function Campaigns() {
                   ))
                 : (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={7} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Flag className="h-8 w-8 opacity-30" />
                           <span className="text-sm">No campaigns yet</span>

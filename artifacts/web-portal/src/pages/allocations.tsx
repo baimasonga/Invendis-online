@@ -8,20 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Plus, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import { NewAllocationModal } from "@/components/modals/NewAllocationModal";
-
-const STATUS_STYLES: Record<string, string> = {
-  pending:   "bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-400",
-  allocated: "bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-400",
-  delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  cancelled: "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>
-  );
-}
+import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function Allocations() {
   const [page, setPage] = useState(1);
@@ -38,15 +26,15 @@ export default function Allocations() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Allocations</h1>
-          <p className="text-sm text-muted-foreground">Farmer allocations across all campaigns.</p>
-        </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> New Allocation
-        </Button>
-      </div>
+      <PageHeader
+        title="Allocations"
+        subtitle="Farmer allocations across all campaigns."
+        actions={
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> New Allocation
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">

@@ -15,12 +15,7 @@ import {
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/PageHeader";
-
-const STATUS_STYLES: Record<string, { cls: string; icon: React.ElementType }> = {
-  verified:  { cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2 },
-  pending:   { cls: "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",   icon: Clock },
-  exception: { cls: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-400",     icon: AlertCircle },
-};
+import { StatusBadge } from "@/components/StatusBadge";
 
 const FACE_STYLES: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
   verified:     { cls: "text-emerald-700", icon: ShieldCheck, label: "Verified" },
@@ -30,17 +25,6 @@ const FACE_STYLES: Record<string, { cls: string; icon: React.ElementType; label:
   noface:       { cls: "text-slate-500",   icon: ShieldX,     label: "No Face" },
   error:        { cls: "text-slate-400",   icon: ShieldAlert, label: "Error" },
 };
-
-function StatusBadge({ status }: { status: string }) {
-  const key = status?.toLowerCase();
-  const { cls, icon: Icon } = STATUS_STYLES[key] ?? { cls: "bg-slate-100 text-slate-600", icon: ClipboardCheck };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      <Icon className="h-3 w-3" />
-      {status}
-    </span>
-  );
-}
 
 function FaceStatusPill({ status }: { status?: string }) {
   const key = (status ?? "").toLowerCase().replace(/\s+/g, "");

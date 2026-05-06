@@ -90,6 +90,8 @@ Key facts about `db.ts`:
 - `getFarmerBeneficiaryReport()` → `{ rows: [{district, total, approved, pending, female}], summary: {total, approved, female, pctApproved} }`
 - `getStockMovementReport()` → `[{ txnType, createdAt, itemName, warehouseName, quantity }]`
 - `getDistributionReport()` → `[{ manifestCode, campaignName, warehouseName, status, completionPct }]`
+- `listIncidents(page, limit, status?)` → `{ data, total }` — paginated; rows include `officerName` joined from users
+- `resolveIncident(id, resolutionNotes?)` → camelCase row — updates status to Resolved, logs audit
 
 ## Running the Application
 
@@ -148,7 +150,8 @@ Roles: `Admin`, `ProjectManager`, `DistrictCoordinator`, `WarehouseManager`, `Fi
 | `/gps-tracking` | Live vehicle GPS tracking (30s refresh) |
 | `/pod` | Proof of delivery monitoring |
 | `/reconciliation` | Stock reconciliation |
-| `/reports` | Beneficiary, stock movement, distribution reports |
+| `/reports` | Beneficiary, stock movement, distribution, incidents reports |
+| `/incidents` | Field incident registry with resolve action |
 | `/audit` | Audit log viewer (paginated) |
 | `/users` | User management (activate/deactivate) |
 | `/settings` | Master data: districts, value chains, warehouses |

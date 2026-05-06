@@ -15,12 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";
 
-const STATUS_STYLES: Record<string, string> = {
-  approved: "bg-emerald-100 text-emerald-800 border border-emerald-200",
-  pending:  "bg-amber-100  text-amber-800  border border-amber-200",
-  rejected: "bg-red-100    text-red-800    border border-red-200",
-};
-
 function Field({ label, value, icon: Icon }: { label: string; value?: string | null; icon?: React.ElementType }) {
   return (
     <div className="space-y-1">
@@ -126,9 +120,7 @@ export default function FarmerDetail() {
           <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>
-            {status}
-          </span>
+          <StatusBadge status={status} />
           {can.approveFarmer && status === "pending" && (
             <>
               <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50" disabled={actionLoading} onClick={() => setRejectOpen(true)}>

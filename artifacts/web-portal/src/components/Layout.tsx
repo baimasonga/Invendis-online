@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Box, ShoppingCart, Flag,
   MapPin, Truck, Map, CheckSquare, RefreshCcw,
   BarChart3, ShieldAlert, Settings, LogOut, Package,
-  Navigation, ClipboardList, Menu, X, Lock, Bell,
+  Navigation, ClipboardList, Menu, X, Lock, Bell, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -43,8 +43,9 @@ const NAV_GROUPS = [
       { href: "/vehicles",       label: "Vehicles",          icon: Truck,       roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/dispatch",       label: "Dispatch",          icon: Package,     roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/gps-tracking",   label: "GPS Tracking",      icon: Navigation,  roles: ["admin","projectmanager","warehousemanager"] },
-      { href: "/pod",            label: "Proof of Delivery", icon: CheckSquare, roles: [] },
-      { href: "/reconciliation", label: "Reconciliation",    icon: RefreshCcw,  roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/pod",            label: "Proof of Delivery", icon: CheckSquare,    roles: [] },
+      { href: "/reconciliation", label: "Reconciliation",    icon: RefreshCcw,     roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/incidents",      label: "Incidents",         icon: AlertTriangle,  roles: ["admin","projectmanager","districtcoordinator"] },
     ],
   },
   {
@@ -129,11 +130,11 @@ function SidebarContent({ location, user, logout, onClose }: {
       {/* User footer */}
       <div className="px-2 py-2.5 border-t border-sidebar-border shrink-0">
         <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-sidebar-accent transition-colors">
-          <div className="h-7 w-7 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground text-[11px] font-bold shrink-0 ring-2 ring-sidebar-primary/30">
+          <div className="h-8 w-8 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground text-[12px] font-bold shrink-0 ring-2 ring-sidebar-primary/30">
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold truncate leading-tight">{user?.fullName}</p>
+            <p className="text-[12px] font-semibold truncate leading-tight">{user?.fullName}</p>
             <p className="text-[10px] text-sidebar-foreground/55 truncate leading-tight capitalize">{user?.role?.replace(/([A-Z])/g, " $1").trim()}</p>
           </div>
           <button

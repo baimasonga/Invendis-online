@@ -25,6 +25,7 @@ import Reports from "@/pages/reports";
 import AuditLogs from "@/pages/audit";
 import Users from "@/pages/users";
 import Settings from "@/pages/settings";
+import Incidents from "@/pages/incidents";
 
 const queryClient = new QueryClient();
 
@@ -74,6 +75,7 @@ function Router() {
       <ProtectedRoute path="/audit"            component={AuditLogs} />
       <ProtectedRoute path="/users"            component={Users} />
       <ProtectedRoute path="/settings"         component={Settings} />
+      <ProtectedRoute path="/incidents"        component={Incidents} />
 
       <Route path="/">
         <Redirect to="/dashboard" />

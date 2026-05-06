@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport, KEYS } from "@/lib/db";
+import { getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport, listIncidents, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Users, MapPin, TrendingUp, Download, Truck, Package, CalendarDays, X } from "lucide-react";
+import { Users, MapPin, TrendingUp, Download, Truck, Package, CalendarDays, X, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
 
 function downloadCSV(rows: any[], columns: { key: string; label: string }[], filename: string) {
   if (!rows.length) return;
@@ -110,11 +112,26 @@ function DateRangeFilter({
 
 const today = new Date().toISOString().slice(0, 10);
 
+function DistrictBar({ district, value, max }: { district: string; value: number; max: number }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">{district}</span>
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div className="h-full bg-green-600 rounded-full transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs font-medium tabular-nums w-8 text-right">{value}</span>
+    </div>
+  );
+}
+
 export default function Reports() {
   const [stockFrom, setStockFrom] = useState("");
   const [stockTo,   setStockTo]   = useState("");
   const [distFrom,  setDistFrom]  = useState("");
   const [distTo,    setDistTo]    = useState("");
+  const [incPage,   setIncPage]   = useState(1);
+  const [incStatus, setIncStatus] = useState("");
 
   const { data: benReport, isLoading: loadingBen } = useQuery({
     queryKey: KEYS.reports("beneficiary"),
@@ -127,6 +144,10 @@ export default function Reports() {
   const { data: distRows, isLoading: loadingDist } = useQuery({
     queryKey: KEYS.reports("distribution", distFrom || undefined, distTo || undefined),
     queryFn: () => getDistributionReport(distFrom || undefined, distTo || undefined),
+  });
+  const { data: incData, isLoading: loadingInc } = useQuery({
+    queryKey: KEYS.incidents(incPage, incStatus || undefined),
+    queryFn: () => listIncidents(incPage, 30, incStatus || undefined),
   });
 
   const beneficiaryCols = [
@@ -155,19 +176,24 @@ export default function Reports() {
   const summary: any     = (benReport as any)?.summary ?? {};
   const stockList: any[] = Array.isArray(stockRows) ? stockRows : [];
   const distList: any[]  = Array.isArray(distRows)  ? distRows  : [];
+  const incList: any[]   = incData?.data ?? [];
+  const incTotal: number = incData?.total ?? 0;
+  const incTotalPages    = Math.max(1, Math.ceil(incTotal / 30));
+  const maxDistrictVal   = Math.max(1, ...benRows.map((r: any) => r.total));
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Reports & Analytics</h1>
-        <p className="text-sm text-muted-foreground">Comprehensive operational data across all modules.</p>
-      </div>
+      <PageHeader
+        title="Reports & Analytics"
+        subtitle="Comprehensive operational data across all modules."
+      />
 
       <Tabs defaultValue="beneficiary">
         <TabsList className="h-8">
           <TabsTrigger value="beneficiary"   className="text-xs">Beneficiaries</TabsTrigger>
           <TabsTrigger value="stock"         className="text-xs">Stock Movement</TabsTrigger>
           <TabsTrigger value="distribution"  className="text-xs">Distribution</TabsTrigger>
+          <TabsTrigger value="incidents"     className="text-xs">Incidents</TabsTrigger>
         </TabsList>
 
         {/* ── Beneficiary tab ── */}
@@ -184,6 +210,19 @@ export default function Reports() {
               <KpiCard label="Approval Rate"  value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp} color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" />
             </div>
           ) : null}
+
+          {benRows.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm font-semibold">District Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 space-y-2.5">
+                {benRows.map((row: any, i: number) => (
+                  <DistrictBar key={i} district={row.district} value={row.total} max={maxDistrictVal} />
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
@@ -392,6 +431,94 @@ export default function Reports() {
                       )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Incidents tab ── */}
+        <TabsContent value="incidents" className="mt-4">
+          <Card>
+            <div className="px-4 pt-3 pb-2 border-b flex items-center gap-1.5 flex-wrap">
+              {[{ label: "All", value: "" }, { label: "Open", value: "Open" }, { label: "Resolved", value: "Resolved" }].map(({ label, value }) => (
+                <button
+                  key={value}
+                  onClick={() => { setIncStatus(value); setIncPage(1); }}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${incStatus === value ? "bg-green-700 text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                >
+                  {label}
+                </button>
+              ))}
+              {!loadingInc && (
+                <span className="text-xs text-muted-foreground ml-auto">{incTotal} incidents</span>
+              )}
+            </div>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4 w-[130px]">Code</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="hidden md:table-cell">Officer</TableHead>
+                    <TableHead className="hidden lg:table-cell">Location</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="pr-4 text-right hidden sm:table-cell">Reported</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingInc
+                    ? Array.from({ length: 6 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell className="hidden sm:table-cell pr-4"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                        </TableRow>
+                      ))
+                    : incList.length > 0
+                    ? incList.map((inc: any, i: number) => (
+                        <TableRow key={i} className="hover:bg-muted/40">
+                          <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{inc.incidentCode}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                              <span className="text-sm">{inc.type}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{inc.officerName ?? inc.reportedBy ?? "—"}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{inc.location || "—"}</TableCell>
+                          <TableCell><StatusBadge status={inc.status} /></TableCell>
+                          <TableCell className="pr-4 text-right text-xs text-muted-foreground hidden sm:table-cell">
+                            {inc.createdAt ? new Date(inc.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={6} className="h-24 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <AlertTriangle className="h-8 w-8 opacity-30" />
+                              <span className="text-sm">{incStatus ? `No ${incStatus.toLowerCase()} incidents` : "No incidents reported yet"}</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
+              {incTotal > 30 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-muted-foreground">
+                  <span>Page {incPage} of {incTotalPages}</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" disabled={incPage <= 1} onClick={() => setIncPage(p => p - 1)}>
+                      <Clock className="h-4 w-4 rotate-180" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" disabled={incPage >= incTotalPages} onClick={() => setIncPage(p => p + 1)}>
+                      <Clock className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
