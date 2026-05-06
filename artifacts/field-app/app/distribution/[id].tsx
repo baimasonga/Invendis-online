@@ -100,7 +100,8 @@ export default function DistributionDetailScreen() {
 
   // ── GPS ping logic ──────────────────────────────────────────────────────────
   const doPing = useCallback(async () => {
-    if (!token || !dispatch?.vehicleId || dispatch?.status !== "In Transit" || hasArrivedRef.current) return;
+    const statusOk = dispatch?.status === "In Transit" || dispatch?.status === "InTransit";
+    if (!token || !dispatch?.vehicleId || !statusOk || hasArrivedRef.current) return;
     const location = await getCurrentLocation();
     if (!location) return;
     try {
@@ -122,7 +123,8 @@ export default function DistributionDetailScreen() {
   }, [token, dispatch]);
 
   useEffect(() => {
-    if (dispatch?.status !== "In Transit" || !dispatch?.vehicleId) return;
+    const inTransit = dispatch?.status === "In Transit" || dispatch?.status === "InTransit";
+    if (!inTransit || !dispatch?.vehicleId) return;
     hasArrivedRef.current = false;
     doPing(); // immediate first ping
     pingIntervalRef.current = setInterval(doPing, 120_000); // every 2 min
