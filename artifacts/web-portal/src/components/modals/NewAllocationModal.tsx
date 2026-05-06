@@ -23,8 +23,8 @@ export function NewAllocationModal({ open, onClose }: Props) {
 
   const { data: campaignsData } = useQuery({ queryKey: KEYS.campaigns(), queryFn: () => listCampaigns(1, 100) });
   const { data: farmersData }   = useQuery({
-    queryKey: [...KEYS.farmers(), "approved"],
-    queryFn: () => listFarmers(1, 200, "approved"),
+    queryKey: KEYS.farmers(1, undefined, "approved"),
+    queryFn: () => listFarmers(1, 200, undefined, "approved"),
   });
 
   const campaigns: any[]  = (campaignsData as any)?.data ?? [];
