@@ -61,6 +61,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const [otpBypassed, setOtpBypassed] = useState(false);
   const [otpBypassReason, setOtpBypassReason] = useState("");
   const [otpMaskedPhone, setOtpMaskedPhone] = useState("");
+  const [otpDevCode, setOtpDevCode] = useState<string | null>(null);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpError, setOtpError]     = useState("");
@@ -98,7 +99,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
     setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpBypassed(false);
-    setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpError(""); setShowOtpBypass(false);
+    setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpDevCode(null); setOtpError(""); setShowOtpBypass(false);
     setFaceResult(null); setFaceBypassed(false); setFacePhotoBlob(null);
     setGpsLat(null); setGpsLng(null); setGpsError("");
   }
@@ -107,12 +108,13 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     if (!farmerId) return;
     setOtpSending(true);
     setOtpError("");
+    setOtpDevCode(null);
     try {
       const res = await sendOtp(Number(farmerId));
       setOtpMaskedPhone(res.maskedPhone ?? "");
       setOtpSent(true);
       if (res.devCode) {
-        toast({ title: "Dev mode — OTP code", description: `Code: ${res.devCode}` });
+        setOtpDevCode(res.devCode);
       }
     } catch (e: any) {
       setOtpError(e.message);
@@ -317,6 +319,16 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
                   <p className="text-xs text-blue-700">Phone: {farmer.phone}</p>
                 )}
               </div>
+
+              {otpDevCode && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
+                  <span className="text-amber-600 mt-0.5">⚡</span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Dev Mode — code not sent to handset</p>
+                    <p className="font-mono text-2xl font-bold text-amber-900 tracking-[0.25em] mt-0.5 select-all">{otpDevCode}</p>
+                  </div>
+                </div>
+              )}
 
               {!otpVerified && !otpBypassed && (
                 <>
