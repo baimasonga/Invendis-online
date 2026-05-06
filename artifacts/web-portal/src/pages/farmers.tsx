@@ -15,25 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
 import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
+import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-const STATUS_STYLES: Record<string, string> = {
-  approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  pending:  "bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-400",
-  rejected: "bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status?.toLowerCase()] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>
-      {status}
-    </span>
-  );
-}
 
 function Avatar({ name }: { name: string }) {
   const initials = name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -117,18 +104,16 @@ export default function Farmers() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Farmer Registry</h1>
-          <p className="text-sm text-muted-foreground">Manage and verify registered farmers.</p>
-        </div>
-        {can.registerFarmer && (
+      <PageHeader
+        title="Farmer Registry"
+        subtitle="Manage and verify registered farmers."
+        actions={can.registerFarmer ? (
           <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             Register Farmer
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <Card>
         <CardHeader className="pb-3 pt-4 px-4 space-y-3">

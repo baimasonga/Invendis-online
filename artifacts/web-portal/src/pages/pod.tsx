@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/PageHeader";
 
 const STATUS_STYLES: Record<string, { cls: string; icon: React.ElementType }> = {
   verified:  { cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2 },
@@ -105,16 +106,16 @@ export default function ProofOfDelivery() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Proof of Delivery</h1>
-          <p className="text-sm text-muted-foreground">Delivery verifications and exception management.</p>
-        </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Record Delivery
-        </Button>
-      </div>
+      <PageHeader
+        title="Proof of Delivery"
+        subtitle="Delivery verifications and exception management."
+        actions={
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Record Delivery
+          </Button>
+        }
+      />
 
       {stats && (
         <div className="grid grid-cols-3 gap-3">

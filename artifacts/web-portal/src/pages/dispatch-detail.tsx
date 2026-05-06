@@ -15,6 +15,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
+import { StatusBadge } from "@/components/StatusBadge";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -24,12 +25,6 @@ const STATUS_STYLES: Record<string, string> = {
   arrived:    "bg-teal-100   text-teal-800   border border-teal-200",
   completed:  "bg-emerald-100 text-emerald-800 border border-emerald-200",
   cancelled:  "bg-red-100    text-red-800    border border-red-200",
-};
-
-const POD_STATUS_STYLES: Record<string, string> = {
-  verified:  "bg-emerald-100 text-emerald-800",
-  pending:   "bg-amber-100  text-amber-800",
-  exception: "bg-red-100    text-red-800",
 };
 
 function Field({ label, value, icon: Icon }: { label: string; value?: string | null; icon?: React.ElementType }) {
@@ -216,22 +211,47 @@ export default function DispatchDetail() {
                 <CardHeader className="pb-3 pt-4">
                   <CardTitle className="text-sm font-semibold">Delivery Summary</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground">Total Loaded</span>
-                    <span className="font-semibold">{d.totalPackages ?? 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground">Line Items</span>
-                    <span className="font-semibold">{items.length}</span>
-                  </div>
-                  <div className="flex justify-between items-center pb-2 border-b">
-                    <span className="text-sm text-muted-foreground">Delivered</span>
-                    <span className="font-semibold text-emerald-700">{d.deliveredPackages ?? 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">PoD Records</span>
-                    <span className="font-semibold">{pods.length}</span>
+                <CardContent className="space-y-4">
+                  {/* Delivery progress bar */}
+                  {(d.totalPackages ?? 0) > 0 && (() => {
+                    const delivered = d.deliveredPackages ?? 0;
+                    const total     = d.totalPackages ?? 0;
+                    const pct       = Math.min(100, Math.round((delivered / total) * 100));
+                    return (
+                      <div>
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                          <span>Delivery progress</span>
+                          <span className="font-semibold tabular-nums text-foreground">{pct}%</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-blue-500"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {delivered.toLocaleString()} of {total.toLocaleString()} packages delivered
+                        </p>
+                      </div>
+                    );
+                  })()}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Line Items</span>
+                      <span className="text-sm font-semibold">{items.length}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Total Loaded</span>
+                      <span className="text-sm font-semibold">{(d.totalPackages ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Delivered</span>
+                      <span className="text-sm font-semibold text-emerald-700">{(d.deliveredPackages ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">PoD Records</span>
+                      <span className="text-sm font-semibold">{pods.length}</span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -354,9 +374,7 @@ export default function DispatchDetail() {
                       <TableCell className="hidden md:table-cell text-sm">{p.inputItemName ?? "—"}</TableCell>
                       <TableCell className="text-right text-sm hidden sm:table-cell">{p.quantityDelivered}</TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${POD_STATUS_STYLES[p.status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>
-                          {p.status}
-                        </span>
+                        <StatusBadge status={p.status} />
                       </TableCell>
                       <TableCell className="pr-4 text-right text-xs text-muted-foreground hidden lg:table-cell">
                         {new Date(p.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}

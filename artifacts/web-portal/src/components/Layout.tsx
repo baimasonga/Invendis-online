@@ -40,20 +40,20 @@ const NAV_GROUPS = [
   {
     label: "Distribution",
     items: [
-      { href: "/vehicles",      label: "Vehicles",          icon: Truck,         roles: ["admin","projectmanager","warehousemanager"] },
-      { href: "/dispatch",      label: "Dispatch",          icon: Package,       roles: ["admin","projectmanager","warehousemanager"] },
-      { href: "/gps-tracking",  label: "GPS Tracking",      icon: Navigation,    roles: ["admin","projectmanager","warehousemanager"] },
-      { href: "/pod",           label: "Proof of Delivery", icon: CheckSquare,   roles: [] },
-      { href: "/reconciliation",label: "Reconciliation",    icon: RefreshCcw,    roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/vehicles",       label: "Vehicles",          icon: Truck,       roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/dispatch",       label: "Dispatch",          icon: Package,     roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/gps-tracking",   label: "GPS Tracking",      icon: Navigation,  roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/pod",            label: "Proof of Delivery", icon: CheckSquare, roles: [] },
+      { href: "/reconciliation", label: "Reconciliation",    icon: RefreshCcw,  roles: ["admin","projectmanager","warehousemanager"] },
     ],
   },
   {
     label: "Administration",
     items: [
-      { href: "/reports", label: "Reports",    icon: BarChart3,     roles: ["admin","projectmanager","districtcoordinator","warehousemanager"] },
-      { href: "/audit",   label: "Audit Logs", icon: ShieldAlert,   roles: ["admin","projectmanager"] },
-      { href: "/users",   label: "Users",      icon: ClipboardList, roles: ["admin"] },
-      { href: "/settings",label: "Settings",   icon: Settings,      roles: ["admin","projectmanager"] },
+      { href: "/reports",  label: "Reports",    icon: BarChart3,     roles: ["admin","projectmanager","districtcoordinator","warehousemanager"] },
+      { href: "/audit",    label: "Audit Logs", icon: ShieldAlert,   roles: ["admin","projectmanager"] },
+      { href: "/users",    label: "Users",      icon: ClipboardList, roles: ["admin"] },
+      { href: "/settings", label: "Settings",   icon: Settings,      roles: ["admin","projectmanager"] },
     ],
   },
 ];
@@ -65,6 +65,8 @@ function SidebarContent({ location, user, logout, onClose }: {
   onClose?: () => void;
 }) {
   const role = normaliseRole(user?.role);
+  const initials = (user?.fullName ?? "U")
+    .split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
@@ -79,35 +81,41 @@ function SidebarContent({ location, user, logout, onClose }: {
       <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border shrink-0">
         <div>
           <h1 className="text-sm font-bold tracking-tight text-sidebar-primary-foreground leading-none">Invendis</h1>
-          <p className="text-[10px] text-sidebar-foreground/60 mt-0.5 uppercase tracking-wide">Field Operations</p>
+          <p className="text-[10px] text-sidebar-foreground/50 mt-0.5 uppercase tracking-wide">Field Operations</p>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-sidebar-foreground/60 hover:text-sidebar-foreground">
+          <button onClick={onClose} className="text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
       {/* Nav groups */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-1.5">
+      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
         {visibleGroups.map((group) => (
-          <div key={group.label}>
-            <p className="px-2 pt-1 pb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+          <div key={group.label} className="mb-1">
+            <p className="px-2 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/35">
               {group.label}
             </p>
-            <ul>
+            <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const active = location === item.href || (item.href !== "/dashboard" && location.startsWith(item.href));
+                const active = location === item.href ||
+                  (item.href !== "/dashboard" && location.startsWith(item.href));
                 return (
                   <li key={item.href}>
                     <Link href={item.href} onClick={onClose}>
-                      <div className={`flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] transition-colors cursor-pointer ${
-                        active
-                          ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                      }`}>
-                        <item.icon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{item.label}</span>
+                      <div className="relative">
+                        {active && (
+                          <span className="absolute left-0 top-[3px] bottom-[3px] w-0.5 rounded-r-full bg-emerald-400" />
+                        )}
+                        <div className={`flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] transition-colors cursor-pointer ${
+                          active
+                            ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium pl-3"
+                            : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        }`}>
+                          <item.icon className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </div>
                       </div>
                     </Link>
                   </li>
@@ -119,19 +127,19 @@ function SidebarContent({ location, user, logout, onClose }: {
       </nav>
 
       {/* User footer */}
-      <div className="px-2 py-2 border-t border-sidebar-border shrink-0">
-        <div className="flex items-center gap-2 px-2 py-1.5 rounded-md">
-          <div className="h-6 w-6 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground text-[10px] font-bold shrink-0">
-            {user?.fullName?.charAt(0) ?? "U"}
+      <div className="px-2 py-2.5 border-t border-sidebar-border shrink-0">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-sidebar-accent transition-colors">
+          <div className="h-7 w-7 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground text-[11px] font-bold shrink-0 ring-2 ring-sidebar-primary/30">
+            {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-medium truncate leading-tight">{user?.fullName}</p>
-            <p className="text-[10px] text-sidebar-foreground/60 truncate leading-tight capitalize">{user?.role}</p>
+            <p className="text-[11px] font-semibold truncate leading-tight">{user?.fullName}</p>
+            <p className="text-[10px] text-sidebar-foreground/55 truncate leading-tight capitalize">{user?.role?.replace(/([A-Z])/g, " $1").trim()}</p>
           </div>
           <button
             onClick={logout}
             title="Sign out"
-            className="text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors shrink-0"
+            className="text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors shrink-0 p-0.5 rounded"
           >
             <LogOut className="h-3.5 w-3.5" />
           </button>

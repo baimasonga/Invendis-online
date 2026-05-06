@@ -10,25 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
-
-const STATUS_STYLES: Record<string, string> = {
-  pending:    "bg-slate-100  text-slate-600  dark:bg-slate-800      dark:text-slate-300",
-  approved:   "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-400",
-  dispatched: "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
-  intransit:  "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-400",
-  arrived:    "bg-teal-100   text-teal-800   dark:bg-teal-900/30    dark:text-teal-400",
-  completed:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  cancelled:  "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-400",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status?.toLowerCase().replace(/\s+/g, "")] ?? "bg-slate-100 text-slate-600";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      {status}
-    </span>
-  );
-}
+import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 
 function DeliveryProgress({ delivered, total }: { delivered: number; total: number }) {
   if (!total) return <span className="text-xs text-muted-foreground">—</span>;
@@ -100,16 +83,16 @@ export default function Dispatch() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Vehicle Dispatch</h1>
-          <p className="text-sm text-muted-foreground">Manage delivery manifests and track dispatch status.</p>
-        </div>
-        <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Create Manifest
-        </Button>
-      </div>
+      <PageHeader
+        title="Vehicle Dispatch"
+        subtitle="Manage delivery manifests and track dispatch status."
+        actions={
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Create Manifest
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">
