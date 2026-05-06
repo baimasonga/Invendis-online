@@ -783,7 +783,14 @@ async function apiPost(path: string, body: unknown): Promise<any> {
     body: JSON.stringify(body),
   });
   const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Request failed");
+  if (!res.ok) {
+    const err = new Error(json?.error ?? json?.message ?? "Request failed") as Error & Record<string, unknown>;
+    // Preserve any extra fields from the error body (e.g. retryAfterSeconds from 429)
+    if (json && typeof json === "object") {
+      Object.assign(err, json);
+    }
+    throw err;
+  }
   return json;
 }
 
