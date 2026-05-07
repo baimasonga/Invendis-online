@@ -728,6 +728,56 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
   return resp.json();
 }
 
+export async function listGpsTraceUnits(): Promise<{ id: number; label: string; source: string; status: string }[]> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/units", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to fetch GPS-Trace units");
+  }
+  return resp.json();
+}
+
+export async function listGpsTraceStatus(): Promise<any[]> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/status", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error("Failed to fetch GPS-Trace status");
+  return resp.json();
+}
+
+export async function linkGpsTraceUnit(vehicleId: number, unitId: string): Promise<void> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/link", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ vehicleId, unitId }),
+  });
+  if (!resp.ok) throw new Error("Failed to link GPS-Trace unit");
+}
+
+export async function unlinkGpsTraceUnit(vehicleId: number): Promise<void> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/unlink", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ vehicleId }),
+  });
+  if (!resp.ok) throw new Error("Failed to unlink GPS-Trace unit");
+}
+
+export async function triggerGpsTraceSync(): Promise<{ synced: number; skipped: number }> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/sync", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Sync failed");
+  }
+  return resp.json();
+}
+
 // ── POD ───────────────────────────────────────────────────────────────────────
 export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string) {
   let q = supabase

@@ -1,14 +1,22 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listVehicleGpsStatus, listGpsTrack, KEYS } from "@/lib/db";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  listVehicleGpsStatus, listGpsTrack, KEYS,
+  listGpsTraceUnits, listGpsTraceStatus,
+  linkGpsTraceUnit, unlinkGpsTraceUnit, triggerGpsTraceSync,
+} from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/PageHeader";
+import { useToast } from "@/hooks/use-toast";
 import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
   ChevronRight, RefreshCw, Wifi, WifiOff, Target,
-  AlertTriangle, CheckCircle2, RouteOff,
+  AlertTriangle, CheckCircle2, RouteOff, Link2, Link2Off,
+  Signal, Settings2,
 } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -136,10 +144,201 @@ function TrackPoint({ point, index, isLast }: { point: any; index: number; isLas
   );
 }
 
+// ── GPS-Trace Management Panel ────────────────────────────────────────────────
+
+function GpsTracePanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [linking, setLinking] = useState<number | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<Record<number, string>>({});
+
+  const { data: vehicles, isLoading: loadingVehicles } = useQuery({
+    queryKey: ["gps-trace-status"],
+    queryFn: listGpsTraceStatus,
+  });
+
+  const { data: units, isLoading: loadingUnits, error: unitsError } = useQuery({
+    queryKey: ["gps-trace-units"],
+    queryFn: listGpsTraceUnits,
+    retry: 1,
+  });
+
+  const linkMut = useMutation({
+    mutationFn: ({ vehicleId, unitId }: { vehicleId: number; unitId: string }) =>
+      linkGpsTraceUnit(vehicleId, unitId),
+    onSuccess: (_, { vehicleId }) => {
+      toast({ title: "Tracker linked", description: "GPS-Trace unit linked to vehicle." });
+      setLinking(null);
+      setSelectedUnit(p => { const n = { ...p }; delete n[vehicleId]; return n; });
+      qc.invalidateQueries({ queryKey: ["gps-trace-status"] });
+      qc.invalidateQueries({ queryKey: KEYS.vehicles() });
+    },
+    onError: (e: any) => toast({ title: "Link failed", description: e.message, variant: "destructive" }),
+  });
+
+  const unlinkMut = useMutation({
+    mutationFn: (vehicleId: number) => unlinkGpsTraceUnit(vehicleId),
+    onSuccess: () => {
+      toast({ title: "Tracker unlinked" });
+      qc.invalidateQueries({ queryKey: ["gps-trace-status"] });
+      qc.invalidateQueries({ queryKey: KEYS.vehicles() });
+    },
+    onError: (e: any) => toast({ title: "Unlink failed", description: e.message, variant: "destructive" }),
+  });
+
+  const syncMut = useMutation({
+    mutationFn: triggerGpsTraceSync,
+    onSuccess: (r) => {
+      toast({ title: "Sync complete", description: `${r.synced} synced, ${r.skipped} skipped.` });
+      qc.invalidateQueries({ queryKey: KEYS.vehicles() });
+      qc.invalidateQueries({ queryKey: ["gps-trace-status"] });
+    },
+    onError: (e: any) => toast({ title: "Sync failed", description: e.message, variant: "destructive" }),
+  });
+
+  const vehicleList: any[] = Array.isArray(vehicles) ? vehicles : [];
+  const unitList: any[] = Array.isArray(units) ? units : [];
+  const linkedCount = vehicleList.filter((v: any) => v.gpsDeviceId).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3 pt-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Signal className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-semibold">GPS-Trace Tracker Setup</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Link your GPS-Trace tracker units to vehicles for live tracking
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {linkedCount > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {linkedCount} / {vehicleList.length} linked
+              </Badge>
+            )}
+            <Button
+              size="sm" variant="outline" className="h-8"
+              onClick={() => syncMut.mutate()}
+              disabled={syncMut.isPending}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncMut.isPending ? "animate-spin" : ""}`} />
+              Sync Now
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {unitsError && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 text-xs mb-3">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span>Could not connect to GPS-Trace: {(unitsError as any).message}</span>
+          </div>
+        )}
+        {loadingVehicles ? (
+          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+        ) : vehicleList.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">No vehicles registered yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {vehicleList.map((v: any) => {
+              const isLinked = !!v.gpsDeviceId;
+              const isLinking = linking === v.id;
+              const linkedUnit = unitList.find((u: any) => String(u.id) === String(v.gpsDeviceId));
+              return (
+                <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                  <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center shrink-0 border">
+                    <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{v.plateNumber}</p>
+                    <p className="text-xs text-muted-foreground">{v.vehicleCode}</p>
+                  </div>
+                  {isLinked ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <Link2 className="h-3 w-3" />
+                          {linkedUnit?.label ?? `Unit #${v.gpsDeviceId}`}
+                        </p>
+                        {v.lastPing && (
+                          <p className="text-[10px] text-muted-foreground">{formatAgo(v.lastPing)}</p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                        onClick={() => unlinkMut.mutate(v.id)}
+                        disabled={unlinkMut.isPending}
+                        title="Unlink tracker"
+                      >
+                        <Link2Off className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ) : isLinking ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Select
+                        value={selectedUnit[v.id] ?? ""}
+                        onValueChange={(val) => setSelectedUnit(p => ({ ...p, [v.id]: val }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-44">
+                          <SelectValue placeholder={loadingUnits ? "Loading units…" : "Select tracker unit"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {unitList.map((u: any) => (
+                            <SelectItem key={u.id} value={String(u.id)} className="text-xs">
+                              {u.label} {u.status === "active" ? "●" : "○"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm" className="h-7 text-xs"
+                        onClick={() => {
+                          const uid = selectedUnit[v.id];
+                          if (uid) linkMut.mutate({ vehicleId: v.id, unitId: uid });
+                        }}
+                        disabled={!selectedUnit[v.id] || linkMut.isPending}
+                      >
+                        Link
+                      </Button>
+                      <Button
+                        size="sm" variant="ghost" className="h-7 text-xs"
+                        onClick={() => setLinking(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                      onClick={() => setLinking(v.id)}
+                    >
+                      <Link2 className="h-3 w-3 mr-1" /> Link Tracker
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-[10px] text-muted-foreground mt-3">
+          Positions sync automatically every 30 seconds from your GPS-Trace account.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
     queryKey: KEYS.vehicles(),
@@ -177,12 +376,24 @@ export default function GpsTracking() {
           ) : undefined
         }
         actions={
-          <Button size="sm" variant="outline" className="h-8" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm" variant={showSetup ? "default" : "outline"} className="h-8"
+              onClick={() => setShowSetup(s => !s)}
+            >
+              <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+              {showSetup ? "Hide Setup" : "Tracker Setup"}
+            </Button>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         }
       />
+
+      {/* GPS-Trace setup panel */}
+      {showSetup && <GpsTracePanel />}
 
       {/* Summary strip */}
       {!isLoading && vehicleList.length > 0 && (

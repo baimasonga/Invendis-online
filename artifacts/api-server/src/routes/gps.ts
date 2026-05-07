@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { query } from "../lib/db.js";
 import { snakeToCamel } from "../lib/supabase.js";
+import { fetchAllTrackers, syncAllVehicles } from "../lib/gpstrace.js";
 
 const router = Router();
 
@@ -142,6 +143,67 @@ router.get("/api/gps/track/:vehicleId", requireAnyAuth, async (req, res) => {
     [Number(req.params.vehicleId), Number(limit)]
   );
   res.json(snakeToCamel(result.rows.reverse()));
+});
+
+// ── GET /api/gps/trace/units ──────────────────────────────────────────────────
+// Fetch all tracker units from GPS-Trace account
+router.get("/api/gps/trace/units", requireAnyAuth, async (_req, res) => {
+  try {
+    const trackers = await fetchAllTrackers();
+    res.json(trackers.map((t: any) => ({
+      id: t.id,
+      label: t.label,
+      source: t.source,
+      status: t.status?.last_connection_date ? "active" : "unknown",
+    })));
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ── POST /api/gps/trace/link ──────────────────────────────────────────────────
+// Link a GPS-Trace tracker unit to a vehicle
+router.post("/api/gps/trace/link", requireAnyAuth, async (req, res) => {
+  const { vehicleId, unitId } = req.body as { vehicleId: number; unitId: string };
+  if (!vehicleId || !unitId) {
+    res.status(400).json({ error: "vehicleId and unitId are required" });
+    return;
+  }
+  await query(
+    `UPDATE vehicles SET gps_device_id=$1 WHERE id=$2`,
+    [String(unitId), vehicleId]
+  );
+  res.json({ success: true });
+});
+
+// ── POST /api/gps/trace/unlink ────────────────────────────────────────────────
+// Unlink GPS-Trace tracker from a vehicle
+router.post("/api/gps/trace/unlink", requireAnyAuth, async (req, res) => {
+  const { vehicleId } = req.body as { vehicleId: number };
+  if (!vehicleId) { res.status(400).json({ error: "vehicleId required" }); return; }
+  await query(`UPDATE vehicles SET gps_device_id=NULL WHERE id=$1`, [vehicleId]);
+  res.json({ success: true });
+});
+
+// ── POST /api/gps/trace/sync ──────────────────────────────────────────────────
+// Manually trigger a GPS-Trace position sync
+router.post("/api/gps/trace/sync", requireAnyAuth, async (_req, res) => {
+  try {
+    const result = await syncAllVehicles();
+    res.json(result);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ── GET /api/gps/trace/status ─────────────────────────────────────────────────
+// Returns linked vehicle→unit mapping + last ping info
+router.get("/api/gps/trace/status", requireAnyAuth, async (_req, res) => {
+  const result = await query(
+    `SELECT id, vehicle_code, plate_number, gps_device_id, last_ping, last_latitude, last_longitude
+     FROM vehicles ORDER BY plate_number`
+  );
+  res.json(snakeToCamel(result.rows));
 });
 
 export default router;

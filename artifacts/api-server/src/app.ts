@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { startGpsPoller } from "./lib/gpstrace.js";
 
 const app: Express = express();
 
@@ -36,5 +37,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(router);
+
+if (process.env["GPS_TRACE_EMAIL"] && process.env["GPS_TRACE_PASSWORD"]) {
+  startGpsPoller(30_000);
+}
 
 export default app;
