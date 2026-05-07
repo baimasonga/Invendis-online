@@ -877,7 +877,12 @@ export async function createReconciliation(payload: any) {
   const userId = await intUid();
   const variance = (payload.loadedQuantity ?? 0) - (payload.deliveredQuantity ?? 0)
     - (payload.returnedQuantity ?? 0) - (payload.damagedQuantity ?? 0);
+  // generate a unique code (equivalent to server-side randomBytes(3).hex().toUpperCase())
+  const raw = new Uint8Array(3);
+  crypto.getRandomValues(raw);
+  const reconciliationCode = "REC-" + Array.from(raw).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
   const { data, error } = await supabase.from("reconciliations").insert({
+    reconciliation_code: reconciliationCode,
     dispatch_id: payload.dispatchId,
     warehouse_id: payload.warehouseId,
     loaded_quantity: payload.loadedQuantity ?? 0,
