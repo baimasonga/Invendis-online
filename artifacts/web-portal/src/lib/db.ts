@@ -85,10 +85,13 @@ export const KEYS = {
   incidents:     (page?: number, status?: string) => ["incidents", page, status],
   auditLogs:     (page?: number) => ["audit-logs", page],
   users:         () => ["users"],
-  districts:     () => ["districts"],
-  chiefdoms:     (districtId?: number) => ["chiefdoms", districtId],
-  valueChains:   () => ["value-chains"],
-  warehouses:    () => ["warehouses"],
+  districts:         () => ["districts"],
+  chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
+  valueChains:       () => ["value-chains"],
+  warehouses:        () => ["warehouses"],
+  distributionSites: () => ["distribution-sites"],
+  inputItems:        () => ["input-items"],
+  systemSettings:    () => ["system-settings"],
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
@@ -426,27 +429,6 @@ export async function createAllocation(payload: any) {
 }
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
-export async function listInputItems() {
-  const { data, error } = await supabase
-    .from("input_items").select("*").eq("is_active", 1).order("name");
-  if (error) throw new Error(error.message);
-  return cc(data ?? []);
-}
-
-export async function updateInputItem(id: number, payload: any) {
-  const updateData: Record<string, any> = {
-    name: payload.name,
-    category: payload.category ?? null,
-    unit: payload.unit ?? null,
-    value_chain_id: payload.valueChainId ?? null,
-  };
-  if ("barcode" in payload) updateData.barcode = payload.barcode || null;
-  const { data, error } = await supabase.from("input_items").update(updateData).eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "inventory", `Updated input item #${id}`, "input_item", id);
-  return cc(data);
-}
-
 export async function getStockBalance() {
   const { data, error } = await supabase
     .from("stock_balance")
@@ -1051,52 +1033,117 @@ export async function updateUserRole(id: string, role: string) {
 }
 
 // ── MASTER DATA ───────────────────────────────────────────────────────────────
+// ── shared API token helper for master-data mutations ─────────────────────────
+async function mdToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+async function mdFetch(path: string, opts: RequestInit = {}) {
+  const token = await mdToken();
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts.headers ?? {}) },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? res.statusText); }
+  return res.json();
+}
+
+// ── Districts ─────────────────────────────────────────────────────────────────
 export async function listDistricts() {
   const { data, error } = await supabase.from("districts").select("*").order("name");
   if (error) throw new Error(error.message);
   return cc(data ?? []);
 }
-
-export async function listChiefdoms(districtId?: number) {
-  let q = supabase.from("chiefdoms").select("*").order("name");
-  if (districtId) q = q.eq("district_id", districtId);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  return cc(data ?? []);
+export async function createDistrict(payload: { name: string; code: string }) {
+  return mdFetch("/api/master-data/districts", { method: "POST", body: JSON.stringify(payload) });
 }
 
+// ── Chiefdoms ─────────────────────────────────────────────────────────────────
+export async function listChiefdoms(districtId?: number) {
+  const url = districtId ? `/api/master-data/chiefdoms?districtId=${districtId}` : "/api/master-data/chiefdoms";
+  return mdFetch(url, { method: "GET" });
+}
+export async function createChiefdom(payload: { name: string; districtId: number }) {
+  return mdFetch("/api/master-data/chiefdoms", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateChiefdom(id: number, payload: { name: string; districtId: number }) {
+  return mdFetch(`/api/master-data/chiefdoms/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function deleteChiefdom(id: number) {
+  return mdFetch(`/api/master-data/chiefdoms/${id}`, { method: "DELETE" });
+}
+
+// ── Value Chains ──────────────────────────────────────────────────────────────
 export async function listValueChains() {
   const { data, error } = await supabase.from("value_chains").select("*").order("name");
   if (error) throw new Error(error.message);
   return cc(data ?? []);
 }
-
-export async function listWarehouses() {
-  const { data, error } = await supabase.from("warehouses").select("*").order("name");
-  if (error) throw new Error(error.message);
-  const rows = data ?? [];
-  const districtMap = await lookupMap("districts", [...new Set(rows.map((r: any) => r.district_id).filter(Boolean))], "id,name");
-  return rows.map((r: any) => ({
-    ...cc(r), districtName: districtMap[r.district_id]?.name ?? null,
-  }));
-}
-
-export async function createWarehouse(payload: any) {
-  const { data, error } = await supabase.from("warehouses").insert({
-    name: payload.name, code: payload.code,
-    district_id: payload.districtId ?? null,
-    address: payload.address ?? null, is_active: 1,
-  }).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
-}
-
 export async function createValueChain(payload: any) {
-  const { data, error } = await supabase.from("value_chains").insert({
-    name: payload.name, description: payload.description ?? null, is_active: 1,
-  }).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  return mdFetch("/api/master-data/value-chains", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateValueChain(id: number, payload: { name: string; description?: string }) {
+  return mdFetch(`/api/master-data/value-chains/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function toggleValueChain(id: number) {
+  return mdFetch(`/api/master-data/value-chains/${id}/toggle`, { method: "PATCH" });
+}
+
+// ── Warehouses ────────────────────────────────────────────────────────────────
+export async function listWarehouses() {
+  return mdFetch("/api/master-data/warehouses", { method: "GET" });
+}
+export async function createWarehouse(payload: any) {
+  return mdFetch("/api/master-data/warehouses", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateWarehouse(id: number, payload: any) {
+  return mdFetch(`/api/master-data/warehouses/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function toggleWarehouse(id: number) {
+  return mdFetch(`/api/master-data/warehouses/${id}/toggle`, { method: "PATCH" });
+}
+export async function importWarehouses(rows: any[]) {
+  return mdFetch("/api/master-data/warehouses/import", { method: "POST", body: JSON.stringify({ rows }) });
+}
+
+// ── Distribution Sites ────────────────────────────────────────────────────────
+export async function listDistributionSites() {
+  return mdFetch("/api/master-data/distribution-sites", { method: "GET" });
+}
+export async function createDistributionSite(payload: any) {
+  return mdFetch("/api/master-data/distribution-sites", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateDistributionSite(id: number, payload: any) {
+  return mdFetch(`/api/master-data/distribution-sites/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function toggleDistributionSite(id: number) {
+  return mdFetch(`/api/master-data/distribution-sites/${id}/toggle`, { method: "PATCH" });
+}
+export async function importDistributionSites(rows: any[]) {
+  return mdFetch("/api/master-data/distribution-sites/import", { method: "POST", body: JSON.stringify({ rows }) });
+}
+
+// ── Input Items ───────────────────────────────────────────────────────────────
+export async function listInputItems() {
+  return mdFetch("/api/master-data/input-items", { method: "GET" });
+}
+export async function createInputItem(payload: any) {
+  return mdFetch("/api/master-data/input-items", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateInputItem(id: number, payload: any) {
+  return mdFetch(`/api/master-data/input-items/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function toggleInputItem(id: number) {
+  return mdFetch(`/api/master-data/input-items/${id}/toggle`, { method: "PATCH" });
+}
+
+// ── System Settings ───────────────────────────────────────────────────────────
+export async function listSystemSettings(): Promise<{ key: string; value: string; description: string }[]> {
+  return mdFetch("/api/master-data/system-settings", { method: "GET" });
+}
+export async function saveSystemSettings(updates: Record<string, string>) {
+  return mdFetch("/api/master-data/system-settings", { method: "PUT", body: JSON.stringify(updates) });
 }
 
 // ── Face / Biometric helpers ──────────────────────────────────────────────────

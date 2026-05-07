@@ -60,7 +60,7 @@ export default function Inventory() {
   });
 
   const stockList: any[] = stockBalances ?? [];
-  const itemList: any[] = inputItems ?? [];
+  const itemList: any[] = (inputItems ?? []).filter((it: any) => it.isActive !== false && it.isActive !== 0);
 
   const totalAvailable = stockList.reduce((s, r) => s + (r.available ?? 0), 0);
   const totalDelivered  = stockList.reduce((s, r) => s + (r.delivered ?? 0), 0);
