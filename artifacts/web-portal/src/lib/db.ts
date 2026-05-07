@@ -1147,13 +1147,22 @@ export async function resolveIncident(id: number, resolutionNotes?: string) {
   return cc(data);
 }
 
+async function podToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
 export async function approvePod(id: number): Promise<void> {
-  const userId = await intUid();
-  const { error } = await supabase.from("pod")
-    .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "pod", `Approved PoD #${id}`, "pod", id);
+  const token = await podToken();
+  const resp = await fetch(`/api/pod/${id}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to approve PoD");
+  }
 }
 
 export async function flagPodException(id: number, notes?: string): Promise<void> {
@@ -1166,11 +1175,14 @@ export async function flagPodException(id: number, notes?: string): Promise<void
 
 export async function batchApprovePods(ids: number[]): Promise<void> {
   if (!ids.length) return;
-  const userId = await intUid();
-  const now = new Date().toISOString();
-  const { error } = await supabase.from("pod")
-    .update({ status: "Verified", approved_by: userId, approved_at: now })
-    .in("id", ids);
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "pod", `Batch approved ${ids.length} PoD(s): [${ids.join(",")}]`, "pod", ids[0]);
+  const token = await podToken();
+  const resp = await fetch("/api/pod/batch-approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ ids }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to batch approve PoDs");
+  }
 }
