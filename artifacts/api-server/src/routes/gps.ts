@@ -3,6 +3,7 @@ import { requireAnyAuth } from "../lib/auth.js";
 import { query } from "../lib/db.js";
 import { snakeToCamel } from "../lib/supabase.js";
 import { fetchAllTrackers, syncAllVehicles } from "../lib/gpstrace.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -167,14 +168,19 @@ router.get("/api/gps/trace/units", requireAnyAuth, async (_req, res) => {
 // ── POST /api/gps/trace/link ──────────────────────────────────────────────────
 // Link a GPS-Trace tracker unit to a vehicle
 router.post("/api/gps/trace/link", requireAnyAuth, async (req, res) => {
-  const { vehicleId, unitId } = req.body as { vehicleId: number; unitId: string };
+  const { vehicleId, unitId, unitLabel } = req.body as { vehicleId: number; unitId: string; unitLabel?: string };
   if (!vehicleId || !unitId) {
     res.status(400).json({ error: "vehicleId and unitId are required" });
     return;
   }
-  await query(
-    `UPDATE vehicles SET gps_device_id=$1 WHERE id=$2`,
-    [String(unitId), vehicleId]
+  const vRes = await query(`SELECT plate_number, vehicle_code FROM vehicles WHERE id=$1`, [vehicleId]);
+  const vehicle = vRes.rows[0];
+  await query(`UPDATE vehicles SET gps_device_id=$1 WHERE id=$2`, [String(unitId), vehicleId]);
+  await logAudit(
+    req, "LINK", "GPS",
+    `GPS tracker ${unitLabel ?? `Unit #${unitId}`} linked to vehicle ${vehicle?.plate_number ?? vehicleId}`,
+    "Vehicle", vehicleId,
+    { unitId, unitLabel, plateNumber: vehicle?.plate_number, vehicleCode: vehicle?.vehicle_code }
   );
   res.json({ success: true });
 });
@@ -184,7 +190,15 @@ router.post("/api/gps/trace/link", requireAnyAuth, async (req, res) => {
 router.post("/api/gps/trace/unlink", requireAnyAuth, async (req, res) => {
   const { vehicleId } = req.body as { vehicleId: number };
   if (!vehicleId) { res.status(400).json({ error: "vehicleId required" }); return; }
+  const vRes = await query(`SELECT plate_number, vehicle_code, gps_device_id FROM vehicles WHERE id=$1`, [vehicleId]);
+  const vehicle = vRes.rows[0];
   await query(`UPDATE vehicles SET gps_device_id=NULL WHERE id=$1`, [vehicleId]);
+  await logAudit(
+    req, "UNLINK", "GPS",
+    `GPS tracker unlinked from vehicle ${vehicle?.plate_number ?? vehicleId}`,
+    "Vehicle", vehicleId,
+    { previousUnitId: vehicle?.gps_device_id, plateNumber: vehicle?.plate_number }
+  );
   res.json({ success: true });
 });
 
