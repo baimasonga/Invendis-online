@@ -75,8 +75,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
+    "@types/leaflet": "^1.9.21",
     "face-api.js": "^0.22.2",
     "jsbarcode": "^3.12.3",
-    "qrcode.react": "^4.2.0"
+    "leaflet": "^1.9.4",
+    "qrcode.react": "^4.2.0",
+    "react-leaflet": "^5.0.0"
   }
 }

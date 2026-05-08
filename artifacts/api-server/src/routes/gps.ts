@@ -152,9 +152,12 @@ router.get("/api/gps/trace/units", requireAnyAuth, async (_req, res) => {
     const trackers = await fetchAllTrackers();
     res.json(trackers.map((t: any) => ({
       id: t.id,
-      label: t.label,
-      source: t.source,
-      status: t.status?.last_connection_date ? "active" : "unknown",
+      label: t.name ?? t.label ?? `Unit #${t.id}`,
+      deviceType: t.device_type_id,
+      ident: t.ident,
+      enabled: t.enabled,
+      lastActive: t.last_active,
+      status: t.last_active ? "active" : "registered",
     })));
   } catch (err: any) {
     res.status(502).json({ error: err.message });
