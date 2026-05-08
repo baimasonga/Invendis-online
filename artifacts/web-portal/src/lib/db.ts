@@ -84,6 +84,8 @@ export const KEYS = {
   reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
   incidents:     (page?: number, status?: string) => ["incidents", page, status],
   auditLogs:     (page?: number, filters?: Record<string, any>) => ["audit-logs", page, filters],
+  auditStats:    (days?: number) => ["audit-stats", days],
+  auditSiem:     () => ["audit-siem-events"],
   users:         () => ["users"],
   districts:         () => ["districts"],
   chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
@@ -1004,6 +1006,53 @@ export async function listAuditLogs(page = 1, limit = 50, filters: AuditFilters 
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   return { data: cc(data ?? []), total: count ?? 0 };
+}
+
+export type AuditStats = {
+  totalEvents: number;
+  uniqueUsers: number;
+  byAction: { action: string; count: number }[];
+  byModule: { module: string; count: number }[];
+  byUser:   { username: string; count: number }[];
+  byDay:    { date: string; count: number }[];
+};
+
+export async function getAuditStats(days = 30): Promise<AuditStats> {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("action, module, username, created_at")
+    .gte("created_at", since);
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  const byAction: Record<string, number> = {};
+  const byModule: Record<string, number> = {};
+  const byUser:   Record<string, number> = {};
+  const byDay:    Record<string, number> = {};
+  const users = new Set<string>();
+  for (const r of rows) {
+    byAction[r.action] = (byAction[r.action] ?? 0) + 1;
+    byModule[r.module] = (byModule[r.module] ?? 0) + 1;
+    const u = r.username ?? "System";
+    byUser[u] = (byUser[u] ?? 0) + 1;
+    users.add(u);
+    const day = (r.created_at as string).slice(0, 10);
+    byDay[day] = (byDay[day] ?? 0) + 1;
+  }
+  // fill gaps in day series so chart has continuity
+  const allDays: { date: string; count: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    allDays.push({ date: d, count: byDay[d] ?? 0 });
+  }
+  return {
+    totalEvents: rows.length,
+    uniqueUsers: users.size,
+    byAction: Object.entries(byAction).map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count),
+    byModule: Object.entries(byModule).map(([module, count]) => ({ module, count })).sort((a, b) => b.count - a.count),
+    byUser:   Object.entries(byUser).map(([username, count]) => ({ username, count })).sort((a, b) => b.count - a.count).slice(0, 10),
+    byDay:    allDays,
+  };
 }
 
 // ── USERS (profiles) ──────────────────────────────────────────────────────────
