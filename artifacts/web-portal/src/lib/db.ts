@@ -83,7 +83,7 @@ export const KEYS = {
   reconciliations: () => ["reconciliations"],
   reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
   incidents:     (page?: number, status?: string) => ["incidents", page, status],
-  auditLogs:     (page?: number) => ["audit-logs", page],
+  auditLogs:     (page?: number, filters?: Record<string, any>) => ["audit-logs", page, filters],
   users:         () => ["users"],
   districts:         () => ["districts"],
   chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
@@ -983,11 +983,25 @@ export async function getDistributionReport(from?: string, to?: string) {
 }
 
 // ── AUDIT LOGS ────────────────────────────────────────────────────────────────
-export async function listAuditLogs(page = 1, limit = 30) {
-  const { data, error, count } = await supabase
+export type AuditFilters = {
+  search?:   string;
+  action?:   string;
+  module?:   string;
+  fromDate?: string;
+  toDate?:   string;
+};
+
+export async function listAuditLogs(page = 1, limit = 50, filters: AuditFilters = {}) {
+  let q = supabase
     .from("audit_logs").select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
+  if (filters.search)   q = q.ilike("description", `%${filters.search}%`) as typeof q;
+  if (filters.action)   q = q.eq("action", filters.action) as typeof q;
+  if (filters.module)   q = q.eq("module", filters.module) as typeof q;
+  if (filters.fromDate) q = q.gte("created_at", filters.fromDate) as typeof q;
+  if (filters.toDate)   q = q.lte("created_at", filters.toDate + "T23:59:59") as typeof q;
+  const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   return { data: cc(data ?? []), total: count ?? 0 };
 }
