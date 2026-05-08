@@ -306,8 +306,8 @@ function GpsTracePanel() {
   });
 
   const linkMut = useMutation({
-    mutationFn: ({ vehicleId, unitId }: { vehicleId: number; unitId: string }) =>
-      linkGpsTraceUnit(vehicleId, unitId),
+    mutationFn: ({ vehicleId, unitId, unitLabel }: { vehicleId: number; unitId: string; unitLabel?: string }) =>
+      linkGpsTraceUnit(vehicleId, unitId, unitLabel),
     onSuccess: (_, { vehicleId }) => {
       toast({ title: "Tracker linked", description: "GPS-Trace unit linked to vehicle." });
       setLinking(null);
@@ -448,7 +448,8 @@ function GpsTracePanel() {
                         size="sm" className="h-7 text-xs"
                         onClick={() => {
                           const uid = selectedUnit[v.id];
-                          if (uid) linkMut.mutate({ vehicleId: v.id, unitId: uid });
+                          const label = unitList.find((u: any) => String(u.id) === uid)?.label;
+                          if (uid) linkMut.mutate({ vehicleId: v.id, unitId: uid, unitLabel: label });
                         }}
                         disabled={!selectedUnit[v.id] || linkMut.isPending}
                       >

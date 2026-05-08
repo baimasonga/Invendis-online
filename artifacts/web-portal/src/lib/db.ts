@@ -731,12 +731,12 @@ export async function listGpsTraceStatus(): Promise<any[]> {
   return resp.json();
 }
 
-export async function linkGpsTraceUnit(vehicleId: number, unitId: string): Promise<void> {
+export async function linkGpsTraceUnit(vehicleId: number, unitId: string, unitLabel?: string): Promise<void> {
   const token = await gpsToken();
   const resp = await fetch("/api/gps/trace/link", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ vehicleId, unitId }),
+    body: JSON.stringify({ vehicleId, unitId, unitLabel }),
   });
   if (!resp.ok) throw new Error("Failed to link GPS-Trace unit");
 }

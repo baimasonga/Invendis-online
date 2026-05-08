@@ -28,7 +28,7 @@ import { PageHeader } from "@/components/PageHeader";
 const ACTIONS = [
   "CREATE", "UPDATE", "DELETE", "APPROVE", "REJECT",
   "DISPATCH", "ARRIVE", "RECEIVE", "ADD_ITEM", "BATCH_APPROVE",
-  "LOGIN", "LOGOUT",
+  "LOGIN", "LOGOUT", "LINK", "UNLINK",
 ];
 
 const MODULES = [
@@ -52,6 +52,8 @@ const ACTION_STYLES: Record<string, string> = {
   ADD_ITEM:      "bg-violet-100 text-violet-800",
   LOGIN:         "bg-slate-100  text-slate-600",
   LOGOUT:        "bg-slate-100  text-slate-600",
+  LINK:          "bg-cyan-100   text-cyan-800",
+  UNLINK:        "bg-rose-100   text-rose-800",
 };
 
 const MODULE_STYLES: Record<string, string> = {
@@ -75,6 +77,7 @@ const ACTION_CHART_COLORS: Record<string, string> = {
   CREATE: "#10b981", UPDATE: "#3b82f6", DELETE: "#ef4444",
   APPROVE: "#22c55e", REJECT: "#f97316", DISPATCH: "#6366f1",
   BATCH_APPROVE: "#16a34a", LOGIN: "#94a3b8", LOGOUT: "#94a3b8",
+  LINK: "#0891b2", UNLINK: "#e11d48",
 };
 
 // ── SIEM Anomaly Engine ───────────────────────────────────────────────────────
