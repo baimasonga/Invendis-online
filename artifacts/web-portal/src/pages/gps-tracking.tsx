@@ -113,18 +113,29 @@ const TIER_HEX: Record<string, string> = {
 
 function createVehicleIcon(tier: "live" | "recent" | "stale" | "offline", selected: boolean): L.DivIcon {
   const color = TIER_HEX[tier];
-  const s = selected ? 36 : 28;
-  const ring = selected ? `box-shadow:0 0 0 3px white,0 0 0 5px ${color},0 3px 10px rgba(0,0,0,.3);` : "box-shadow:0 2px 6px rgba(0,0,0,.28);";
-  const truckW = s < 32 ? 11 : 14;
+  const s = selected ? 44 : 36;
+  const shadow = selected
+    ? `filter:drop-shadow(0 0 6px ${color});`
+    : "filter:drop-shadow(0 2px 3px rgba(0,0,0,.4));";
+  const truckW = selected ? 18 : 14;
   return L.divIcon({
-    className: "",
-    html: `<div style="width:${s}px;height:${s}px;background:${color};border:2.5px solid white;border-radius:50%;${ring}display:flex;align-items:center;justify-content:center;">
+    className: "leaflet-vehicle-marker",
+    html: `<div style="
+        position:relative;
+        width:${s}px;height:${s}px;
+        background:${color};
+        border:3px solid white;
+        border-radius:50%;
+        ${shadow}
+        display:flex;align-items:center;justify-content:center;
+      ">
       <svg xmlns='http://www.w3.org/2000/svg' width='${truckW}' height='${truckW}' viewBox='0 0 24 24' fill='white'>
         <path d='M1 3h15v13H1zM16 8h4l3 3v5h-7V8z'/><circle cx='5.5' cy='18.5' r='2.5'/><circle cx='18.5' cy='18.5' r='2.5'/>
-      </svg></div>`,
+      </svg>
+    </div>`,
     iconSize: [s, s],
     iconAnchor: [s / 2, s / 2],
-    popupAnchor: [0, -s / 2 - 6],
+    popupAnchor: [0, -s / 2 - 8],
   });
 }
 
