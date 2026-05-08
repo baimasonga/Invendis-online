@@ -83,9 +83,11 @@ export const KEYS = {
   reconciliations: () => ["reconciliations"],
   reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
   incidents:     (page?: number, status?: string) => ["incidents", page, status],
-  auditLogs:     (page?: number, filters?: Record<string, any>) => ["audit-logs", page, filters],
-  auditStats:    (days?: number) => ["audit-stats", days],
-  auditSiem:     () => ["audit-siem-events"],
+  auditLogs:          (page?: number, filters?: Record<string, any>) => ["audit-logs", page, filters],
+  auditStats:         (days?: number) => ["audit-stats", days],
+  auditSiem:          () => ["audit-siem-events"],
+  consolidation:      (opts?: Record<string, any>) => ["consolidation-report", opts],
+  allCampaigns:       () => ["all-campaigns"],
   users:         () => ["users"],
   districts:         () => ["districts"],
   chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
@@ -982,6 +984,197 @@ export async function getDistributionReport(from?: string, to?: string) {
     warehouseName: whMap[r.warehouse_id]?.name ?? null,
     completionPct: r.total_packages > 0 ? Math.round((r.delivered_packages / r.total_packages) * 100) : 0,
   }));
+}
+
+// ── DISTRIBUTION CONSOLIDATION REPORT ────────────────────────────────────────
+
+export type ConsolidatedDispatch = {
+  id: number;
+  manifestCode: string;
+  status: string;
+  campaignName: string;
+  campaignCode: string;
+  season: string;
+  warehouseName: string;
+  vehiclePlate: string | null;
+  vehicleType: string;
+  driverName: string | null;
+  notes: string | null;
+  departedAt: string | null;
+  arrivedAt: string | null;
+  createdAt: string;
+  totalPackages: number;
+  deliveredPackages: number;
+  completionPct: number;
+  items: {
+    id: number;
+    itemName: string;
+    unit: string;
+    quantityLoaded: number;
+    quantityDelivered: number;
+    quantityReturned: number;
+  }[];
+  pods: {
+    id: number;
+    podCode: string;
+    farmerName: string;
+    farmerCode: string;
+    gender: string;
+    phone: string;
+    quantityDelivered: number | null;
+    status: string;
+    otpStatus: string;
+    faceStatus: string;
+    gpsStatus: string;
+    submittedAt: string | null;
+    notes: string | null;
+  }[];
+  stats: {
+    totalLoaded: number;
+    totalDelivered: number;
+    podCount: number;
+    verifiedCount: number;
+    pendingCount: number;
+    exceptionCount: number;
+  };
+};
+
+export async function getConsolidatedDistributionReport(opts: {
+  from?: string;
+  to?: string;
+  campaignId?: number;
+  status?: string;
+}): Promise<ConsolidatedDispatch[]> {
+  let q = supabase
+    .from("dispatches").select("*")
+    .order("created_at", { ascending: false }).limit(200);
+  if (opts.from)       q = q.gte("created_at", opts.from) as typeof q;
+  if (opts.to)         q = q.lte("created_at", opts.to + "T23:59:59") as typeof q;
+  if (opts.campaignId) q = q.eq("campaign_id", opts.campaignId) as typeof q;
+  if (opts.status)     q = q.eq("status", opts.status) as typeof q;
+  const { data: dRows, error: dErr } = await q;
+  if (dErr) throw new Error(dErr.message);
+  if (!dRows?.length) return [];
+
+  const dispatchIds  = dRows.map((d: any) => d.id);
+  const campaignIds  = [...new Set(dRows.map((d: any) => d.campaign_id).filter(Boolean))] as number[];
+  const warehouseIds = [...new Set(dRows.map((d: any) => d.warehouse_id).filter(Boolean))] as number[];
+  const vehicleIds   = [...new Set(dRows.map((d: any) => d.vehicle_id).filter(Boolean))] as number[];
+  const driverIds    = [...new Set(dRows.map((d: any) => d.driver_id).filter(Boolean))] as number[];
+
+  const [itemsRes, podsRes, campaignMap, whMap] = await Promise.all([
+    supabase.from("dispatch_items").select("*").in("dispatch_id", dispatchIds),
+    supabase.from("pod").select("*").in("dispatch_id", dispatchIds),
+    lookupMap("campaigns",  campaignIds,  "id,name,campaign_code,season"),
+    lookupMap("warehouses", warehouseIds, "id,name"),
+  ]);
+
+  const vehicleMap: Record<number, any> = vehicleIds.length
+    ? await lookupMap("vehicles", vehicleIds, "id,plate_number,vehicle_type")
+    : {};
+  const driverMap: Record<number, any> = driverIds.length
+    ? await lookupMap("drivers", driverIds, "id,full_name")
+    : {};
+
+  const allItems = (itemsRes.data ?? []) as any[];
+  const allPods  = (podsRes.data  ?? []) as any[];
+
+  const inputItemIds = [...new Set(allItems.map((i: any) => i.input_item_id).filter(Boolean))] as number[];
+  const farmerIds    = [...new Set(allPods.map((p: any)  => p.farmer_id).filter(Boolean))]     as number[];
+
+  const [inputItemMap, farmerMap] = await Promise.all([
+    inputItemIds.length
+      ? lookupMap("input_items", inputItemIds, "id,name,unit")
+      : Promise.resolve<Record<number, any>>({}),
+    farmerIds.length
+      ? lookupMap("farmers", farmerIds, "id,farmer_code,first_name,last_name,gender,phone")
+      : Promise.resolve<Record<number, any>>({}),
+  ]);
+
+  const itemsByDispatch: Record<number, any[]> = {};
+  for (const it of allItems) {
+    if (!itemsByDispatch[it.dispatch_id]) itemsByDispatch[it.dispatch_id] = [];
+    itemsByDispatch[it.dispatch_id].push(it);
+  }
+  const podsByDispatch: Record<number, any[]> = {};
+  for (const p of allPods) {
+    const did = p.dispatch_id;
+    if (!did) continue;
+    if (!podsByDispatch[did]) podsByDispatch[did] = [];
+    podsByDispatch[did].push(p);
+  }
+
+  return dRows.map((d: any) => {
+    const items = (itemsByDispatch[d.id] ?? []).map((it: any) => ({
+      id: it.id,
+      itemName: inputItemMap[it.input_item_id]?.name ?? "—",
+      unit: inputItemMap[it.input_item_id]?.unit ?? "",
+      quantityLoaded:    it.quantity_loaded    ?? 0,
+      quantityDelivered: it.quantity_delivered ?? 0,
+      quantityReturned:  it.quantity_returned  ?? 0,
+    }));
+
+    const pods = (podsByDispatch[d.id] ?? []).map((p: any) => {
+      const farmer = farmerMap[p.farmer_id];
+      return {
+        id: p.id,
+        podCode: p.pod_code,
+        farmerName: farmer ? `${farmer.first_name} ${farmer.last_name}` : "—",
+        farmerCode: farmer?.farmer_code ?? "—",
+        gender: farmer?.gender ?? "—",
+        phone:  farmer?.phone  ?? "—",
+        quantityDelivered: p.quantity_delivered,
+        status:     p.status,
+        otpStatus:  p.otp_status  ?? "Pending",
+        faceStatus: p.face_status ?? "Pending",
+        gpsStatus:  p.gps_status  ?? "Pending",
+        submittedAt: p.submitted_at,
+        notes: p.notes,
+      };
+    });
+
+    const vehicle = vehicleMap[d.vehicle_id];
+    const driver  = driverMap[d.driver_id];
+
+    return {
+      id: d.id,
+      manifestCode: d.manifest_code,
+      status: d.status,
+      campaignName: campaignMap[d.campaign_id]?.name         ?? "—",
+      campaignCode: campaignMap[d.campaign_id]?.campaign_code ?? "—",
+      season:       campaignMap[d.campaign_id]?.season        ?? "—",
+      warehouseName: whMap[d.warehouse_id]?.name ?? "—",
+      vehiclePlate: d.hired_plate || vehicle?.plate_number || null,
+      vehicleType:  d.vehicle_type ?? "—",
+      driverName:   d.hired_driver_name || driver?.full_name || null,
+      notes: d.notes ?? null,
+      departedAt: d.departed_at ?? null,
+      arrivedAt:  d.arrived_at  ?? null,
+      createdAt:  d.created_at,
+      totalPackages:     d.total_packages     ?? 0,
+      deliveredPackages: d.delivered_packages ?? 0,
+      completionPct: d.total_packages > 0
+        ? Math.round((d.delivered_packages / d.total_packages) * 100) : 0,
+      items,
+      pods,
+      stats: {
+        totalLoaded:    items.reduce((s: number, i: any) => s + i.quantityLoaded,    0),
+        totalDelivered: items.reduce((s: number, i: any) => s + i.quantityDelivered, 0),
+        podCount:      pods.length,
+        verifiedCount: pods.filter((p: any) => p.status === "Verified").length,
+        pendingCount:  pods.filter((p: any) => p.status === "Pending").length,
+        exceptionCount:pods.filter((p: any) => p.status === "Exception").length,
+      },
+    };
+  });
+}
+
+export async function listAllCampaigns() {
+  const { data, error } = await supabase
+    .from("campaigns").select("id,name,campaign_code,season")
+    .order("created_at", { ascending: false }).limit(200);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: number; name: string; campaignCode: string; season: string }[];
 }
 
 // ── AUDIT LOGS ────────────────────────────────────────────────────────────────
