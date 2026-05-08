@@ -38,7 +38,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(router);
 
-if (process.env["GPS_TRACE_EMAIL"] && process.env["GPS_TRACE_PASSWORD"]) {
+if (process.env["GPS_TRACE_API_TOKEN"]) {
   startGpsPoller(30_000);
 }
 

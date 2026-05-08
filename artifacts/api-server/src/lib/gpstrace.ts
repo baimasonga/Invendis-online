@@ -1,7 +1,8 @@
 import { query } from "./db.js";
 import { logger } from "./logger.js";
 
-// GPS-Trace Partner API — uses X-AccessToken header (token from Partner Panel → Tokens tab)
+// GPS-Trace Provider API — uses X-AccessToken header (token from Partner Panel → Tokens tab)
+// Note: /partner/* redirects to /provider/* — use /provider/ directly to avoid 301 overhead
 // Docs: https://api.gps-trace.com
 const API_BASE = "https://api.gps-trace.com";
 
@@ -19,7 +20,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function fetchAllTrackers(): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/partner/units`, {
+  const res = await fetch(`${API_BASE}/provider/units`, {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -27,7 +28,6 @@ export async function fetchAllTrackers(): Promise<any[]> {
     throw new Error(`GPS-Trace units fetch failed (${res.status}): ${body}`);
   }
   const json = await res.json() as any;
-  // Response is an array or wrapped in a 'items'/'data' key depending on version
   if (Array.isArray(json)) return json;
   if (Array.isArray(json.items)) return json.items;
   if (Array.isArray(json.data)) return json.data;
@@ -35,7 +35,7 @@ export async function fetchAllTrackers(): Promise<any[]> {
 }
 
 export async function fetchTrackerTelemetry(unitId: number): Promise<any> {
-  const res = await fetch(`${API_BASE}/partner/units/${unitId}/telemetry`, {
+  const res = await fetch(`${API_BASE}/provider/units/${unitId}/telemetry`, {
     headers: authHeaders(),
   });
   if (!res.ok) {
@@ -46,7 +46,7 @@ export async function fetchTrackerTelemetry(unitId: number): Promise<any> {
 }
 
 export async function fetchTrackerMessages(unitId: number, count = 1): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/partner/units/${unitId}/messages?count=${count}`, {
+  const res = await fetch(`${API_BASE}/provider/units/${unitId}/messages?count=${count}`, {
     headers: authHeaders(),
   });
   if (!res.ok) {
