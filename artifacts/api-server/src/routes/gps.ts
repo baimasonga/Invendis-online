@@ -219,8 +219,14 @@ router.post("/api/gps/trace/sync", requireAnyAuth, async (_req, res) => {
 // config must match GPS_TRACE_API_TOKEN.
 // No auth middleware — GPS-Trace does not send our session tokens.
 router.post("/api/gps/retranslator", async (req, res) => {
-  // ── 1. Verify authorization ────────────────────────────────────────────────
-  const expectedToken = process.env["GPS_TRACE_API_TOKEN"] ?? "";
+  // ── 1. Verify authorization — fail closed: reject all if token not configured ─
+  const expectedToken = process.env["GPS_TRACE_API_TOKEN"];
+  if (!expectedToken) {
+    req.log.error({}, "GPS retranslator: GPS_TRACE_API_TOKEN not set — all pushes rejected");
+    res.status(503).json({ error: "retranslator not configured" });
+    return;
+  }
+
   const authHeader = (req.headers["authorization"] ?? "") as string;
   const incomingToken =
     authHeader.startsWith("Bearer ") ? authHeader.slice(7) :
@@ -229,7 +235,7 @@ router.post("/api/gps/retranslator", async (req, res) => {
     (req.query["token"] as string) ||
     "";
 
-  if (expectedToken && incomingToken !== expectedToken) {
+  if (incomingToken !== expectedToken) {
     req.log.warn(
       { hasAuthHeader: !!authHeader, hasQueryToken: !!(req.query["token"]) },
       "GPS retranslator: unauthorized push rejected"
