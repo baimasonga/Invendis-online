@@ -231,7 +231,7 @@ router.post("/api/gps/retranslator", async (req, res) => {
 
   if (expectedToken && incomingToken !== expectedToken) {
     req.log.warn(
-      { incomingToken: incomingToken.slice(0, 8) + "...", headers: req.headers },
+      { hasAuthHeader: !!authHeader, hasQueryToken: !!(req.query["token"]) },
       "GPS retranslator: unauthorized push rejected"
     );
     res.status(401).json({ error: "unauthorized" });
