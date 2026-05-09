@@ -106,13 +106,27 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
     const unitId = Number(v.gps_device_id);
     if (isNaN(unitId)) { skipped++; continue; }
     try {
-      const [telemetry, messages] = await Promise.all([
-        fetchTrackerTelemetry(unitId).catch(() => null),
-        fetchTrackerMessages(unitId, 1).catch(() => []),
-      ]);
+      const [telemetry, telemetryErr] = await fetchTrackerTelemetry(unitId)
+        .then(d => [d, null] as const)
+        .catch(e => [null, e.message] as const);
+      const [messages, messagesErr] = await fetchTrackerMessages(unitId, 1)
+        .then(d => [d, null] as const)
+        .catch(e => [[] as any[], e.message] as const);
 
-      const pos = extractPosition(telemetry, messages);
-      if (!pos) { skipped++; continue; }
+      if (telemetryErr) {
+        logger.warn({ vehicleId: v.id, unitId, reason: telemetryErr }, "GPS-Trace telemetry fetch failed — Provider API has no telemetry endpoint. A Wialon API token is required for live positions.");
+      }
+      if (messagesErr) {
+        logger.warn({ vehicleId: v.id, unitId, reason: messagesErr }, "GPS-Trace messages fetch failed");
+      }
+
+      const pos = extractPosition(telemetry, messages ?? []);
+      if (!pos) {
+        logger.warn({ vehicleId: v.id, unitId, hasTelemetry: !!telemetry, messageCount: (messages ?? []).length },
+          "No position extracted — GPS-Trace Provider API returns no telemetry for this unit. Position is only visible in ForGuard web UI.");
+        skipped++;
+        continue;
+      }
 
       await query(
         `INSERT INTO gps_track (vehicle_id, dispatch_id, latitude, longitude, speed, heading, accuracy, recorded_at)

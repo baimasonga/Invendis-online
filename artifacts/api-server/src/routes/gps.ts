@@ -213,6 +213,36 @@ router.post("/api/gps/trace/sync", requireAnyAuth, async (_req, res) => {
   }
 });
 
+// ── GET /api/gps/trace/debug ──────────────────────────────────────────────────
+// Returns raw GPS-Trace API responses for all linked vehicles (for diagnostics)
+router.get("/api/gps/trace/debug", requireAnyAuth, async (_req, res) => {
+  const vehiclesRes = await query(
+    `SELECT id, plate_number, gps_device_id FROM vehicles WHERE gps_device_id IS NOT NULL AND gps_device_id != ''`
+  );
+  const results = await Promise.all(vehiclesRes.rows.map(async (v: any) => {
+    const unitId = Number(v.gps_device_id);
+    const [telemetryRaw, telemetryErr] = await fetch(
+      `https://api.gps-trace.com/provider/units/${unitId}/telemetry`,
+      { headers: { "X-AccessToken": process.env["GPS_TRACE_API_TOKEN"] ?? "", accept: "application/json" } }
+    ).then(async r => [{ status: r.status, body: await r.json().catch(() => null) }, null] as const)
+      .catch(e => [null, e.message] as const);
+    const [messagesRaw, messagesErr] = await fetch(
+      `https://api.gps-trace.com/provider/units/${unitId}/messages?count=1`,
+      { headers: { "X-AccessToken": process.env["GPS_TRACE_API_TOKEN"] ?? "", accept: "application/json" } }
+    ).then(async r => [{ status: r.status, body: await r.json().catch(() => null) }, null] as const)
+      .catch(e => [null, e.message] as const);
+    return {
+      vehicleId: v.id, plateNumber: v.plate_number, unitId,
+      telemetry: telemetryErr ?? telemetryRaw,
+      messages: messagesErr ?? messagesRaw,
+      diagnosis: (!telemetryRaw || (telemetryRaw as any).status !== 200)
+        ? "GPS-Trace Provider API has no telemetry endpoint for this unit. A Wialon API token from forguard.gurtam.space is required."
+        : "OK",
+    };
+  }));
+  res.json(results);
+});
+
 // ── GET /api/gps/trace/status ─────────────────────────────────────────────────
 // Returns linked vehicle→unit mapping + last ping info
 router.get("/api/gps/trace/status", requireAnyAuth, async (_req, res) => {
