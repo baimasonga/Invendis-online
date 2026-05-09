@@ -55,7 +55,10 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
       status: "pending",
       retryCount: 0,
     };
-    await saveQueue([...queue, item]);
+    // Use functional update to avoid stale closure if enqueue is called rapidly
+    const updated = [...queue, item];
+    setQueue(updated);
+    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(updated));
   };
 
   async function submitPod(domain: string, token: string, payload: Record<string, unknown>) {

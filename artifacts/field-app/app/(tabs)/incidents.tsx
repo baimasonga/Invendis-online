@@ -73,19 +73,16 @@ export default function IncidentsScreen() {
     setSyncing(true);
     setSyncResult(null);
     const domain = process.env.EXPO_PUBLIC_DOMAIN;
-    let synced = 0;
-    let failed = 0;
-    const updated = [...incidents];
 
-    for (const inc of unsynced) {
-      try {
-        const res = await fetch(`https://${domain}/api/incidents`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
+    try {
+      const res = await fetch(`https://${domain}/api/incidents/bulk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          incidents: unsynced.map((inc) => ({
             type: inc.type,
             description: inc.description,
             location: inc.location || null,
@@ -93,24 +90,26 @@ export default function IncidentsScreen() {
             longitude: inc.longitude ?? null,
             incidentCode: inc.incidentCode,
             deviceId: inc.id,
-          }),
-        });
-        if (res.ok) {
-          const idx = updated.findIndex((u) => u.id === inc.id);
-          if (idx !== -1) updated[idx] = { ...updated[idx], synced: true };
-          synced++;
-        } else {
-          failed++;
-        }
-      } catch {
-        failed++;
-      }
-    }
+          })),
+        }),
+      });
 
-    await saveIncidents(updated);
-    setIncidents(updated.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-    setSyncResult({ synced, failed });
-    setSyncing(false);
+      if (res.ok) {
+        const { synced: syncedCount } = await res.json() as { synced: number };
+        const updated = incidents.map((inc) =>
+          inc.synced ? inc : { ...inc, synced: true }
+        );
+        await saveIncidents(updated);
+        setIncidents(updated.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+        setSyncResult({ synced: syncedCount, failed: unsynced.length - syncedCount });
+      } else {
+        setSyncResult({ synced: 0, failed: unsynced.length });
+      }
+    } catch {
+      setSyncResult({ synced: 0, failed: unsynced.length });
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const incidentTypeIcon: Record<string, keyof typeof Feather.glyphMap> = {

@@ -52,7 +52,7 @@ async function getLocation(): Promise<GPSCoords | null> {
     const Location = require("expo-location");
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return null;
-    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced, timeInterval: 5000 });
+    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
   } catch {
     return null;
@@ -69,7 +69,7 @@ async function takeCameraPhoto(): Promise<string | null> {
       return null;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"] as any,
       allowsEditing: false,
       quality: 0.8,
     });
