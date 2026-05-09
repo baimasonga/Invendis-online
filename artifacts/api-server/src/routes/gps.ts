@@ -213,34 +213,171 @@ router.post("/api/gps/trace/sync", requireAnyAuth, async (_req, res) => {
   }
 });
 
+// ── POST /api/gps/retranslator ────────────────────────────────────────────────
+// GPS-Trace Retranslator webhook. GPS-Trace pushes unit positions here via the
+// sutran (or http) retranslator protocol. The auth_token from the retranslator
+// config must match GPS_TRACE_API_TOKEN.
+// No auth middleware — GPS-Trace does not send our session tokens.
+router.post("/api/gps/retranslator", async (req, res) => {
+  // ── 1. Verify authorization ────────────────────────────────────────────────
+  const expectedToken = process.env["GPS_TRACE_API_TOKEN"] ?? "";
+  const authHeader = (req.headers["authorization"] ?? "") as string;
+  const incomingToken =
+    authHeader.startsWith("Bearer ") ? authHeader.slice(7) :
+    authHeader.startsWith("Token ") ? authHeader.slice(6) :
+    authHeader ||
+    (req.query["token"] as string) ||
+    "";
+
+  if (expectedToken && incomingToken !== expectedToken) {
+    req.log.warn(
+      { incomingToken: incomingToken.slice(0, 8) + "...", headers: req.headers },
+      "GPS retranslator: unauthorized push rejected"
+    );
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+
+  // ── 2. Parse body — may be Buffer (binary sutran) or already parsed JSON ───
+  let rawBody: Buffer | null = null;
+  let jsonBody: any = null;
+
+  if (Buffer.isBuffer(req.body)) {
+    rawBody = req.body;
+    try { jsonBody = JSON.parse(rawBody.toString("utf8")); } catch (_) { /* binary */ }
+  } else if (typeof req.body === "object" && req.body !== null) {
+    jsonBody = req.body;
+  } else if (typeof req.body === "string") {
+    try { jsonBody = JSON.parse(req.body); } catch (_) { /* noop */ }
+  }
+
+  req.log.info(
+    {
+      contentType: req.headers["content-type"],
+      bodySize: rawBody?.length ?? JSON.stringify(jsonBody ?? "").length,
+      isJson: jsonBody !== null,
+      rawHex: rawBody ? rawBody.slice(0, 64).toString("hex") : undefined,
+      jsonSample: jsonBody ? JSON.stringify(jsonBody).slice(0, 400) : undefined,
+    },
+    "GPS retranslator push received"
+  );
+
+  // ── 3. Extract position from JSON body ────────────────────────────────────
+  // GPS-Trace sutran/http retranslator sends position data as JSON:
+  // [ { unit_id, lat, lon, speed, course, dt, ... } ] or similar
+  const positions: Array<{ unitId: string; lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date }> = [];
+
+  const tryExtract = (obj: any): void => {
+    if (!obj) return;
+    // Unit ID variants
+    const unitId = String(obj.unit_id ?? obj.unitId ?? obj.id ?? obj.device_id ?? obj.imei ?? "");
+    // Coordinate variants
+    const lat = Number(obj.lat ?? obj.latitude ?? obj.y ?? obj.gps?.lat);
+    const lng = Number(obj.lon ?? obj.lng ?? obj.longitude ?? obj.x ?? obj.gps?.lon);
+    if (!unitId || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+    const speed = obj.speed != null ? Number(obj.speed) : null;
+    const heading = obj.course ?? obj.heading ?? obj.direction;
+    const ts = obj.dt ?? obj.ts ?? obj.timestamp ?? obj.time;
+    const recordedAt = ts ? new Date(typeof ts === "number" ? ts * 1000 : ts) : new Date();
+    positions.push({ unitId, lat, lng, speed, heading: heading != null ? Number(heading) : null, recordedAt });
+  };
+
+  if (Array.isArray(jsonBody)) {
+    jsonBody.forEach(tryExtract);
+  } else if (jsonBody) {
+    tryExtract(jsonBody);
+    // Some formats wrap in { data: [...] }
+    if (Array.isArray(jsonBody.data)) jsonBody.data.forEach(tryExtract);
+    if (Array.isArray(jsonBody.positions)) jsonBody.positions.forEach(tryExtract);
+    if (Array.isArray(jsonBody.messages)) jsonBody.messages.forEach(tryExtract);
+  }
+
+  // ── 4. Parse binary sutran if JSON yielded nothing ───────────────────────
+  if (!positions.length && rawBody && rawBody.length > 8) {
+    try {
+      // Sutran binary layout (simplified): variable header, then position records
+      // Look for any 4-byte float pairs that look like valid Sierra Leone coordinates
+      // SL bounds: lat 6.9–9.9, lng -13.3 – -10.3
+      for (let i = 0; i <= rawBody.length - 8; i++) {
+        const lat = rawBody.readFloatBE(i);
+        const lng = rawBody.readFloatBE(i + 4);
+        if (lat >= 6.9 && lat <= 9.9 && lng >= -13.3 && lng <= -10.3) {
+          // Plausible Sierra Leone coordinate — try to read speed/heading after
+          const speed = i + 10 <= rawBody.length ? rawBody.readUInt16BE(i + 8) : null;
+          const heading = i + 12 <= rawBody.length ? rawBody.readUInt16BE(i + 10) : null;
+          req.log.info({ lat, lng, speed, heading, byteOffset: i }, "GPS retranslator: sutran binary coordinates found");
+          // We don't know which unit — use the first linked vehicle
+          const vRes = await query(`SELECT gps_device_id FROM vehicles WHERE gps_device_id IS NOT NULL LIMIT 1`);
+          const unitId = vRes.rows[0]?.gps_device_id ?? "";
+          if (unitId) positions.push({ unitId, lat, lng, speed: speed ?? null, heading: heading ? heading % 360 : null, recordedAt: new Date() });
+          break;
+        }
+      }
+    } catch (binaryErr: any) {
+      req.log.warn({ err: binaryErr.message }, "GPS retranslator: binary parse error");
+    }
+  }
+
+  // ── 5. Persist positions ──────────────────────────────────────────────────
+  let saved = 0;
+  for (const pos of positions) {
+    const vRes = await query(
+      `SELECT id FROM vehicles WHERE gps_device_id=$1`,
+      [pos.unitId]
+    );
+    const vehicle = vRes.rows[0];
+    if (!vehicle) {
+      req.log.warn({ unitId: pos.unitId }, "GPS retranslator: no vehicle linked to this unit ID — skipping");
+      continue;
+    }
+    await query(
+      `INSERT INTO gps_track (vehicle_id, dispatch_id, latitude, longitude, speed, heading, accuracy, recorded_at)
+       VALUES ($1, NULL, $2, $3, $4, $5, NULL, $6)`,
+      [vehicle.id, pos.lat, pos.lng, pos.speed, pos.heading, pos.recordedAt]
+    );
+    await query(
+      `UPDATE vehicles SET last_latitude=$1, last_longitude=$2, last_ping=$3 WHERE id=$4`,
+      [pos.lat, pos.lng, pos.recordedAt, vehicle.id]
+    );
+    req.log.info({ vehicleId: vehicle.id, unitId: pos.unitId, lat: pos.lat, lng: pos.lng }, "GPS retranslator: position saved");
+    saved++;
+  }
+
+  // Always respond 200 — GPS-Trace will retry on non-2xx responses
+  res.json({ received: true, positionsParsed: positions.length, saved });
+});
+
 // ── GET /api/gps/trace/debug ──────────────────────────────────────────────────
-// Returns raw GPS-Trace API responses for all linked vehicles (for diagnostics)
+// Returns raw GPS-Trace API responses + retranslator status for diagnostics
 router.get("/api/gps/trace/debug", requireAnyAuth, async (_req, res) => {
+  const token = process.env["GPS_TRACE_API_TOKEN"] ?? "";
   const vehiclesRes = await query(
     `SELECT id, plate_number, gps_device_id FROM vehicles WHERE gps_device_id IS NOT NULL AND gps_device_id != ''`
   );
-  const results = await Promise.all(vehiclesRes.rows.map(async (v: any) => {
+
+  // Fetch retranslator status
+  const [retranslators, retranslatorsErr] = await fetch(
+    `https://api.gps-trace.com/provider/retranslators`,
+    { headers: { "X-AccessToken": token } }
+  ).then(async r => [await r.json(), null] as const)
+    .catch(e => [null, e.message] as const);
+
+  const unitResults = await Promise.all(vehiclesRes.rows.map(async (v: any) => {
     const unitId = Number(v.gps_device_id);
-    const [telemetryRaw, telemetryErr] = await fetch(
-      `https://api.gps-trace.com/provider/units/${unitId}/telemetry`,
-      { headers: { "X-AccessToken": process.env["GPS_TRACE_API_TOKEN"] ?? "", accept: "application/json" } }
-    ).then(async r => [{ status: r.status, body: await r.json().catch(() => null) }, null] as const)
-      .catch(e => [null, e.message] as const);
-    const [messagesRaw, messagesErr] = await fetch(
-      `https://api.gps-trace.com/provider/units/${unitId}/messages?count=1`,
-      { headers: { "X-AccessToken": process.env["GPS_TRACE_API_TOKEN"] ?? "", accept: "application/json" } }
-    ).then(async r => [{ status: r.status, body: await r.json().catch(() => null) }, null] as const)
-      .catch(e => [null, e.message] as const);
-    return {
-      vehicleId: v.id, plateNumber: v.plate_number, unitId,
-      telemetry: telemetryErr ?? telemetryRaw,
-      messages: messagesErr ?? messagesRaw,
-      diagnosis: (!telemetryRaw || (telemetryRaw as any).status !== 200)
-        ? "GPS-Trace Provider API has no telemetry endpoint for this unit. A Wialon API token from forguard.gurtam.space is required."
-        : "OK",
-    };
+    const unitDetail = await fetch(
+      `https://api.gps-trace.com/provider/units/${unitId}`,
+      { headers: { "X-AccessToken": token, accept: "application/json" } }
+    ).then(async r => ({ status: r.status, body: await r.json().catch(() => null) }))
+      .catch(e => ({ status: 0, error: e.message }));
+    return { vehicleId: v.id, plateNumber: v.plate_number, unitId, unitDetail };
   }));
-  res.json(results);
+
+  res.json({
+    retranslators: retranslatorsErr ?? retranslators,
+    retranslatorWebhookUrl: "https://invendisapp.com/api/gps/retranslator",
+    retranslatorInstruction: "In GPS-Trace Partner Console → Extended Services → Retranslators → Edit → set target URL to the webhook URL above",
+    vehicles: unitResults,
+  });
 });
 
 // ── GET /api/gps/trace/status ─────────────────────────────────────────────────

@@ -33,6 +33,10 @@ const corsOrigins = process.env.CORS_ORIGIN
   : true; // true = reflect any origin
 
 app.use(cors({ origin: corsOrigins, credentials: true }));
+// Raw body buffer for the GPS retranslator webhook — must come BEFORE json() middleware
+// so binary sutran payloads are not corrupted by JSON parsing attempts.
+app.use("/api/gps/retranslator", express.raw({ type: "*/*", limit: "64kb" }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
