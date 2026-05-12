@@ -13,7 +13,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://www.invendisapp.com"
+        "EXPO_PUBLIC_DOMAIN": "www.invendisapp.com"
       }
     },
     "production": {
@@ -21,7 +21,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://www.invendisapp.com"
+        "EXPO_PUBLIC_DOMAIN": "www.invendisapp.com"
       }
     }
   },

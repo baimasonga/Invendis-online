@@ -6,11 +6,11 @@ on:
       profile:
         description: "Build profile"
         required: true
-        default: "production"
+        default: "preview"
         type: choice
         options:
-          - production
           - preview
+          - production
 
 jobs:
   build:
@@ -46,3 +46,5 @@ jobs:
 
       - name: Build Android
         run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive
+        env:
+          EXPO_PUBLIC_DOMAIN: ${{ secrets.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
