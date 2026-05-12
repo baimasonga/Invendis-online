@@ -55,8 +55,12 @@ function stripProtocol(domain) {
 }
 
 function getDeploymentDomain() {
-  if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
-    return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
+  // REPLIT_DOMAINS is the public-facing domain (comma-separated, take first).
+  // Must be checked BEFORE REPLIT_INTERNAL_APP_DOMAIN which is an internal
+  // cluster hostname unreachable from mobile devices on the public internet.
+  if (process.env.REPLIT_DOMAINS) {
+    const first = process.env.REPLIT_DOMAINS.split(",")[0].trim();
+    if (first) return stripProtocol(first);
   }
 
   if (process.env.REPLIT_DEV_DOMAIN) {
@@ -67,8 +71,14 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
 
+  // REPLIT_INTERNAL_APP_DOMAIN is an internal cluster address — only use as a
+  // last resort since it is not reachable from devices outside the cluster.
+  if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
+    return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
+  }
+
   console.error(
-    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
+    "ERROR: No deployment domain found. Set REPLIT_DOMAINS, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
   );
   process.exit(1);
 }
