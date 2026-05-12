@@ -24,8 +24,10 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
-      ]
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.medbangz.fieldapp"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -40,7 +42,9 @@
       [
         "expo-font",
         {
-          "fonts": ["./assets/fonts/Feather.ttf"]
+          "fonts": [
+            "./assets/fonts/Feather.ttf"
+          ]
         }
       ],
       "expo-web-browser",
@@ -60,6 +64,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"
+      }
     }
   }
 }
