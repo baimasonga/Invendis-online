@@ -7,101 +7,119 @@ import { logAudit } from "../lib/audit.js";
 const router = Router();
 
 router.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ error: "Bad Request", message: "email and password required" });
-    return;
-  }
-
-  // 1. Verify credentials via Supabase Auth (anon key required for signInWithPassword)
-  const supaUrl = process.env.SUPABASE_URL;
-  const supaAnon = process.env.SUPABASE_ANON_KEY;
-  if (!supaUrl || !supaAnon) {
-    res.status(500).json({ error: "Server Error", message: "Auth not configured" });
-    return;
-  }
-  const anonClient = createClient(supaUrl, supaAnon, { auth: { persistSession: false } });
-  const { data: authData, error: authError } = await anonClient.auth.signInWithPassword({ email, password });
-  if (authError || !authData.user) {
-    res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
-    return;
-  }
-
-  // 2. Get profile for role, is_active, district (source of truth for permissions)
-  const { data: profile } = await supa
-    .from("profiles")
-    .select("id,full_name,role,is_active,district_id,email")
-    .eq("id", authData.user.id)
-    .single();
-  if (!profile) {
-    res.status(401).json({ error: "Unauthorized", message: "Account profile not found" });
-    return;
-  }
-  if (profile.is_active === false) {
-    res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
-    return;
-  }
-
-  // 3. Find or auto-create the integer user record (used as FK in dispatch, pod, etc.)
-  const { data: existingUsers } = await supa
-    .from("users")
-    .select("id,username,email,full_name,role,district_id,is_active")
-    .eq("email", email)
-    .limit(1);
-
-  let user = existingUsers?.[0];
-
-  if (!user) {
-    // First mobile login for a web-portal-created user — create the record
-    const placeholder = await hashPassword(`SUPABASE_${authData.user.id}_${Date.now()}`);
-    const { data: newUser, error: insertErr } = await supa
-      .from("users")
-      .insert({
-        username: email,
-        password_hash: placeholder,
-        full_name: profile.full_name ?? email,
-        email,
-        role: profile.role ?? "FieldOfficer",
-        district_id: profile.district_id ?? null,
-        is_active: true,
-      })
-      .select("id,username,email,full_name,role,district_id,is_active")
-      .single();
-    if (insertErr || !newUser) {
-      res.status(500).json({ error: "Server Error", message: "Failed to provision mobile account" });
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ error: "Bad Request", message: "email and password required" });
       return;
     }
-    user = newUser;
-  } else {
-    // Sync is_active from profiles (deactivation on web should block mobile too)
-    const profileActive = profile.is_active !== false;
-    if (user.is_active !== profileActive) {
-      await supa.from("users").update({ is_active: profileActive }).eq("id", user.id);
+
+    // 1. Verify credentials via Supabase Auth (anon key required for signInWithPassword)
+    const supaUrl = process.env.SUPABASE_URL;
+    const supaAnon = process.env.SUPABASE_ANON_KEY;
+    if (!supaUrl || !supaAnon) {
+      res.status(500).json({ error: "Server Error", message: "Auth not configured" });
+      return;
     }
-  }
+    const anonClient = createClient(supaUrl, supaAnon, { auth: { persistSession: false } });
+    const { data: authData, error: authError } = await anonClient.auth.signInWithPassword({ email, password });
+    if (authError || !authData.user) {
+      res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
+      return;
+    }
 
-  await supa.from("users").update({ last_login: new Date().toISOString() }).eq("id", user.id);
+    // 2. Get profile for role, is_active, district (source of truth for permissions)
+    const { data: profile, error: profileErr } = await supa
+      .from("profiles")
+      .select("id,full_name,role,is_active,district_id,email")
+      .eq("id", authData.user.id)
+      .single();
 
-  const role = profile.role ?? user.role;
-  const token = signToken({
-    userId: user.id,
-    username: email,
-    role,
-    districtId: user.district_id ?? null,
-  });
+    if (profileErr || !profile) {
+      req.log.warn({ profileErr, userId: authData.user.id }, "Profile not found or error fetching profile");
+      res.status(401).json({ error: "Unauthorized", message: "Account profile not found" });
+      return;
+    }
+    if (profile.is_active === false) {
+      res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
+      return;
+    }
 
-  res.json({
-    token,
-    user: {
-      id: user.id,
+    // 3. Find or auto-create the integer user record (used as FK in dispatch, pod, etc.)
+    const { data: existingUsers, error: lookupErr } = await supa
+      .from("users")
+      .select("id,username,email,full_name,role,district_id,is_active")
+      .eq("email", email)
+      .limit(1);
+
+    if (lookupErr) {
+      req.log.error({ lookupErr }, "Failed to query users table during login");
+      res.status(500).json({ error: "Server Error", message: "Database error during login" });
+      return;
+    }
+
+    let user = existingUsers?.[0];
+
+    if (!user) {
+      // First mobile login for a web-portal-created user — create the record
+      const placeholder = await hashPassword(`SUPABASE_${authData.user.id}_${Date.now()}`);
+      const { data: newUser, error: insertErr } = await supa
+        .from("users")
+        .insert({
+          username: email,
+          password_hash: placeholder,
+          full_name: profile.full_name ?? email,
+          email,
+          role: profile.role ?? "FieldOfficer",
+          district_id: profile.district_id ?? null,
+          is_active: true,
+        })
+        .select("id,username,email,full_name,role,district_id,is_active")
+        .single();
+
+      if (insertErr || !newUser) {
+        req.log.error(
+          { insertErr, email, role: profile.role, districtId: profile.district_id },
+          "Failed to auto-provision mobile user in integer users table",
+        );
+        res.status(500).json({ error: "Server Error", message: "Failed to provision mobile account" });
+        return;
+      }
+      user = newUser;
+    } else {
+      // Sync is_active from profiles (deactivation on web should block mobile too)
+      const profileActive = profile.is_active !== false;
+      if (user.is_active !== profileActive) {
+        await supa.from("users").update({ is_active: profileActive }).eq("id", user.id);
+      }
+    }
+
+    await supa.from("users").update({ last_login: new Date().toISOString() }).eq("id", user.id);
+
+    const role = profile.role ?? user.role;
+    const token = signToken({
+      userId: user.id,
       username: email,
-      fullName: user.full_name ?? profile.full_name,
-      email,
       role,
       districtId: user.district_id ?? null,
-      isActive: profile.is_active !== false,
-    },
-  });
+    });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: email,
+        fullName: user.full_name ?? profile.full_name,
+        email,
+        role,
+        districtId: user.district_id ?? null,
+        isActive: profile.is_active !== false,
+      },
+    });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Unhandled error in POST /api/auth/login");
+    res.status(500).json({ error: "Server Error", message: "Unexpected error during login" });
+  }
 });
 
 router.get("/api/auth/me", requireAuth, async (req, res) => {
