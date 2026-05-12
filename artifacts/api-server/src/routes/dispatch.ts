@@ -2,60 +2,73 @@ import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { query } from "../lib/db.js";
 
 const router = Router();
 
-// ── LIST dispatches (web portal + mobile) ────────────────────────────────────
+async function resolveUserId(req: import("express").Request): Promise<number | null> {
+  if (req.user?.userId) return req.user.userId;
+  if (req.supabaseUser?.email) {
+    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
+    return (u as any)?.id ?? null;
+  }
+  return null;
+}
+
+// Fetch lookup maps for campaigns, warehouses, vehicles, drivers by id arrays
+async function fetchLookups(campaignIds: number[], warehouseIds: number[], vehicleIds: number[], driverIds: number[]) {
+  const [camps, wares, vehs, drivs] = await Promise.all([
+    campaignIds.length  ? supa.from("campaigns").select("id,name").in("id", campaignIds)  : Promise.resolve({ data: [] }),
+    warehouseIds.length ? supa.from("warehouses").select("id,name").in("id", warehouseIds) : Promise.resolve({ data: [] }),
+    vehicleIds.length   ? supa.from("vehicles").select("id,plate_number,vehicle_type").in("id", vehicleIds) : Promise.resolve({ data: [] }),
+    driverIds.length    ? supa.from("drivers").select("id,full_name").in("id", driverIds)  : Promise.resolve({ data: [] }),
+  ]);
+  return {
+    campMap:  Object.fromEntries((camps.data  ?? []).map((r: any) => [r.id, r])),
+    wareMap:  Object.fromEntries((wares.data  ?? []).map((r: any) => [r.id, r])),
+    vehMap:   Object.fromEntries((vehs.data   ?? []).map((r: any) => [r.id, r])),
+    drivMap:  Object.fromEntries((drivs.data  ?? []).map((r: any) => [r.id, r])),
+  };
+}
+
 router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   const { campaignId, status, manifestCode, page = "1", limit = "20" } = req.query as Record<string, string>;
   const pageN  = Math.max(1, Number(page));
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
 
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let pi = 1;
-  if (campaignId)    { conditions.push(`d.campaign_id = $${pi++}`);                           params.push(Number(campaignId)); }
-  if (status)        { conditions.push(`d.status = $${pi++}`);                                params.push(status); }
-  if (manifestCode)  { conditions.push(`d.manifest_code ILIKE $${pi++}`);                     params.push(manifestCode); }
+  let q = supa
+    .from("dispatches")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limitN - 1);
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+  if (status)       q = q.eq("status", status) as typeof q;
+  if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
 
-  const countRes = await query(`SELECT COUNT(*) FROM dispatches d ${where}`, params);
-  const total = Number(countRes.rows[0].count);
+  const { data, count, error } = await q;
+  if (error) { res.status(500).json({ error: error.message }); return; }
 
-  const dataRes = await query(
-    `SELECT
-       d.*,
-       c.name        AS campaign_name,
-       w.name        AS warehouse_name,
-       v.plate_number,
-       dr.full_name  AS driver_name
-     FROM dispatches d
-     LEFT JOIN campaigns  c  ON c.id  = d.campaign_id
-     LEFT JOIN warehouses w  ON w.id  = d.warehouse_id
-     LEFT JOIN vehicles   v  ON v.id  = d.vehicle_id
-     LEFT JOIN drivers    dr ON dr.id = d.driver_id
-     ${where}
-     ORDER BY d.created_at DESC
-     LIMIT $${pi++} OFFSET $${pi++}`,
-    [...params, limitN, offset]
+  const rows = data ?? [];
+  const { campMap, wareMap, vehMap, drivMap } = await fetchLookups(
+    [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))],
+    [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))],
+    [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))],
+    [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))],
   );
 
-  const rows = dataRes.rows.map((r: any) => ({
+  const result = rows.map((r: any) => ({
     ...snakeToCamel(r),
-    plateNumber:  r.vehicle_type === "hired" ? r.hired_plate       : (r.plate_number  ?? null),
-    driverName:   r.vehicle_type === "hired" ? r.hired_driver_name : (r.driver_name   ?? null),
-    campaignName: r.campaign_name  ?? null,
-    warehouseName:r.warehouse_name ?? null,
-    isHired:      r.vehicle_type === "hired",
+    campaignName:  campMap[r.campaign_id]?.name   ?? null,
+    warehouseName: wareMap[r.warehouse_id]?.name  ?? null,
+    plateNumber:   r.vehicle_type === "hired" ? r.hired_plate       : (vehMap[r.vehicle_id]?.plate_number ?? null),
+    driverName:    r.vehicle_type === "hired" ? r.hired_driver_name : (drivMap[r.driver_id]?.full_name    ?? null),
+    isHired:       r.vehicle_type === "hired",
   }));
 
-  res.json({ data: rows, total, page: pageN, limit: limitN });
+  res.json({ data: result, total: count ?? 0, page: pageN, limit: limitN });
 });
 
-// ── CREATE dispatch (web portal via Supabase token; mobile via JWT) ──────────
 router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
   const b = req.body as Record<string, any>;
@@ -67,184 +80,174 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
     createdBy = (u as any)?.id ?? null;
   }
 
-  try {
-    const result = await query(
-      `INSERT INTO dispatches
-        (manifest_code, campaign_id, warehouse_id, vehicle_type,
-         vehicle_id, driver_id, hired_plate, hired_driver_name, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING *`,
-      [
-        manifestCode,
-        b.campaignId   ? Number(b.campaignId)   : null,
-        b.warehouseId  ? Number(b.warehouseId)  : null,
-        vehicleType,
-        vehicleType === "office" && b.vehicleId ? Number(b.vehicleId) : null,
-        vehicleType === "office" && b.driverId  ? Number(b.driverId)  : null,
-        vehicleType === "hired"  ? (b.hiredPlate       ?? null) : null,
-        vehicleType === "hired"  ? (b.hiredDriverName  ?? null) : null,
-        b.notes ?? null,
-        createdBy,
-      ]
-    );
-    const row = result.rows[0];
-    await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", row.id);
-    res.status(201).json(snakeToCamel(row));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  const { data, error } = await supa
+    .from("dispatches")
+    .insert({
+      manifest_code:      manifestCode,
+      campaign_id:        b.campaignId  ? Number(b.campaignId)  : null,
+      warehouse_id:       b.warehouseId ? Number(b.warehouseId) : null,
+      vehicle_type:       vehicleType,
+      vehicle_id:         vehicleType === "office" && b.vehicleId ? Number(b.vehicleId) : null,
+      driver_id:          vehicleType === "office" && b.driverId  ? Number(b.driverId)  : null,
+      hired_plate:        vehicleType === "hired"  ? (b.hiredPlate      ?? null) : null,
+      hired_driver_name:  vehicleType === "hired"  ? (b.hiredDriverName ?? null) : null,
+      notes:      b.notes ?? null,
+      created_by: createdBy,
+    })
+    .select()
+    .single();
+
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", (data as any).id);
+  res.status(201).json(snakeToCamel(data));
 });
 
-// ── GET single dispatch ───────────────────────────────────────────────────────
 router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
 
-  const dispRes = await query(
-    `SELECT
-       d.*,
-       c.name         AS campaign_name,
-       c.campaign_code,
-       w.name         AS warehouse_name,
-       w.code         AS warehouse_code,
-       v.plate_number,
-       v.vehicle_type AS vehicle_category,
-       dr.full_name   AS driver_name,
-       dr.driver_code
-     FROM dispatches d
-     LEFT JOIN campaigns  c  ON c.id  = d.campaign_id
-     LEFT JOIN warehouses w  ON w.id  = d.warehouse_id
-     LEFT JOIN vehicles   v  ON v.id  = d.vehicle_id
-     LEFT JOIN drivers    dr ON dr.id = d.driver_id
-     WHERE d.id = $1`,
-    [id]
-  );
+  const { data: r, error } = await supa.from("dispatches").select("*").eq("id", id).single();
+  if (error || !r) { res.status(404).json({ error: "Not found" }); return; }
 
-  if (!dispRes.rows.length) { res.status(404).json({ error: "Not found" }); return; }
-  const r = dispRes.rows[0];
+  const row = r as any;
+  const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap }] = await Promise.all([
+    supa.from("dispatch_items").select("*").eq("dispatch_id", id),
+    fetchLookups(
+      row.campaign_id  ? [row.campaign_id]  : [],
+      row.warehouse_id ? [row.warehouse_id] : [],
+      row.vehicle_id   ? [row.vehicle_id]   : [],
+      row.driver_id    ? [row.driver_id]    : [],
+    ),
+  ]);
 
-  const itemsRes = await query(
-    `SELECT di.*, ii.name AS item_name, ii.unit
-     FROM dispatch_items di
-     LEFT JOIN input_items ii ON ii.id = di.input_item_id
-     WHERE di.dispatch_id = $1`,
-    [id]
-  );
+  if (itemsErr) { res.status(500).json({ error: itemsErr.message }); return; }
 
-  const items = itemsRes.rows.map((i: any) => ({
-    id: i.id,
-    dispatchId: i.dispatch_id,
-    inputItemId: i.input_item_id,
-    inputItemName: i.item_name ?? null,
-    unit: i.unit ?? null,
-    quantityLoaded:    i.quantity_loaded,
-    quantityDelivered: i.quantity_delivered,
-    quantityReturned:  i.quantity_returned,
-  }));
+  const camp = campMap[row.campaign_id] as any;
+  const ware = wareMap[row.warehouse_id] as any;
+  const veh  = vehMap[row.vehicle_id]   as any;
+  const driv = drivMap[row.driver_id]   as any;
+
+  // Fetch related data for items and codes in parallel
+  const inputItemIds = [...new Set((itemRows ?? []).map((i: any) => i.input_item_id).filter(Boolean))];
+
+  const [
+    { data: campFull },
+    { data: wareFull },
+    { data: drivFull },
+    { data: inputItems },
+  ] = await Promise.all([
+    row.campaign_id  ? supa.from("campaigns").select("campaign_code").eq("id", row.campaign_id).single()   : Promise.resolve({ data: null }),
+    row.warehouse_id ? supa.from("warehouses").select("code").eq("id", row.warehouse_id).single()           : Promise.resolve({ data: null }),
+    row.driver_id    ? supa.from("drivers").select("driver_code").eq("id", row.driver_id).single()          : Promise.resolve({ data: null }),
+    inputItemIds.length ? supa.from("input_items").select("id, name, unit").in("id", inputItemIds)          : Promise.resolve({ data: [] }),
+  ]);
+
+  const inputItemMap = Object.fromEntries((inputItems ?? []).map((it: any) => [it.id, it]));
+
+  const items = (itemRows ?? []).map((i: any) => {
+    const itm = inputItemMap[i.input_item_id] as any;
+    return {
+      id:                i.id,
+      dispatchId:        i.dispatch_id,
+      inputItemId:       i.input_item_id,
+      inputItemName:     itm?.name ?? null,
+      unit:              itm?.unit ?? null,
+      quantityLoaded:    i.quantity_loaded,
+      quantityDelivered: i.quantity_delivered,
+      quantityReturned:  i.quantity_returned,
+    };
+  });
 
   res.json({
-    ...snakeToCamel(r),
-    plateNumber:   r.vehicle_type === "hired" ? r.hired_plate       : (r.plate_number  ?? null),
-    driverName:    r.vehicle_type === "hired" ? r.hired_driver_name : (r.driver_name   ?? null),
-    campaignName:  r.campaign_name  ?? null,
-    campaignCode:  r.campaign_code  ?? null,
-    warehouseName: r.warehouse_name ?? null,
-    warehouseCode: r.warehouse_code ?? null,
-    vehicleCategory: r.vehicle_category ?? null,
-    isHired:       r.vehicle_type === "hired",
+    ...snakeToCamel(row),
+    campaignName:    camp?.name                          ?? null,
+    campaignCode:    (campFull as any)?.campaign_code    ?? null,
+    warehouseName:   ware?.name                          ?? null,
+    warehouseCode:   (wareFull as any)?.code             ?? null,
+    vehicleCategory: veh?.vehicle_type                   ?? null,
+    plateNumber:     row.vehicle_type === "hired" ? row.hired_plate       : (veh?.plate_number ?? null),
+    driverName:      row.vehicle_type === "hired" ? row.hired_driver_name : (driv?.full_name   ?? null),
+    driverCode:      (drivFull as any)?.driver_code      ?? null,
+    isHired:         row.vehicle_type === "hired",
     items,
   });
 });
 
-// ── Helper: resolve integer user ID from JWT or Supabase token ────────────────
-async function resolveUserId(req: import("express").Request): Promise<number | null> {
-  if (req.user?.userId) return req.user.userId;
-  if (req.supabaseUser?.email) {
-    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
-    return (u as any)?.id ?? null;
-  }
-  return null;
-}
-
 router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const dispatchId = Number(req.params.id);
   const { inputItemId, quantityLoaded } = req.body as { inputItemId: number; quantityLoaded: number };
-  try {
-    const itemRes = await query(
-      `INSERT INTO dispatch_items (dispatch_id, input_item_id, quantity_loaded)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [dispatchId, inputItemId, quantityLoaded]
-    );
-    const totRes = await query(
-      `SELECT COALESCE(SUM(quantity_loaded),0) AS total FROM dispatch_items WHERE dispatch_id=$1`,
-      [dispatchId]
-    );
-    const total = Number(totRes.rows[0].total);
-    await query(
-      `UPDATE dispatches SET total_packages=$1, updated_at=NOW() WHERE id=$2`,
-      [Math.round(total), dispatchId]
-    );
-    await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
-    res.status(201).json(snakeToCamel(itemRes.rows[0]));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+
+  const { data: itemData, error: itemErr } = await supa
+    .from("dispatch_items")
+    .insert({ dispatch_id: dispatchId, input_item_id: inputItemId, quantity_loaded: quantityLoaded })
+    .select()
+    .single();
+
+  if (itemErr) { res.status(500).json({ error: itemErr.message }); return; }
+
+  const { data: allItems } = await supa
+    .from("dispatch_items")
+    .select("quantity_loaded")
+    .eq("dispatch_id", dispatchId);
+
+  const total = (allItems ?? []).reduce((sum: number, i: any) => sum + Number(i.quantity_loaded ?? 0), 0);
+  await supa.from("dispatches").update({ total_packages: Math.round(total), updated_at: new Date().toISOString() }).eq("id", dispatchId);
+
+  await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
+  res.status(201).json(snakeToCamel(itemData));
 });
 
 router.post("/api/dispatch/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const id = Number(req.params.id);
-  try {
-    const userId = await resolveUserId(req);
-    const result = await query(
-      `UPDATE dispatches SET status='Approved', approved_by=$1, approved_at=NOW(), updated_at=NOW()
-       WHERE id=$2 RETURNING *`,
-      [userId, id]
-    );
-    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
-    await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${id}`, "dispatch", id);
-    res.json(snakeToCamel(result.rows[0]));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  const userId = await resolveUserId(req);
+
+  const { data, error } = await supa
+    .from("dispatches")
+    .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${id}`, "dispatch", id);
+  res.json(snakeToCamel(data));
 });
 
 router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
-  try {
-    const result = await query(
-      `UPDATE dispatches SET status='In Transit', departed_at=NOW(), updated_at=NOW()
-       WHERE id=$1 RETURNING *`,
-      [id]
-    );
-    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
-    const row = result.rows[0];
-    if (row.vehicle_id) {
-      await query(`UPDATE vehicles SET status='InTransit' WHERE id=$1`, [row.vehicle_id]);
-    }
-    await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
-    res.json(snakeToCamel(row));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+
+  const { data, error } = await supa
+    .from("dispatches")
+    .update({ status: "In Transit", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  const row = data as any;
+  if (row.vehicle_id) {
+    await supa.from("vehicles").update({ status: "InTransit" }).eq("id", row.vehicle_id);
   }
+  await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
+  res.json(snakeToCamel(row));
 });
 
 router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
-  try {
-    const result = await query(
-      `UPDATE dispatches SET status='Arrived', arrived_at=NOW(), updated_at=NOW()
-       WHERE id=$1 RETURNING *`,
-      [id]
-    );
-    if (!result.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
-    const row = result.rows[0];
-    if (row.vehicle_id) {
-      await query(`UPDATE vehicles SET status='Active' WHERE id=$1`, [row.vehicle_id]);
-    }
-    await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${id} arrived`, "dispatch", id);
-    res.json(snakeToCamel(row));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+
+  const { data, error } = await supa
+    .from("dispatches")
+    .update({ status: "Arrived", arrived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  const row = data as any;
+  if (row.vehicle_id) {
+    await supa.from("vehicles").update({ status: "Active" }).eq("id", row.vehicle_id);
   }
+  await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${id} arrived`, "dispatch", id);
+  res.json(snakeToCamel(row));
 });
 
 export default router;

@@ -2,7 +2,6 @@ import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { query } from "../lib/db.js";
 
 const router = Router();
 
@@ -57,7 +56,7 @@ router.delete("/api/master-data/chiefdoms/:id", requireAnyAuth, requireRoleIfJwt
   res.json({ success: true });
 });
 
-// ── Sections / Communities (read-only for farmers form) ───────────────────────
+// ── Sections / Communities ────────────────────────────────────────────────────
 router.get("/api/master-data/sections", requireAnyAuth, async (req, res) => {
   const { chiefdomId } = req.query;
   let q = supa.from("sections").select("*").order("name");
@@ -263,20 +262,21 @@ router.patch("/api/master-data/input-items/:id/toggle", requireAnyAuth, requireR
 
 // ── System Settings ───────────────────────────────────────────────────────────
 router.get("/api/master-data/system-settings", requireAnyAuth, async (_req, res) => {
-  const result = await query(`SELECT key, value, description, updated_at FROM system_settings ORDER BY key`);
-  res.json(result.rows);
+  const { data, error } = await supa.from("system_settings").select("key, value, description, updated_at").order("key");
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data ?? []);
 });
 router.put("/api/master-data/system-settings", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const updates = req.body as Record<string, string>;
   for (const [key, value] of Object.entries(updates)) {
-    await query(
-      `UPDATE system_settings SET value=$1, updated_at=NOW() WHERE key=$2`,
-      [String(value), key]
-    );
+    await supa
+      .from("system_settings")
+      .update({ value: String(value), updated_at: new Date().toISOString() })
+      .eq("key", key);
   }
   await logAudit(req, "UPDATE", "SystemSettings", `Updated ${Object.keys(updates).length} system setting(s)`);
-  const result = await query(`SELECT key, value, description, updated_at FROM system_settings ORDER BY key`);
-  res.json(result.rows);
+  const { data } = await supa.from("system_settings").select("key, value, description, updated_at").order("key");
+  res.json(data ?? []);
 });
 
 export default router;

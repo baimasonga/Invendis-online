@@ -1,18 +1,5 @@
-import pg from "pg";
+// This module is kept for schema migration tooling only.
+// Runtime database access uses the Supabase JS client (./supabase.ts).
+// No route imports this file directly.
 
-const { Pool } = pg;
-
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set");
-}
-
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-
-export async function query(sql: string, params: unknown[] = []) {
-  const client = await pool.connect();
-  try {
-    return await client.query(sql, params);
-  } finally {
-    client.release();
-  }
-}
+export {};

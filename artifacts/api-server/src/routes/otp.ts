@@ -1,21 +1,14 @@
 import { Router } from "express";
 import { createHash } from "crypto";
-import { pool } from "../lib/db.js";
+import { supa } from "../lib/supabase.js";
 import { requireAnyAuth } from "../lib/auth.js";
 
 const router = Router();
 
-// ── Phone normalisation ───────────────────────────────────────────────────────
-// Converts any common Sierra Leone phone format to international digits (no +).
-//   076123456    (local, leading 0)  → 23276123456
-//   +23276123456 (E.164)             → 23276123456
-//   0023276123456 (00-prefixed)      → 23276123456
-//   23276123456  (already intl)      → 23276123456
 function normalisePhone(raw: string): string {
   let p = raw.replace(/[\s\-().]/g, "");
   if (p.startsWith("+"))  p = p.slice(1);
   if (p.startsWith("00")) p = p.slice(2);
-  // Local SL format: starts with 0, 9 digits total → strip leading 0, prepend 232
   if (p.startsWith("0") && p.length === 9) p = "232" + p.slice(1);
   return p;
 }
@@ -25,12 +18,10 @@ function maskPhone(phone: string): string {
   return norm.replace(/\d(?=\d{4})/g, "*");
 }
 
-// ── Code hashing ─────────────────────────────────────────────────────────────
 function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-// ── EasySendSMS ──────────────────────────────────────────────────────────────
 async function sendSms(to: string, text: string): Promise<void> {
   const username = process.env.EASYSENDSMS_USERNAME;
   const password = process.env.EASYSENDSMS_PASSWORD;
@@ -52,50 +43,46 @@ async function sendSms(to: string, text: string): Promise<void> {
   const resp = await fetch(`https://api.easysendsms.app/bulksms?${params}`, { method: "GET" });
   const body = (await resp.text()).trim();
 
-  // EasySendSMS returns "OK: <msgid>" on success
   if (!body.toUpperCase().startsWith("OK:")) {
     throw new Error(`EasySendSMS error: ${body}`);
   }
 }
 
-// ── DB helpers (direct pg — bypasses PostgREST schema cache) ─────────────────
-
 async function dbGetActive(farmerId: number) {
-  const { rows } = await pool.query(
-    `SELECT * FROM otp_codes
-      WHERE farmer_id = $1 AND expires_at > NOW()
-      ORDER BY created_at DESC LIMIT 1`,
-    [farmerId],
-  );
-  return rows[0] ?? null;
+  const { data, error } = await supa
+    .from("otp_codes")
+    .select("*")
+    .eq("farmer_id", farmerId)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (error) return null;
+  return data ?? null;
 }
 
 async function dbInsert(farmerId: number, codeHash: string, channel: string) {
-  // Delete any previous codes for this farmer first
-  await pool.query("DELETE FROM otp_codes WHERE farmer_id = $1", [farmerId]);
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-  const { rows } = await pool.query(
-    `INSERT INTO otp_codes (farmer_id, code_hash, channel, expires_at, attempts)
-     VALUES ($1, $2, $3, $4, 0) RETURNING *`,
-    [farmerId, codeHash, channel, expiresAt],
-  );
-  return rows[0];
+  await supa.from("otp_codes").delete().eq("farmer_id", farmerId);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { data } = await supa
+    .from("otp_codes")
+    .insert({ farmer_id: farmerId, code_hash: codeHash, channel, expires_at: expiresAt, attempts: 0 })
+    .select()
+    .single();
+  return data;
 }
 
 async function dbIncrementAttempts(id: number, attempts: number) {
-  await pool.query("UPDATE otp_codes SET attempts = $1 WHERE id = $2", [attempts, id]);
+  await supa.from("otp_codes").update({ attempts }).eq("id", id);
 }
 
 async function dbDeleteCode(id: number) {
-  await pool.query("DELETE FROM otp_codes WHERE id = $1", [id]);
+  await supa.from("otp_codes").delete().eq("id", id);
 }
 
-// Clean up expired rows every 15 minutes
 setInterval(async () => {
-  await pool.query("DELETE FROM otp_codes WHERE expires_at < NOW()");
+  await supa.from("otp_codes").delete().lt("expires_at", new Date().toISOString());
 }, 15 * 60 * 1000);
-
-// ── POST /api/pod/otp/send ────────────────────────────────────────────────────
 
 router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   const { farmerId } = req.body as { farmerId: number };
@@ -104,25 +91,26 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  // Look up farmer via direct pg (no Supabase REST)
-  const { rows: farmers } = await pool.query(
-    "SELECT id, first_name, last_name, phone FROM farmers WHERE id = $1 LIMIT 1",
-    [Number(farmerId)],
-  );
-  const farmer = farmers[0];
-  if (!farmer) {
+  const { data: farmer, error: farmerErr } = await supa
+    .from("farmers")
+    .select("id, first_name, last_name, phone")
+    .eq("id", Number(farmerId))
+    .single();
+
+  if (farmerErr || !farmer) {
     res.status(404).json({ error: "Farmer not found" });
     return;
   }
-  if (!farmer.phone) {
+
+  const f = farmer as any;
+  if (!f.phone) {
     res.status(400).json({ error: "Farmer has no registered phone number" });
     return;
   }
 
-  // Rate limit: one send every 60 seconds per farmer
   const existing = await dbGetActive(Number(farmerId));
   if (existing) {
-    const elapsedSec = Math.floor((Date.now() - new Date(existing.created_at).getTime()) / 1000);
+    const elapsedSec = Math.floor((Date.now() - new Date((existing as any).created_at).getTime()) / 1000);
     const cooldown   = 60;
     if (elapsedSec < cooldown) {
       const retryAfterSeconds = cooldown - elapsedSec;
@@ -134,7 +122,6 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     }
   }
 
-  // Generate 6-digit code
   const code    = Math.floor(100000 + Math.random() * 900000).toString();
   const isDev   = process.env.NODE_ENV !== "production";
   const message = `Agri-PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
@@ -142,9 +129,9 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   let channel = "none";
 
   try {
-    await sendSms(farmer.phone, message);
+    await sendSms(f.phone, message);
     channel = "sms";
-    req.log.info({ to: farmer.phone }, "OTP sent via EasySendSMS");
+    req.log.info({ to: f.phone }, "OTP sent via EasySendSMS");
   } catch (err: any) {
     req.log.warn({ err: err.message }, "EasySendSMS delivery failed");
     if (!isDev) {
@@ -156,21 +143,17 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     req.log.info("Dev mode: OTP not sent to handset, devCode returned instead");
   }
 
-  // Persist to DB
   await dbInsert(Number(farmerId), hashCode(code), channel);
 
   res.json({
     sent:        true,
     smsSent:     channel === "sms",
     channel,
-    maskedPhone: maskPhone(farmer.phone),
-    farmerName:  `${farmer.first_name} ${farmer.last_name}`,
-    // devCode only in development — never in production
+    maskedPhone: maskPhone(f.phone),
+    farmerName:  `${f.first_name} ${f.last_name}`,
     devCode: isDev ? code : undefined,
   });
 });
-
-// ── POST /api/pod/otp/verify ──────────────────────────────────────────────────
 
 router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };
@@ -188,11 +171,11 @@ router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  const newAttempts = (entry.attempts ?? 0) + 1;
+  const e = entry as any;
+  const newAttempts = (e.attempts ?? 0) + 1;
 
-  // Exceeded 5 wrong guesses — invalidate the code
   if (newAttempts > 5) {
-    await dbDeleteCode(entry.id);
+    await dbDeleteCode(e.id);
     res.status(400).json({
       verified: false,
       error: "Too many incorrect attempts. Please request a new code.",
@@ -200,8 +183,8 @@ router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  if (hashCode(code.trim()) !== entry.code_hash) {
-    await dbIncrementAttempts(entry.id, newAttempts);
+  if (hashCode(code.trim()) !== e.code_hash) {
+    await dbIncrementAttempts(e.id, newAttempts);
     const remaining = 5 - newAttempts;
     res.status(400).json({
       verified: false,
@@ -212,8 +195,7 @@ router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  // Success — consume the code immediately
-  await dbDeleteCode(entry.id);
+  await dbDeleteCode(e.id);
   res.json({ verified: true });
 });
 

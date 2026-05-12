@@ -1,9 +1,6 @@
-import { query } from "./db.js";
+import { supa } from "./supabase.js";
 import { logger } from "./logger.js";
 
-// ── GPS-Trace Provider API ────────────────────────────────────────────────────
-// Used for unit management (link/unlink). Does NOT expose live telemetry.
-// Live positions come from ForGuard/Wialon API (GPS_TRACE_WIALON_TOKEN).
 const API_BASE = "https://api.gps-trace.com";
 
 function getProviderToken(): string {
@@ -16,10 +13,6 @@ function providerHeaders(): Record<string, string> {
   return { "accept": "application/json", "X-AccessToken": getProviderToken() };
 }
 
-// ── ForGuard / Wialon Remote API ──────────────────────────────────────────────
-// Provides live unit positions. Requires GPS_TRACE_WIALON_TOKEN (from ForGuard
-// UI: User profile → API access → Generate token).
-// Host: GPS_TRACE_WIALON_HOST (default: forguard.gurtam.space)
 const WIALON_HOST = (): string =>
   (process.env["GPS_TRACE_WIALON_HOST"] ?? "forguard.gurtam.space").replace(/\/$/, "");
 
@@ -54,12 +47,11 @@ async function wialonLogin(): Promise<string> {
   if (data.error) throw new Error(`Wialon login error ${data.error}: ${data.reason ?? "unknown"}`);
 
   _wialonSid = data.eid as string;
-  _wialonSidExpiry = now + 23 * 60 * 60 * 1000; // re-login every 23h
+  _wialonSidExpiry = now + 23 * 60 * 60 * 1000;
   logger.info({ host }, "Wialon session established");
   return _wialonSid;
 }
 
-// Flags: 1 (base) | 1024 (last position) = 1025
 async function wialonFetchUnitPositions(): Promise<Map<string, { lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date }>> {
   const sid = await wialonLogin();
   const host = WIALON_HOST();
@@ -81,7 +73,7 @@ async function wialonFetchUnitPositions(): Promise<Map<string, { lat: number; ln
   catch (_) { throw new Error(`Wialon search_items: unexpected response: ${text.slice(0, 200)}`); }
 
   if (data.error) {
-    if (data.error === 1) { // session expired
+    if (data.error === 1) {
       _wialonSid = null;
       return wialonFetchUnitPositions();
     }
@@ -91,7 +83,7 @@ async function wialonFetchUnitPositions(): Promise<Map<string, { lat: number; ln
   const result = new Map<string, { lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date }>();
   const items: any[] = data.items ?? [];
   for (const item of items) {
-    const pos = item.pos; // {x: lng, y: lat, z: alt, s: speed, c: course, t: unix_timestamp}
+    const pos = item.pos;
     if (!pos || !pos.y || !pos.x) continue;
     result.set(String(item.id), {
       lat: Number(pos.y),
@@ -103,8 +95,6 @@ async function wialonFetchUnitPositions(): Promise<Map<string, { lat: number; ln
   }
   return result;
 }
-
-// ── Provider API: unit list (for Tracker Setup UI) ────────────────────────────
 
 export async function fetchAllTrackers(): Promise<any[]> {
   const res = await fetch(`${API_BASE}/provider/units`, { headers: providerHeaders() });
@@ -118,8 +108,6 @@ export async function fetchAllTrackers(): Promise<any[]> {
   if (Array.isArray(json.data)) return json.data;
   return [];
 }
-
-// ── Provider API: telemetry fallback (used only when Wialon not configured) ───
 
 async function fetchTrackerTelemetry(unitId: number): Promise<any> {
   const res = await fetch(`${API_BASE}/provider/units/${unitId}/telemetry`, { headers: providerHeaders() });
@@ -172,26 +160,30 @@ function extractPositionFromProviderData(telemetry: any, messages: any[]): {
   return null;
 }
 
-// ── Main sync ─────────────────────────────────────────────────────────────────
-
 export async function syncAllVehicles(): Promise<{ synced: number; skipped: number; source: string }> {
-  const vehiclesRes = await query(
-    `SELECT id, gps_device_id FROM vehicles WHERE gps_device_id IS NOT NULL AND gps_device_id != ''`
-  );
-  const vehicles: { id: number; gps_device_id: string }[] = vehiclesRes.rows;
-  if (!vehicles.length) return { synced: 0, skipped: 0, source: "none" };
+  const { data: vehicles, error } = await supa
+    .from("vehicles")
+    .select("id, gps_device_id")
+    .not("gps_device_id", "is", null)
+    .neq("gps_device_id", "");
 
-  // ── Path A: Wialon API (preferred — live positions from ForGuard) ────────────
-  if (hasWialonToken()) {
-    return syncViaWialon(vehicles);
+  if (error) {
+    logger.error({ err: error.message }, "GPS sync: failed to fetch vehicles");
+    return { synced: 0, skipped: 0, source: "error" };
   }
 
-  // ── Path B: Provider API fallback (limited — often no telemetry data) ────────
+  const vList: { id: number; gps_device_id: string }[] = vehicles ?? [];
+  if (!vList.length) return { synced: 0, skipped: 0, source: "none" };
+
+  if (hasWialonToken()) {
+    return syncViaWialon(vList);
+  }
+
   logger.warn(
     { hint: "Set GPS_TRACE_WIALON_TOKEN from ForGuard UI: User → API Access → Generate token" },
     "GPS_TRACE_WIALON_TOKEN not set — falling back to Provider API (positions may be unavailable)"
   );
-  return syncViaProviderApi(vehicles);
+  return syncViaProviderApi(vList);
 }
 
 async function syncViaWialon(
@@ -211,15 +203,21 @@ async function syncViaWialon(
         skipped++;
         continue;
       }
-      await query(
-        `INSERT INTO gps_track (vehicle_id, dispatch_id, latitude, longitude, speed, heading, accuracy, recorded_at)
-         VALUES ($1, NULL, $2, $3, $4, $5, NULL, $6)`,
-        [v.id, pos.lat, pos.lng, pos.speed, pos.heading, pos.recordedAt]
-      );
-      await query(
-        `UPDATE vehicles SET last_latitude=$1, last_longitude=$2, last_ping=$3 WHERE id=$4`,
-        [pos.lat, pos.lng, pos.recordedAt, v.id]
-      );
+      await supa.from("gps_track").insert({
+        vehicle_id:  v.id,
+        dispatch_id: null,
+        latitude:    pos.lat,
+        longitude:   pos.lng,
+        speed:       pos.speed,
+        heading:     pos.heading,
+        accuracy:    null,
+        recorded_at: pos.recordedAt.toISOString(),
+      });
+      await supa.from("vehicles").update({
+        last_latitude:  pos.lat,
+        last_longitude: pos.lng,
+        last_ping:      pos.recordedAt.toISOString(),
+      }).eq("id", v.id);
       synced++;
     }
   } catch (err: any) {
@@ -249,7 +247,7 @@ async function syncViaProviderApi(
         .catch(e => [[] as any[], e.message] as const);
 
       if (telemetryErr) logger.warn({ vehicleId: v.id, unitId, reason: telemetryErr }, "Provider API telemetry unavailable");
-      if (messagesErr) logger.warn({ vehicleId: v.id, unitId, reason: messagesErr }, "Provider API messages unavailable");
+      if (messagesErr)  logger.warn({ vehicleId: v.id, unitId, reason: messagesErr },  "Provider API messages unavailable");
 
       const pos = extractPositionFromProviderData(telemetry, messages ?? []);
       if (!pos) {
@@ -260,15 +258,21 @@ async function syncViaProviderApi(
         skipped++;
         continue;
       }
-      await query(
-        `INSERT INTO gps_track (vehicle_id, dispatch_id, latitude, longitude, speed, heading, accuracy, recorded_at)
-         VALUES ($1, NULL, $2, $3, $4, $5, NULL, $6)`,
-        [v.id, pos.lat, pos.lng, pos.speed, pos.heading, pos.recordedAt]
-      );
-      await query(
-        `UPDATE vehicles SET last_latitude=$1, last_longitude=$2, last_ping=$3 WHERE id=$4`,
-        [pos.lat, pos.lng, pos.recordedAt, v.id]
-      );
+      await supa.from("gps_track").insert({
+        vehicle_id:  v.id,
+        dispatch_id: null,
+        latitude:    pos.lat,
+        longitude:   pos.lng,
+        speed:       pos.speed,
+        heading:     pos.heading,
+        accuracy:    null,
+        recorded_at: pos.recordedAt.toISOString(),
+      });
+      await supa.from("vehicles").update({
+        last_latitude:  pos.lat,
+        last_longitude: pos.lng,
+        last_ping:      pos.recordedAt.toISOString(),
+      }).eq("id", v.id);
       synced++;
     } catch (err: any) {
       logger.warn({ vehicleId: v.id, unitId, err: err.message }, "Provider API sync error");
@@ -279,8 +283,6 @@ async function syncViaProviderApi(
   logger.info({ synced, skipped, source: "provider-api" }, "GPS sync complete");
   return { synced, skipped, source: "provider-api" };
 }
-
-// ── Poller ────────────────────────────────────────────────────────────────────
 
 let _pollTimer: ReturnType<typeof setInterval> | null = null;
 

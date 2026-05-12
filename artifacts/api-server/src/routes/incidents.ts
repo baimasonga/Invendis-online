@@ -38,7 +38,7 @@ router.post("/api/incidents", requireAuth, async (req, res) => {
     ...body,
     incident_code: incidentCode,
     field_officer_id: req.user!.userId,
-    reported_by: req.user!.username ?? req.user!.email,
+    reported_by: req.user!.username,
     status: "Open",
   }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -55,7 +55,7 @@ router.post("/api/incidents/bulk", requireAuth, async (req, res) => {
     ...camelToSnake(inc),
     incident_code: inc.incidentCode ?? ("INC-" + randomBytes(3).toString("hex").toUpperCase()),
     field_officer_id: req.user!.userId,
-    reported_by: inc.reportedBy ?? req.user!.username ?? req.user!.email,
+    reported_by: inc.reportedBy ?? req.user!.username,
     status: "Open",
   }));
   const { data, error } = await supa.from("incidents").upsert(rows, { onConflict: "incident_code" }).select();

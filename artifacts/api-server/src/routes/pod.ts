@@ -2,10 +2,8 @@ import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { query } from "../lib/db.js";
 import { randomBytes } from "crypto";
 
-// ── Helper: resolve integer user ID from JWT or Supabase token ────────────────
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
   if (req.supabaseUser?.email) {
@@ -81,7 +79,6 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     return;
   }
 
-  // ── GPS status evaluation ──────────────────────────────────────────────────
   let gpsStatus = "Pending";
   const farmerLat = body.farmer_latitude != null ? Number(body.farmer_latitude) : null;
   const farmerLng = body.farmer_longitude != null ? Number(body.farmer_longitude) : null;
@@ -89,7 +86,6 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   if (farmerLat == null || farmerLng == null || isNaN(farmerLat) || isNaN(farmerLng)) {
     gpsStatus = "NoLocation";
   } else {
-    // Look up the campaign's distribution site
     const { data: campaign } = await supa
       .from("campaigns")
       .select("distribution_site_id, district_id")
@@ -112,7 +108,6 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
       geofenceRadius = (site as any)?.geofence_radius ?? 500;
     }
 
-    // Fall back to district centre if no distribution site coordinates
     if ((destLat == null || destLng == null) && (campaign as any)?.district_id) {
       const { data: district } = await supa
         .from("districts")
@@ -121,14 +116,14 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
         .single();
       destLat = (district as any)?.latitude ?? null;
       destLng = (district as any)?.longitude ?? null;
-      geofenceRadius = 2000; // wider radius for district-level reference
+      geofenceRadius = 2000;
     }
 
     if (destLat != null && destLng != null) {
       const distM = haversineMeters(farmerLat, farmerLng, destLat, destLng);
       gpsStatus = distM <= geofenceRadius ? "Verified" : "Mismatch";
     } else {
-      gpsStatus = "Pending"; // no reference coordinates configured
+      gpsStatus = "Pending";
     }
   }
 
@@ -154,8 +149,6 @@ router.post("/api/pod/:id/approve-exception", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-// ── Batch-approve PoDs and mark each allocation Delivered ─────────────────────
-// NOTE: must be defined before /:id/approve to avoid Express matching "batch-approve" as an id
 router.post("/api/pod/batch-approve", requireAnyAuth, async (req, res) => {
   const { ids } = req.body as { ids: number[] };
   if (!Array.isArray(ids) || !ids.length) {
@@ -165,39 +158,35 @@ router.post("/api/pod/batch-approve", requireAnyAuth, async (req, res) => {
   try {
     const userId = await resolveUserId(req);
 
-    // 1. Fetch all pods to get farmer/campaign pairs
-    const podRes = await query(
-      `SELECT id, farmer_id, campaign_id FROM pod WHERE id = ANY($1::int[])`,
-      [ids]
-    );
-    const pods = podRes.rows;
+    const { data: pods, error: podsErr } = await supa
+      .from("pod")
+      .select("id, farmer_id, campaign_id")
+      .in("id", ids);
+    if (podsErr) throw new Error(podsErr.message);
 
-    // 2. Update all pods → Verified
-    await query(
-      `UPDATE pod SET status='Verified', approved_by=$1, approved_at=NOW()
-        WHERE id = ANY($2::int[])`,
-      [userId, ids]
-    );
+    const { error: updateErr } = await supa
+      .from("pod")
+      .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
+      .in("id", ids);
+    if (updateErr) throw new Error(updateErr.message);
 
-    // 3. Mark each allocation → Delivered
-    for (const pod of pods) {
-      await query(
-        `UPDATE allocations
-            SET status='Delivered', updated_at=NOW()
-          WHERE farmer_id=$1 AND campaign_id=$2 AND status != 'Delivered'`,
-        [pod.farmer_id, pod.campaign_id]
-      );
+    for (const pod of pods ?? []) {
+      await supa
+        .from("allocations")
+        .update({ status: "Delivered", updated_at: new Date().toISOString() })
+        .eq("farmer_id", (pod as any).farmer_id)
+        .eq("campaign_id", (pod as any).campaign_id)
+        .neq("status", "Delivered");
     }
 
-    // 4. Refresh delivered_count for every affected campaign (deduplicated)
-    const campaignIds = [...new Set(pods.map((p: any) => p.campaign_id))];
+    const campaignIds = [...new Set((pods ?? []).map((p: any) => p.campaign_id))];
     for (const cid of campaignIds) {
-      await query(
-        `UPDATE campaigns
-            SET delivered_count=(SELECT COUNT(*) FROM allocations WHERE campaign_id=$1 AND status='Delivered')
-          WHERE id=$1`,
-        [cid]
-      );
+      const { count } = await supa
+        .from("allocations")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", cid)
+        .eq("status", "Delivered");
+      await supa.from("campaigns").update({ delivered_count: count ?? 0 }).eq("id", cid);
     }
 
     await logAudit(req, "APPROVE", "PoD", `Batch approved ${ids.length} PoD(s)`, "pod", ids[0]);
@@ -207,44 +196,38 @@ router.post("/api/pod/batch-approve", requireAnyAuth, async (req, res) => {
   }
 });
 
-// ── Approve a single PoD and mark the allocation Delivered ────────────────────
 router.post("/api/pod/:id/approve", requireAnyAuth, async (req, res) => {
   const podId = Number(req.params.id);
   try {
     const userId = await resolveUserId(req);
 
-    // 1. Fetch pod so we know farmer_id + campaign_id
-    const podRes = await query(
-      `SELECT farmer_id, campaign_id FROM pod WHERE id = $1`,
-      [podId]
-    );
-    if (!podRes.rows.length) { res.status(404).json({ error: "PoD not found" }); return; }
-    const { farmer_id, campaign_id } = podRes.rows[0];
+    const { data: pod, error: podErr } = await supa
+      .from("pod")
+      .select("farmer_id, campaign_id")
+      .eq("id", podId)
+      .single();
+    if (podErr || !pod) { res.status(404).json({ error: "PoD not found" }); return; }
+    const { farmer_id, campaign_id } = pod as any;
 
-    // 2. Update pod → Verified
-    await query(
-      `UPDATE pod SET status='Verified', approved_by=$1, approved_at=NOW() WHERE id=$2`,
-      [userId, podId]
-    );
+    const { error: updateErr } = await supa
+      .from("pod")
+      .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
+      .eq("id", podId);
+    if (updateErr) throw new Error(updateErr.message);
 
-    // 3. Mark matching allocation → Delivered
-    await query(
-      `UPDATE allocations
-          SET status='Delivered', updated_at=NOW()
-        WHERE farmer_id=$1 AND campaign_id=$2 AND status != 'Delivered'`,
-      [farmer_id, campaign_id]
-    );
+    await supa
+      .from("allocations")
+      .update({ status: "Delivered", updated_at: new Date().toISOString() })
+      .eq("farmer_id", farmer_id)
+      .eq("campaign_id", campaign_id)
+      .neq("status", "Delivered");
 
-    // 4. Refresh campaign delivered_count
-    await query(
-      `UPDATE campaigns
-          SET delivered_count=(
-            SELECT COUNT(*) FROM allocations
-            WHERE campaign_id=$1 AND status='Delivered'
-          )
-        WHERE id=$1`,
-      [campaign_id]
-    );
+    const { count } = await supa
+      .from("allocations")
+      .select("*", { count: "exact", head: true })
+      .eq("campaign_id", campaign_id)
+      .eq("status", "Delivered");
+    await supa.from("campaigns").update({ delivered_count: count ?? 0 }).eq("id", campaign_id);
 
     await logAudit(req, "APPROVE", "PoD", `Approved PoD ID ${podId}`, "pod", podId);
     res.json({ id: podId, status: "Verified" });
