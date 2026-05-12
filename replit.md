@@ -13,7 +13,7 @@ A full-stack web application + mobile field app for managing agricultural input 
 - `lib/api-zod` — Generated Zod validation schemas
 - `scripts` — Utility scripts (seed, etc.)
 
-> **Note:** `lib/api-client-react` is no longer used by the web-portal. All data fetching is done directly via `artifacts/web-portal/src/lib/db.ts` (direct Supabase calls) combined with `useQuery`/`useMutation` from `@tanstack/react-query`. The generated hooks package still exists in the repo but is not a dependency of the web-portal.
+> **Note:** `lib/api-client-react` has been removed. All data fetching is done directly via `artifacts/web-portal/src/lib/db.ts` (direct Supabase calls) combined with `useQuery`/`useMutation` from `@tanstack/react-query`.
 
 ## Tech Stack
 
