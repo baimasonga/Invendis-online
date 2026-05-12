@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
 pnpm install --frozen-lockfile
-pnpm --filter db push
+
+# Schema management is handled via Supabase SQL Editor directly.
+# Do NOT run `pnpm --filter db push` here — Drizzle does not know about
+# tables created outside its schema (otp_codes, system_settings) and will
+# prompt to drop them, causing data loss.
 
 # Push the latest code to GitHub after every Replit checkpoint.
 # Requires GITHUB_PAT (repo scope) to be set in Replit Secrets.
@@ -17,34 +21,35 @@ fi
 GITHUB_REPO_URL="https://x-access-token:${GITHUB_PAT}@github.com/baimasonga/Invendis-online.git"
 
 # Register (or refresh) the transient 'github' remote
-if git remote get-url github >/dev/null 2>&1; then
-  git remote set-url github "$GITHUB_REPO_URL"
-else
-  git remote add github "$GITHUB_REPO_URL"
-fi
+# All git operations run in a subshell so errors never propagate through set -e.
+# The backup is best-effort — failure is a warning, not a blocker.
+github_backup() {
+  local REPO_URL="$1"
+  local push_result=0
 
-push_result=0
+  if git remote get-url github >/dev/null 2>&1; then
+    git remote set-url github "$REPO_URL" || return 1
+  else
+    git remote add github "$REPO_URL" || return 1
+  fi
 
-# Try a normal push first; only force when the remote history is unrelated or empty.
-# Capture stderr to a temp file; do NOT echo it raw (may contain the credentialed URL).
-if ! git push github HEAD:main 2>push_err.txt; then
-  if grep -qE "(non-fast-forward|fetch first|unrelated histories)" push_err.txt; then
-    echo "Remote history diverged — force-pushing to resolve"
-    if ! git push --force github HEAD:main 2>>push_err.txt; then
+  # Try normal push first; force only if remote history diverged.
+  if ! git push github HEAD:main 2>push_err.txt; then
+    if grep -qE "(non-fast-forward|fetch first|unrelated histories)" push_err.txt 2>/dev/null; then
+      echo "Remote history diverged — force-pushing to resolve"
+      git push --force github HEAD:main 2>>push_err.txt || push_result=1
+    else
       push_result=1
     fi
-  else
-    push_result=1
   fi
+
+  git remote remove github 2>/dev/null || true
+  rm -f push_err.txt
+  return $push_result
+}
+
+if github_backup "$GITHUB_REPO_URL"; then
+  echo "GitHub backup: pushed HEAD to baimasonga/Invendis-online:main"
+else
+  echo "WARN: GitHub backup push failed — check GITHUB_PAT has 'Contents: write' (fine-grained) or 'repo' (classic) scope on baimasonga/Invendis-online." >&2
 fi
-
-# Always clean up remote and temp file before exiting
-git remote remove github
-rm -f push_err.txt
-
-if [ "$push_result" -ne 0 ]; then
-  echo "ERROR: GitHub backup push failed — check GITHUB_PAT permissions." >&2
-  exit 1
-fi
-
-echo "GitHub backup: pushed HEAD to baimasonga/Invendis-online:main"
