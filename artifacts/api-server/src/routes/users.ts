@@ -52,6 +52,57 @@ router.post("/api/users/:id/deactivate", requireAuth, requireRoles("Admin"), asy
   res.json(snakeToCamel(data));
 });
 
+async function requireAdmin(req: any, res: any): Promise<string | null> {
+  let role: string | null = null;
+  if (req.user) {
+    role = req.user.role;
+  } else if (req.supabaseUser?.id) {
+    const { data } = await supa.from("profiles").select("role").eq("id", req.supabaseUser.id).single();
+    role = (data as any)?.role ?? null;
+  }
+  if (!role || role.toLowerCase() !== "admin") {
+    res.status(403).json({ error: "Forbidden", message: "Only admins can perform this action" });
+    return null;
+  }
+  return role;
+}
+
+router.post("/api/users/profile/:id/activate", requireAnyAuth, async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { error } = await supa.from("profiles").update({ is_active: true }).eq("id", req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "ACTIVATE", "Users", `Activated profile ${req.params.id}`, "user", 0);
+  res.json({ success: true });
+});
+
+router.post("/api/users/profile/:id/deactivate", requireAnyAuth, async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { error } = await supa.from("profiles").update({ is_active: false }).eq("id", req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DEACTIVATE", "Users", `Deactivated profile ${req.params.id}`, "user", 0);
+  res.json({ success: true });
+});
+
+router.patch("/api/users/profile/:id/role", requireAnyAuth, async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { role } = req.body;
+  if (!role) { res.status(400).json({ error: "role is required" }); return; }
+  const { data, error } = await supa.from("profiles").update({ role }).eq("id", req.params.id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "Users", `Changed role for profile ${req.params.id} to ${role}`, "user", 0);
+  res.json(snakeToCamel(data));
+});
+
+router.patch("/api/users/profile/:id/name", requireAnyAuth, async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { fullName } = req.body;
+  if (!fullName) { res.status(400).json({ error: "fullName is required" }); return; }
+  const { data, error } = await supa.from("profiles").update({ full_name: fullName }).eq("id", req.params.id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "Users", `Updated name for profile ${req.params.id}`, "user", 0);
+  res.json(snakeToCamel(data));
+});
+
 router.post("/api/users/create-profile", requireAnyAuth, async (req, res) => {
   let role: string | null = null;
   if (req.user) {

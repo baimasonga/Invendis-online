@@ -1257,17 +1257,29 @@ export async function listUsers() {
 }
 
 export async function activateUser(id: string) {
-  const { data, error } = await supabase.from("profiles")
-    .update({ is_active: true }).eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to activate user");
+  }
+  return resp.json();
 }
 
 export async function deactivateUser(id: string) {
-  const { data, error } = await supabase.from("profiles")
-    .update({ is_active: false }).eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${id}/deactivate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to deactivate user");
+  }
+  return resp.json();
 }
 
 export async function createUser(payload: any) {
@@ -1294,18 +1306,31 @@ export async function createUser(payload: any) {
 }
 
 export async function updateUserRole(id: string, role: string) {
-  const { data, error } = await supabase.from("profiles")
-    .update({ role }).eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${id}/role`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to update role");
+  }
+  return resp.json();
 }
 
 export async function updateUserFullName(id: string, fullName: string) {
-  const { data, error } = await supabase.from("profiles")
-    .update({ full_name: fullName }).eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "Users", `Updated name for user ${id}`, "user");
-  return cc(data);
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${id}/name`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ fullName }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to update name");
+  }
+  return resp.json();
 }
 
 async function userApiToken(): Promise<string> {
