@@ -47,7 +47,7 @@ Expo app for field officers to:
 
 ### Confirm PoD Flow (3 steps)
 1. **Details** — quantity, GPS, notes
-2. **OTP** — WhatsApp/SMS 6-digit code with dev-mode bypass banner
+2. **OTP** — EasySendSMS 6-digit code with dev-mode bypass banner; codes stored in `otp_codes` DB table
 3. **Face Verification** — camera photo → S3 upload → AWS Rekognition CompareFaces
 
 ### API Routes
@@ -55,6 +55,8 @@ Expo app for field officers to:
 - `POST /api/face/upload-url` — Get presigned S3 URL for photo upload
 - `GET /api/face/view-url?key=...` — Get presigned S3 view URL
 - `POST /api/face/compare` — Compare delivery photo against reference via Rekognition
+- `POST /api/pod/otp/send` — Generate & deliver 6-digit OTP via EasySendSMS; rate-limited to 1 per 60s
+- `POST /api/pod/otp/verify` — Verify OTP code; max 5 attempts, 10-min expiry
 - `POST /api/face/save-reference` — Save reference photo key to farmer record
 
 ### Face Verification Logic

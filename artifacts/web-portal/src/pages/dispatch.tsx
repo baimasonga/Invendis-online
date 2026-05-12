@@ -159,7 +159,7 @@ export default function Dispatch() {
                         </TableCell>
                         <TableCell className="pr-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {status === "pending" && (
+                            {(status === "draft" || status === "pending") && (
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy} onClick={() => handleApprove(d.id)}>
                                 Approve
                               </Button>

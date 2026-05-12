@@ -127,7 +127,7 @@ export default function DispatchDetail() {
   const status = (d.status ?? "").toLowerCase().replace(/\s+/g, "");
   const items: any[] = d.items ?? [];
   const pods: any[] = (podData as any)?.data ?? [];
-  const canAddItems = status === "pending" || status === "approved";
+  const canAddItems = status === "draft" || status === "pending" || status === "approved";
   const canRecordDelivery = status === "arrived" || status === "completed";
 
   return (
@@ -146,7 +146,7 @@ export default function DispatchDetail() {
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
             {d.status}
           </span>
-          {status === "pending" && (
+          {(status === "draft" || status === "pending") && (
             <Button size="sm" variant="outline" className="h-7 text-xs" disabled={actionLoading} onClick={handleApprove}>
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
             </Button>

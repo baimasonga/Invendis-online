@@ -651,39 +651,59 @@ export async function createDispatch(payload: any) {
 }
 
 export async function approveDispatch(id: number) {
-  const userId = await intUid();
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "dispatch", `Approved dispatch #${id}`, "dispatch", id);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to approve dispatch");
+  }
+  return resp.json();
 }
 
 export async function dispatchManifest(id: number) {
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "In Transit", departed_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/dispatch`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to dispatch manifest");
+  }
+  return resp.json();
 }
 
 export async function arriveDispatch(id: number) {
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Arrived", arrived_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/arrive`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to mark arrival");
+  }
+  return resp.json();
 }
 
 export async function addDispatchItem(payload: any) {
-  const { data, error } = await supabase.from("dispatch_items").insert({
-    dispatch_id: payload.dispatchId,
-    input_item_id: payload.inputItemId,
-    quantity_loaded: payload.quantityLoaded,
-  }).select().single();
-  if (error) throw new Error(error.message);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${payload.dispatchId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      inputItemId: payload.inputItemId,
+      quantityLoaded: payload.quantityLoaded,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to add item");
+  }
+  return resp.json();
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
@@ -783,7 +803,14 @@ async function apiPost(path: string, body: unknown): Promise<any> {
     body: JSON.stringify(body),
   });
   const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Request failed");
+  if (!res.ok) {
+    const err = new Error(json?.error ?? json?.message ?? "Request failed") as Error & Record<string, unknown>;
+    // Preserve any extra fields from the error body (e.g. retryAfterSeconds from 429)
+    if (json && typeof json === "object") {
+      Object.assign(err, json);
+    }
+    throw err;
+  }
   return json;
 }
 
@@ -1120,13 +1147,22 @@ export async function resolveIncident(id: number, resolutionNotes?: string) {
   return cc(data);
 }
 
+async function podToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
 export async function approvePod(id: number): Promise<void> {
-  const userId = await intUid();
-  const { error } = await supabase.from("pod")
-    .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "pod", `Approved PoD #${id}`, "pod", id);
+  const token = await podToken();
+  const resp = await fetch(`/api/pod/${id}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to approve PoD");
+  }
 }
 
 export async function flagPodException(id: number, notes?: string): Promise<void> {
@@ -1139,11 +1175,14 @@ export async function flagPodException(id: number, notes?: string): Promise<void
 
 export async function batchApprovePods(ids: number[]): Promise<void> {
   if (!ids.length) return;
-  const userId = await intUid();
-  const now = new Date().toISOString();
-  const { error } = await supabase.from("pod")
-    .update({ status: "Verified", approved_by: userId, approved_at: now })
-    .in("id", ids);
-  if (error) throw new Error(error.message);
-  await logAudit("APPROVE", "pod", `Batch approved ${ids.length} PoD(s): [${ids.join(",")}]`, "pod", ids[0]);
+  const token = await podToken();
+  const resp = await fetch("/api/pod/batch-approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ ids }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to batch approve PoDs");
+  }
 }

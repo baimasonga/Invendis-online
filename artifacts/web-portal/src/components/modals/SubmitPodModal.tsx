@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, KEYS } from "@/lib/db";
 import {
@@ -62,6 +62,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const [otpBypassReason, setOtpBypassReason] = useState("");
   const [otpMaskedPhone, setOtpMaskedPhone] = useState("");
   const [otpDevCode, setOtpDevCode] = useState<string | null>(null);
+  const [otpResendSecs, setOtpResendSecs] = useState(0);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpError, setOtpError]     = useState("");
@@ -99,10 +100,17 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
     setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpBypassed(false);
-    setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpDevCode(null); setOtpError(""); setShowOtpBypass(false);
+    setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpDevCode(null); setOtpResendSecs(0); setOtpError(""); setShowOtpBypass(false);
     setFaceResult(null); setFaceBypassed(false); setFacePhotoBlob(null);
     setGpsLat(null); setGpsLng(null); setGpsError("");
   }
+
+  // Resend countdown ticker
+  useEffect(() => {
+    if (otpResendSecs <= 0) return;
+    const t = setTimeout(() => setOtpResendSecs((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [otpResendSecs]);
 
   async function handleSendOtp() {
     if (!farmerId) return;
@@ -113,10 +121,12 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
       const res = await sendOtp(Number(farmerId));
       setOtpMaskedPhone(res.maskedPhone ?? "");
       setOtpSent(true);
-      if (res.devCode) {
-        setOtpDevCode(res.devCode);
-      }
+      setOtpResendSecs(60);
+      if (res.devCode) setOtpDevCode(res.devCode);
     } catch (e: any) {
+      // Surface rate-limit wait time in the UI
+      const retryAfter = (e as any)?.retryAfterSeconds as number | undefined;
+      if (retryAfter && retryAfter > 0) setOtpResendSecs(retryAfter);
       setOtpError(e.message);
     } finally {
       setOtpSending(false);
@@ -354,8 +364,14 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
                           {otpVerifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                         </Button>
                       </div>
-                      <Button type="button" variant="link" size="sm" onClick={() => { setOtpSent(false); setOtpCode(""); }}>
-                        Resend OTP
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        disabled={otpResendSecs > 0 || otpSending}
+                        onClick={() => { setOtpSent(false); setOtpCode(""); setOtpError(""); handleSendOtp(); }}
+                      >
+                        {otpResendSecs > 0 ? `Resend in ${otpResendSecs}s` : "Resend OTP"}
                       </Button>
                     </div>
                   )}
