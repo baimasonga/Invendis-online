@@ -1,8 +1,13 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "9jpgOSciwFV0dK3GGv-IM"
 uri = "file://artifacts/field-app/assets/images/icon.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "rESsvndBKVRt5_DzsBihz"
+uri = "file://docs/user-manual.md"
+type = "text"
+title = "Invendis User Manual — Scenario-Based Testing Guide"
