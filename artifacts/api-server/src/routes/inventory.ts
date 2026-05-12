@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -12,7 +12,7 @@ router.get("/api/inventory/input-items", requireAuth, async (_req, res) => {
   res.json(snakeToCamel(data ?? []));
 });
 
-router.post("/api/inventory/input-items", requireAuth, async (req, res) => {
+router.post("/api/inventory/input-items", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const itemCode = "ITEM-" + randomBytes(3).toString("hex").toUpperCase();
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("input_items").insert({ ...body, item_code: itemCode }).select().single();
@@ -21,7 +21,7 @@ router.post("/api/inventory/input-items", requireAuth, async (req, res) => {
   res.status(201).json(snakeToCamel(data));
 });
 
-router.patch("/api/inventory/input-items/:id", requireAuth, async (req, res) => {
+router.patch("/api/inventory/input-items/:id", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("input_items").update(body).eq("id", id).select().single();
@@ -48,7 +48,7 @@ router.get("/api/inventory/stock-balance", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data ?? []));
 });
 
-router.post("/api/inventory/receive-stock", requireAuth, async (req, res) => {
+router.post("/api/inventory/receive-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { warehouseId, inputItemId, quantity, reference, notes } = req.body;
   const { data: bal } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", warehouseId).eq("input_item_id", inputItemId).single();
   if (bal) {
@@ -61,7 +61,7 @@ router.post("/api/inventory/receive-stock", requireAuth, async (req, res) => {
   res.json({ success: true, message: "Stock received" });
 });
 
-router.post("/api/inventory/transfer-stock", requireAuth, async (req, res) => {
+router.post("/api/inventory/transfer-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { fromWarehouseId, toWarehouseId, inputItemId, quantity, notes } = req.body;
   const { data: src } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", fromWarehouseId).eq("input_item_id", inputItemId).single();
   if (src) await supa.from("stock_balance").update({ available: ((src as any).available ?? 0) - quantity, updated_at: new Date().toISOString() }).eq("id", (src as any).id);
@@ -98,7 +98,7 @@ router.get("/api/procurement", requireAuth, async (_req, res) => {
   res.json((data ?? []).map((r: any) => ({ ...snakeToCamel(r), warehouseName: whMap[r.warehouse_id]?.name ?? null, warehouseCode: whMap[r.warehouse_id]?.code ?? null })));
 });
 
-router.post("/api/procurement", requireAuth, async (req, res) => {
+router.post("/api/procurement", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const orderCode = "PO-" + Date.now().toString(36).toUpperCase();
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("procurement_orders").insert({ ...body, order_code: orderCode, created_by: req.user!.userId }).select().single();

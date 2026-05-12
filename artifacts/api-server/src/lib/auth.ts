@@ -130,3 +130,14 @@ export function requireRoles(...roles: string[]) {
     next();
   };
 }
+
+export function requireRoleIfJwt(...roles: string[]) {
+  const normalised = roles.map(r => r.toLowerCase());
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (req.user && !normalised.includes(req.user.role.toLowerCase())) {
+      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
+      return;
+    }
+    next();
+  };
+}

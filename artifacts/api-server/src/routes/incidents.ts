@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -63,7 +63,7 @@ router.post("/api/incidents/bulk", requireAuth, async (req, res) => {
   res.status(201).json({ synced: (data ?? []).length });
 });
 
-router.patch("/api/incidents/:id/resolve", requireAuth, async (req, res) => {
+router.patch("/api/incidents/:id/resolve", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { resolutionNotes } = req.body;
   const { data, error } = await supa.from("incidents")
     .update({ status: "Resolved", resolved_by: req.user!.userId, resolved_at: new Date().toISOString(), resolution_notes: resolutionNotes ?? null })

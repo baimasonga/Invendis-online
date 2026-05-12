@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 
 const router = Router();
 
-router.get("/api/reports/farmer-beneficiary", requireAuth, async (req, res) => {
+router.get("/api/reports/farmer-beneficiary", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { campaignId } = req.query as Record<string, string>;
   let q = supa.from("allocations").select("*").order("created_at", { ascending: false });
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
@@ -34,7 +34,7 @@ router.get("/api/reports/farmer-beneficiary", requireAuth, async (req, res) => {
   res.json({ data: rows, total: rows.length });
 });
 
-router.get("/api/reports/stock-movement", requireAuth, async (req, res) => {
+router.get("/api/reports/stock-movement", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { warehouseId, inputItemId, fromDate, toDate } = req.query as Record<string, string>;
   let q = supa.from("stock_ledger").select("*").order("created_at", { ascending: false });
   if (warehouseId) q = q.eq("warehouse_id", Number(warehouseId)) as typeof q;
@@ -46,7 +46,7 @@ router.get("/api/reports/stock-movement", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: (data ?? []).length });
 });
 
-router.get("/api/reports/distribution", requireAuth, async (req, res) => {
+router.get("/api/reports/distribution", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { campaignId, fromDate, toDate } = req.query as Record<string, string>;
   let q = supa.from("dispatches").select("id,manifest_code,campaign_id,status,total_packages,delivered_packages,departed_at,arrived_at").order("created_at", { ascending: false });
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;

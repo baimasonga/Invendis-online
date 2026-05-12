@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 
 const router = Router();
 
-router.get("/api/audit", requireAuth, async (req, res) => {
+router.get("/api/audit", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { module, action, userId, fromDate, toDate, page = "1", limit = "50" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   const { search } = req.query as Record<string, string>;

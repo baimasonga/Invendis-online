@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -14,7 +14,7 @@ router.get("/api/vehicles", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0 });
 });
 
-router.post("/api/vehicles", requireAuth, async (req, res) => {
+router.post("/api/vehicles", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const vehicleCode = "VEH-" + randomBytes(3).toString("hex").toUpperCase();
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("vehicles").insert({ ...body, vehicle_code: vehicleCode }).select().single();
@@ -29,7 +29,7 @@ router.get("/api/vehicles/drivers", requireAuth, async (_req, res) => {
   res.json(snakeToCamel(data ?? []));
 });
 
-router.post("/api/vehicles/drivers", requireAuth, async (req, res) => {
+router.post("/api/vehicles/drivers", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const driverCode = "DRV-" + randomBytes(3).toString("hex").toUpperCase();
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("drivers").insert({ ...body, driver_code: driverCode }).select().single();

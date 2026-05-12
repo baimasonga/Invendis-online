@@ -21,6 +21,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function isFieldOfficer(role?: string | null): boolean {
+  return (role ?? "").toLowerCase().replace(/[\s_-]/g, "") === "fieldofficer";
+}
+
 async function fetchProfile(userId: string): Promise<UserProfile | null> {
   try {
     const { data, error } = await supabase
@@ -55,7 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        if (mounted) setUser(profile);
+        if (isFieldOfficer(profile?.role)) {
+          await supabase.auth.signOut();
+        } else if (mounted) {
+          setUser(profile);
+        }
       }
       if (mounted) setIsLoading(false);
     });
@@ -78,9 +86,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async ({ email, password }: { email: string; password: string }) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
-    // Fetch profile directly here — completely outside onAuthStateChange, no lock conflict
     if (data.user) {
       const profile = await fetchProfile(data.user.id);
+      if (isFieldOfficer(profile?.role)) {
+        await supabase.auth.signOut();
+        throw new Error("Field Officers must use the Invendis mobile app. This portal is for management staff only.");
+      }
       setUser(profile);
     }
   };

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireRoles, hashPassword } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoles, hashPassword } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -50,6 +50,60 @@ router.post("/api/users/:id/deactivate", requireAuth, requireRoles("Admin"), asy
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "DEACTIVATE", "Users", `Deactivated user ID ${req.params.id}`, "user", (data as any).id);
   res.json(snakeToCamel(data));
+});
+
+router.delete("/api/users/profile/:id", requireAnyAuth, async (req, res) => {
+  let role: string | null = null;
+  if (req.user) {
+    role = req.user.role;
+  } else if (req.supabaseUser?.id) {
+    const { data } = await supa.from("profiles").select("role").eq("id", req.supabaseUser.id).single();
+    role = (data as any)?.role ?? null;
+  }
+  if (!role || role.toLowerCase() !== "admin") {
+    res.status(403).json({ error: "Forbidden", message: "Only admins can delete users" });
+    return;
+  }
+  const profileId = String(req.params.id);
+  if (req.supabaseUser?.id === profileId) {
+    res.status(400).json({ error: "Cannot delete your own account" });
+    return;
+  }
+  try {
+    const { error } = await supa.auth.admin.deleteUser(profileId);
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    await logAudit(req, "DELETE", "Users", `Deleted user profile ${profileId}`, "user", 0);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/users/profile/:id/reset-password", requireAnyAuth, async (req, res) => {
+  let role: string | null = null;
+  if (req.user) {
+    role = req.user.role;
+  } else if (req.supabaseUser?.id) {
+    const { data } = await supa.from("profiles").select("role").eq("id", req.supabaseUser.id).single();
+    role = (data as any)?.role ?? null;
+  }
+  if (!role || role.toLowerCase() !== "admin") {
+    res.status(403).json({ error: "Forbidden", message: "Only admins can reset passwords" });
+    return;
+  }
+  const { password } = req.body;
+  if (!password || String(password).length < 6) {
+    res.status(400).json({ error: "Password must be at least 6 characters" });
+    return;
+  }
+  try {
+    const { error } = await supa.auth.admin.updateUserById(String(req.params.id), { password });
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    await logAudit(req, "RESET_PASSWORD", "Users", `Reset password for profile ${req.params.id}`, "user", 0);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

@@ -1293,6 +1293,46 @@ export async function updateUserRole(id: string, role: string) {
   return cc(data);
 }
 
+export async function updateUserFullName(id: string, fullName: string) {
+  const { data, error } = await supabase.from("profiles")
+    .update({ full_name: fullName }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "Users", `Updated name for user ${id}`, "user");
+  return cc(data);
+}
+
+async function userApiToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
+export async function deleteUser(profileId: string): Promise<void> {
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${profileId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to delete user");
+  }
+  logAudit("DELETE", "Users", `Deleted user ${profileId}`, "user");
+}
+
+export async function resetUserPassword(profileId: string, password: string): Promise<void> {
+  const token = await userApiToken();
+  const resp = await fetch(`/api/users/profile/${profileId}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ password }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? "Failed to reset password");
+  }
+}
+
 // ── MASTER DATA ───────────────────────────────────────────────────────────────
 // ── shared API token helper for master-data mutations ─────────────────────────
 async function mdToken(): Promise<string> {

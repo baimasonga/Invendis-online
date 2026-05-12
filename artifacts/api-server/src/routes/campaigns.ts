@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -16,7 +16,7 @@ router.get("/api/campaigns", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/campaigns", requireAuth, async (req, res) => {
+router.post("/api/campaigns", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const campaignCode = "CAM-" + Date.now().toString(36).toUpperCase();
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("campaigns").insert({ ...body, campaign_code: campaignCode, created_by: req.user!.userId }).select().single();
@@ -55,7 +55,7 @@ router.get("/api/campaigns/:id", requireAuth, async (req, res) => {
   res.json({ ...snakeToCamel(row), items: mappedItems });
 });
 
-router.put("/api/campaigns/:id", requireAuth, async (req, res) => {
+router.put("/api/campaigns/:id", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("campaigns").update({ ...body, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -63,14 +63,14 @@ router.put("/api/campaigns/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/campaigns/:id/approve", requireAuth, async (req, res) => {
+router.post("/api/campaigns/:id/approve", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { data, error } = await supa.from("campaigns").update({ status: "Approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "APPROVE", "Campaigns", `Approved campaign ID ${req.params.id}`, "campaign", (data as any).id);
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/campaigns/:id/submit", requireAuth, async (req, res) => {
+router.post("/api/campaigns/:id/submit", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { data, error } = await supa.from("campaigns").update({ status: "Submitted", updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "SUBMIT", "Campaigns", `Submitted campaign ID ${req.params.id}`, "campaign", (data as any).id);
@@ -102,7 +102,7 @@ router.get("/api/allocations", requireAuth, async (req, res) => {
   res.json({ data: mapped, total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/allocations", requireAuth, async (req, res) => {
+router.post("/api/allocations", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("allocations").insert({ ...body, allocated_by: req.user!.userId }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -110,7 +110,7 @@ router.post("/api/allocations", requireAuth, async (req, res) => {
   res.status(201).json(snakeToCamel(data));
 });
 
-router.post("/api/allocations/bulk", requireAuth, async (req, res) => {
+router.post("/api/allocations/bulk", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { campaignId, farmerIds } = req.body as { campaignId: number; farmerIds: number[] };
   if (!Array.isArray(farmerIds) || farmerIds.length === 0) {
     res.status(400).json({ error: "farmerIds must be a non-empty array" });

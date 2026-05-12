@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -17,7 +17,7 @@ router.get("/api/reconciliation", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/reconciliation", requireAuth, async (req, res) => {
+router.post("/api/reconciliation", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const reconciliationCode = "REC-" + randomBytes(3).toString("hex").toUpperCase();
   const { loadedQuantity, deliveredQuantity, returnedQuantity, damagedQuantity } = req.body;
   const varianceQuantity = (loadedQuantity || 0) - (deliveredQuantity || 0) - (returnedQuantity || 0) - (damagedQuantity || 0);

@@ -1,17 +1,23 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listUsers, activateUser, deactivateUser, updateUserRole, KEYS } from "@/lib/db";
+import { listUsers, activateUser, deactivateUser, updateUserRole, deleteUser, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, UserCog, UserCheck, UserX, Lock } from "lucide-react";
+import { Plus, UserCog, UserCheck, UserX, Lock, Search, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserModal } from "@/components/modals/InviteUserModal";
+import { EditUserModal } from "@/components/modals/EditUserModal";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ROLES = [
   "Admin",
@@ -56,18 +62,34 @@ export default function Users() {
   const { toast } = useToast();
   const can = usePermissions();
   const { user: me } = useAuth();
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  const [inviteOpen, setInviteOpen]       = useState(false);
+  const [editUser, setEditUser]           = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget]   = useState<any | null>(null);
+  const [loadingId, setLoadingId]         = useState<string | null>(null);
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [search, setSearch]               = useState("");
 
   const { data: users, isLoading } = useQuery({
     queryKey: KEYS.users(),
     queryFn: listUsers,
   });
 
+  const filteredUsers = useMemo(() => {
+    const raw = (users as any[] | undefined) ?? [];
+    if (!search.trim()) return raw;
+    const q = search.toLowerCase();
+    return raw.filter((u: any) =>
+      (u.fullName ?? "").toLowerCase().includes(q) ||
+      (u.email ?? "").toLowerCase().includes(q) ||
+      (u.role ?? "").toLowerCase().includes(q)
+    );
+  }, [users, search]);
+
   const activateMutation   = useMutation({ mutationFn: (id: string) => activateUser(id) });
   const deactivateMutation = useMutation({ mutationFn: (id: string) => deactivateUser(id) });
   const roleMutation       = useMutation({ mutationFn: ({ id, role }: { id: string; role: string }) => updateUserRole(id, role) });
+  const deleteMutation     = useMutation({ mutationFn: (id: string) => deleteUser(id) });
 
   async function handleToggle(id: string, currentlyActive: boolean) {
     setLoadingId(id);
@@ -95,6 +117,18 @@ export default function Users() {
     } finally { setEditingRoleId(null); }
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.users() });
+      toast({ title: "User deleted" });
+      setDeleteTarget(null);
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    }
+  }
+
   if (!can.manageUsers) {
     return (
       <div className="space-y-5">
@@ -120,6 +154,16 @@ export default function Users() {
         }
       />
 
+      <div className="relative max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <Input
+          className="pl-8 h-8 text-sm"
+          placeholder="Search by name, email or role…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -143,10 +187,10 @@ export default function Users() {
                       <TableCell className="pr-4"><Skeleton className="h-7 w-20 ml-auto" /></TableCell>
                     </TableRow>
                   ))
-                : users && (users as any[]).length > 0
-                ? (users as any[]).map((user: any) => {
-                    const busy = loadingId === user.id;
-                    const isSelf = user.id === me?.id;
+                : filteredUsers.length > 0
+                ? filteredUsers.map((user: any) => {
+                    const busy    = loadingId === user.id;
+                    const isSelf  = user.id === me?.id;
                     const displayName = user.fullName ?? user.email ?? "User";
                     return (
                       <TableRow key={user.id} className="hover:bg-muted/40">
@@ -189,21 +233,43 @@ export default function Users() {
                             {user.isActive ? "Active" : "Inactive"}
                           </span>
                         </TableCell>
-                        <TableCell className="pr-4 text-right">
-                          {!isSelf && (
+                        <TableCell className="pr-4">
+                          <div className="flex items-center justify-end gap-1.5">
                             <Button
                               size="sm"
                               variant="outline"
-                              className={`h-7 px-2 text-xs ${user.isActive ? "hover:bg-red-50 hover:text-red-700 hover:border-red-200" : "hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"}`}
-                              disabled={busy}
-                              onClick={() => handleToggle(user.id, user.isActive)}
+                              className="h-7 w-7 p-0"
+                              title="Edit user"
+                              onClick={() => setEditUser(user)}
                             >
-                              {user.isActive
-                                ? <><UserX className="h-3 w-3 mr-1" />Deactivate</>
-                                : <><UserCheck className="h-3 w-3 mr-1" />Activate</>
-                              }
+                              <Pencil className="h-3 w-3" />
                             </Button>
-                          )}
+                            {!isSelf && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={`h-7 px-2 text-xs ${user.isActive ? "hover:bg-red-50 hover:text-red-700 hover:border-red-200" : "hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"}`}
+                                  disabled={busy}
+                                  onClick={() => handleToggle(user.id, user.isActive)}
+                                >
+                                  {user.isActive
+                                    ? <><UserX className="h-3 w-3 mr-1" />Deactivate</>
+                                    : <><UserCheck className="h-3 w-3 mr-1" />Activate</>
+                                  }
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 w-7 p-0 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+                                  title="Delete user"
+                                  onClick={() => setDeleteTarget(user)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -213,10 +279,12 @@ export default function Users() {
                       <TableCell colSpan={5} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <UserCog className="h-8 w-8 opacity-30" />
-                          <span className="text-sm">No users found</span>
-                          <Button size="sm" variant="outline" onClick={() => setInviteOpen(true)}>
-                            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add first user
-                          </Button>
+                          <span className="text-sm">{search ? "No users match your search" : "No users found"}</span>
+                          {!search && (
+                            <Button size="sm" variant="outline" onClick={() => setInviteOpen(true)}>
+                              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add first user
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -227,6 +295,33 @@ export default function Users() {
       </Card>
 
       <InviteUserModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
+
+      <EditUserModal
+        open={editUser !== null}
+        user={editUser}
+        onClose={() => setEditUser(null)}
+      />
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.fullName ?? deleteTarget?.email}</strong> and revoke their access. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete user"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

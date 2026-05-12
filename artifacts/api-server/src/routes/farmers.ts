@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -62,7 +62,7 @@ router.get("/api/farmers/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(rows[0]));
 });
 
-router.put("/api/farmers/:id", requireAuth, async (req, res) => {
+router.put("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("farmers").update({ ...body, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -70,14 +70,14 @@ router.put("/api/farmers/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/approve", requireAuth, async (req, res) => {
+router.post("/api/farmers/:id/approve", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { data, error } = await supa.from("farmers").update({ status: "approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "APPROVE", "Farmers", `Approved farmer ID ${req.params.id}`, "farmer", (data as any).id);
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
+router.post("/api/farmers/:id/reject", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { reason } = req.body;
   const { data, error } = await supa.from("farmers").update({ status: "rejected", rejection_reason: reason, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }

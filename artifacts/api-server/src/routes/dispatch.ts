@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { requireAuth, requireAnyAuth } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { query } from "../lib/db.js";
 
@@ -56,7 +56,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
 });
 
 // ── CREATE dispatch (web portal via Supabase token; mobile via JWT) ──────────
-router.post("/api/dispatch", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
   const b = req.body as Record<string, any>;
   const vehicleType: string = b.vehicleType ?? "office";
@@ -165,7 +165,7 @@ async function resolveUserId(req: import("express").Request): Promise<number | n
   return null;
 }
 
-router.post("/api/dispatch/:id/items", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const dispatchId = Number(req.params.id);
   const { inputItemId, quantityLoaded } = req.body as { inputItemId: number; quantityLoaded: number };
   try {
@@ -190,7 +190,7 @@ router.post("/api/dispatch/:id/items", requireAnyAuth, async (req, res) => {
   }
 });
 
-router.post("/api/dispatch/:id/approve", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatch/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const id = Number(req.params.id);
   try {
     const userId = await resolveUserId(req);
@@ -207,7 +207,7 @@ router.post("/api/dispatch/:id/approve", requireAnyAuth, async (req, res) => {
   }
 });
 
-router.post("/api/dispatch/:id/dispatch", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
   try {
     const result = await query(
@@ -227,7 +227,7 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, async (req, res) => {
   }
 });
 
-router.post("/api/dispatch/:id/arrive", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
   try {
     const result = await query(
