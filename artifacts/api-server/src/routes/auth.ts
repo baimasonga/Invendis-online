@@ -61,11 +61,23 @@ router.post("/api/auth/login", async (req, res) => {
     let user = existingUsers?.[0];
 
     if (!user) {
-      // First mobile login for a web-portal-created user — create the record
+      // First mobile login for a web-portal-created user — create the integer user record.
+      // The sequence may be out of sync with the actual max id (e.g. after manual inserts),
+      // so compute the next safe id explicitly to avoid duplicate-key errors.
       const placeholder = await hashPassword(`SUPABASE_${authData.user.id}_${Date.now()}`);
+
+      const { data: maxRow } = await supa
+        .from("users")
+        .select("id")
+        .order("id", { ascending: false })
+        .limit(1)
+        .single();
+      const nextId = ((maxRow as { id: number } | null)?.id ?? 0) + 1;
+
       const { data: newUser, error: insertErr } = await supa
         .from("users")
         .insert({
+          id: nextId,
           username: email,
           password_hash: placeholder,
           full_name: profile.full_name ?? email,
@@ -79,7 +91,7 @@ router.post("/api/auth/login", async (req, res) => {
 
       if (insertErr || !newUser) {
         req.log.error(
-          { insertErr, email, role: profile.role, districtId: profile.district_id },
+          { insertErr, email, role: profile.role, districtId: profile.district_id, nextId },
           "Failed to auto-provision mobile user in integer users table",
         );
         res.status(500).json({ error: "Server Error", message: "Failed to provision mobile account" });
