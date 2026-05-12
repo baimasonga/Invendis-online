@@ -46,7 +46,7 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
       .single();
 
     const d = disp as any;
-    if (d && d.status === "InTransit" && !d.arrived_at && d.campaign_id) {
+    if (d && d.status === "In Transit" && !d.arrived_at && d.campaign_id) {
       const { data: camp } = await supa
         .from("campaigns")
         .select("distribution_site_id, district_id")
@@ -114,7 +114,7 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
     .from("dispatches")
     .select("id, vehicle_id, manifest_code, status, departed_at, arrived_at, campaign_id, driver_id")
     .in("vehicle_id", vehicleIds)
-    .in("status", ["InTransit", "Arrived"]);
+    .in("status", ["In Transit", "Arrived"]);
 
   const dispatchList = activeDispatches ?? [];
   const campaignIds  = [...new Set(dispatchList.map((d: any) => d.campaign_id).filter(Boolean))];
