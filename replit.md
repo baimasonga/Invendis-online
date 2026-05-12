@@ -107,22 +107,12 @@ All workflows start automatically:
 PostgreSQL is provisioned via Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).
 
 **Push schema:** `pnpm --filter @workspace/db run push`
-**Seed data:** `pnpm --filter @workspace/scripts run seed`
 
-### Seed Credentials
-**Web Portal (email login via Supabase):**
-| Role              | Email                      | Password     |
-|-------------------|----------------------------|--------------|
-| Admin             | admin@agripo.sl            | admin123     |
-| Project Manager   | john.kamara@agripo.sl      | password123  |
-| Warehouse Manager | amara.sesay@agripo.sl      | password123  |
-| Field Officer     | fatima.conteh@agripo.sl    | password123  |
+> **Note:** Seed scripts exist at `scripts/` but should NOT be run in production. All seeded `@agripo.sl` test accounts have been deleted. Production accounts are managed via the User Management page (`/users`) by an Admin.
 
-**Mobile App (same email credentials as web portal):**
-| Role              | Email                      | Password     |
-|-------------------|----------------------------|--------------|
-| Admin             | admin@agripo.sl            | admin123     |
-| Field Officer     | fatima.conteh@agripo.sl    | password123  |
+## Production Users
+
+Users are created and managed directly in the web portal at `/users` (Admin only). No seed credentials exist.
 
 ## Authentication
 
