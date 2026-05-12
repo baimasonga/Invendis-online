@@ -1174,7 +1174,7 @@ export async function listAllCampaigns() {
     .from("campaigns").select("id,name,campaign_code,season")
     .order("created_at", { ascending: false }).limit(200);
   if (error) throw new Error(error.message);
-  return (data ?? []) as { id: number; name: string; campaignCode: string; season: string }[];
+  return (data ?? []).map((r) => ({ id: r.id as number, name: r.name as string, campaignCode: r.campaign_code as string, season: r.season as string }));
 }
 
 // ── AUDIT LOGS ────────────────────────────────────────────────────────────────
