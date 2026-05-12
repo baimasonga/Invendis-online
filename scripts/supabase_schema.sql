@@ -317,6 +317,27 @@ CREATE TABLE IF NOT EXISTS public.reconciliations (
   created_at            TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- ── OTP CODES ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.otp_codes (
+  id          SERIAL PRIMARY KEY,
+  farmer_id   INTEGER NOT NULL,
+  code_hash   TEXT NOT NULL,
+  channel     TEXT NOT NULL DEFAULT 'none',
+  expires_at  TIMESTAMPTZ NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS otp_codes_farmer_id_idx ON public.otp_codes (farmer_id);
+CREATE INDEX IF NOT EXISTS otp_codes_expires_at_idx ON public.otp_codes (expires_at);
+
+-- ── SYSTEM SETTINGS ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  key         TEXT PRIMARY KEY,
+  value       TEXT,
+  description TEXT,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── AUDIT LOGS ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.audit_logs (
   id          SERIAL PRIMARY KEY,
@@ -359,7 +380,7 @@ BEGIN
     'stock_balance','procurement_orders','procurement_items',
     'farmers','campaigns','campaign_items','allocations',
     'vehicles','drivers','gps_track','dispatches','dispatch_items',
-    'pod','reconciliations','audit_logs','users'
+    'pod','reconciliations','otp_codes','system_settings','audit_logs','users'
   ]) LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format($$
@@ -418,4 +439,14 @@ INSERT INTO public.input_items (item_code, name, unit, category, value_chain_id)
   ('TOOL-002', 'Watering Can',           'Unit', 'Tools',      NULL),
   ('CHEM-001', 'Herbicide (1L)',         'Litre','Chemical',   NULL)
 ON CONFLICT (item_code) DO NOTHING;
+
+INSERT INTO public.system_settings (key, value, description) VALUES
+  ('otp_enabled',            'true',    'Enable OTP verification for PoD confirmation'),
+  ('face_verify_enabled',    'true',    'Enable face verification for PoD confirmation'),
+  ('geofence_radius_m',      '500',     'Default geofence radius in metres for GPS verification'),
+  ('sms_sender_name',        'AgriPoD', 'Sender name shown on OTP SMS messages (max 11 chars)'),
+  ('otp_expiry_minutes',     '10',      'OTP code expiry time in minutes'),
+  ('otp_max_attempts',       '5',       'Maximum OTP verification attempts before lockout'),
+  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer')
+ON CONFLICT (key) DO NOTHING;
 

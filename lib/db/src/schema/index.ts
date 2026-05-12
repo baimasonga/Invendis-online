@@ -10,3 +10,4 @@ export * from "./reconciliation";
 export * from "./audit";
 export * from "./incidents";
 export * from "./otp";
+export * from "./system-settings";
