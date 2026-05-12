@@ -1271,19 +1271,26 @@ export async function deactivateUser(id: string) {
 }
 
 export async function createUser(payload: any) {
-  const { data, error } = await supabase.auth.signUp({
-    email: payload.email,
-    password: payload.password,
-    options: { data: { full_name: payload.fullName, role: payload.role } },
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  const resp = await fetch("/api/users/create-profile", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      email: payload.email,
+      password: payload.password,
+      fullName: payload.fullName,
+      userRole: payload.role,
+    }),
   });
-  if (error) throw new Error(error.message);
-  if (data.user) {
-    await supabase.from("profiles").upsert({
-      id: data.user.id, full_name: payload.fullName,
-      email: payload.email, role: payload.role,
-    });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? (err as any).message ?? "Failed to create user");
   }
-  return data;
+  return resp.json();
 }
 
 export async function updateUserRole(id: string, role: string) {

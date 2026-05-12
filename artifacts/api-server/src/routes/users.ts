@@ -52,6 +52,61 @@ router.post("/api/users/:id/deactivate", requireAuth, requireRoles("Admin"), asy
   res.json(snakeToCamel(data));
 });
 
+router.post("/api/users/create-profile", requireAnyAuth, async (req, res) => {
+  let role: string | null = null;
+  if (req.user) {
+    role = req.user.role;
+  } else if (req.supabaseUser?.id) {
+    const { data } = await supa.from("profiles").select("role").eq("id", req.supabaseUser.id).single();
+    role = (data as any)?.role ?? null;
+  }
+  if (!role || role.toLowerCase() !== "admin") {
+    res.status(403).json({ error: "Forbidden", message: "Only admins can create users" });
+    return;
+  }
+
+  const { email, password, fullName, userRole } = req.body;
+  if (!email || !password || !fullName || !userRole) {
+    res.status(400).json({ error: "Bad Request", message: "email, password, fullName and userRole are required" });
+    return;
+  }
+  if (String(password).length < 6) {
+    res.status(400).json({ error: "Bad Request", message: "Password must be at least 6 characters" });
+    return;
+  }
+
+  try {
+    const { data: authData, error: authErr } = await supa.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, role: userRole },
+    });
+    if (authErr || !authData.user) {
+      res.status(500).json({ error: authErr?.message ?? "Failed to create auth user" });
+      return;
+    }
+
+    const { error: profileErr } = await supa.from("profiles").upsert({
+      id: authData.user.id,
+      full_name: fullName,
+      email,
+      role: userRole,
+      is_active: true,
+    });
+    if (profileErr) {
+      await supa.auth.admin.deleteUser(authData.user.id).catch(() => {});
+      res.status(500).json({ error: profileErr.message });
+      return;
+    }
+
+    await logAudit(req, "CREATE", "Users", `Created user: ${email} (${userRole})`, "user", 0);
+    res.status(201).json({ id: authData.user.id, email, fullName, role: userRole, isActive: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete("/api/users/profile/:id", requireAnyAuth, async (req, res) => {
   let role: string | null = null;
   if (req.user) {
