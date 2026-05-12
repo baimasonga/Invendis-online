@@ -151,6 +151,7 @@ export const pingGps = (
 export interface OtpSendResult {
   sent: boolean;
   smsSent?: boolean;
+  deliveryFailed?: boolean;
   channel?: "whatsapp" | "sms" | "none";
   maskedPhone: string;
   farmerName: string;
@@ -168,6 +169,21 @@ export const verifyOtp = (token: string, farmerId: number, code: string) =>
     method: "POST",
     body: JSON.stringify({ farmerId, code }),
   });
+
+export const getOtpStatus = (token: string) =>
+  apiFetch<{ otpEnabled: boolean }>("/pod/otp/status", token);
+
+export const bypassOtp = (
+  token: string,
+  farmerId: number,
+  dispatchId?: number,
+  reason?: string
+) =>
+  apiFetch<{ bypassed: boolean; reason: string; farmerId: number }>(
+    "/pod/otp/bypass",
+    token,
+    { method: "POST", body: JSON.stringify({ farmerId, dispatchId, reason }) }
+  );
 
 export interface FaceUploadResult {
   uploadUrl: string;

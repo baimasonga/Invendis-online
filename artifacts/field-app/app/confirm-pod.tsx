@@ -26,6 +26,8 @@ import {
   getFaceUploadUrl,
   compareFace,
   uploadPhotoToS3,
+  getOtpStatus,
+  bypassOtp,
   type OtpSendResult,
   type FaceCompareResult,
   type PoD,
@@ -107,7 +109,9 @@ export default function ConfirmPodScreen() {
   const [gpsLoading, setGpsLoading] = useState(false);
 
   // OTP
+  const [otpEnabled, setOtpEnabled] = useState(true);
   const [otpResult, setOtpResult] = useState<OtpSendResult | null>(null);
+  const [smsDeliveryFailed, setSmsDeliveryFailed] = useState(false);
   const [devCode, setDevCode] = useState<string | null>(null);
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -115,6 +119,7 @@ export default function ConfirmPodScreen() {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(0);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const [otpBypassed, setOtpBypassed] = useState(false);
 
   // Face
   const [facePhotoUri, setFacePhotoUri] = useState<string | null>(null);
@@ -128,7 +133,14 @@ export default function ConfirmPodScreen() {
 
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  useEffect(() => { captureGPS(); }, []);
+  useEffect(() => {
+    captureGPS();
+    if (token) {
+      getOtpStatus(token)
+        .then((s) => setOtpEnabled(s.otpEnabled))
+        .catch(() => {});
+    }
+  }, []);
   useEffect(() => {
     if (resendTimer <= 0) return;
     const t = setTimeout(() => setResendTimer((s) => s - 1), 1000);
@@ -149,12 +161,14 @@ export default function ConfirmPodScreen() {
     }
     setSendingOtp(true);
     setOtpError(null);
+    setSmsDeliveryFailed(false);
     try {
       const result = await sendOtp(token!, Number(farmerId));
       setOtpResult(result);
       setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
+      if (result.deliveryFailed) setSmsDeliveryFailed(true);
       setStep("otp");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
@@ -174,6 +188,52 @@ export default function ConfirmPodScreen() {
     } finally {
       setSendingOtp(false);
     }
+  };
+
+  const handleSkipOtp = () => {
+    const reason = smsDeliveryFailed
+      ? "SMS delivery failed — no network coverage"
+      : !otpEnabled
+      ? "OTP verification disabled by administrator"
+      : "No SMS coverage";
+
+    Alert.alert(
+      "Skip OTP Verification",
+      `This delivery will proceed without SMS confirmation.\n\nReason: ${reason}\n\nThe record will be flagged for supervisor review.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Skip & Continue",
+          style: "destructive",
+          onPress: async () => {
+            let auditFailed = false;
+            try {
+              await bypassOtp(
+                token!,
+                Number(farmerId),
+                dispatchId ? Number(dispatchId) : undefined,
+                reason
+              );
+            } catch {
+              auditFailed = true;
+            }
+            setOtpBypassed(true);
+            setFacePhotoUri(null);
+            setFaceResult(null);
+            setFaceError(null);
+            setStep("face");
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            if (auditFailed) {
+              Alert.alert(
+                "Audit Log Warning",
+                "OTP bypass could not be recorded on the server. The delivery will still be saved, but please inform your supervisor.",
+                [{ text: "OK" }]
+              );
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleDigitChange = (text: string, index: number) => {
@@ -225,6 +285,8 @@ export default function ConfirmPodScreen() {
       setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
+      if (result.deliveryFailed) setSmsDeliveryFailed(true);
+      else setSmsDeliveryFailed(false);
     } catch (e) {
       setOtpError(e instanceof Error ? e.message : "Failed to resend code");
     } finally {
@@ -266,7 +328,7 @@ export default function ConfirmPodScreen() {
         {
           text: "Override & Submit",
           style: "destructive",
-          onPress: () => doSubmit("Verified", faceResult?.faceStatus ?? "Failed"),
+          onPress: () => doSubmit(otpBypassed ? "SMSBypass" : "Verified", faceResult?.faceStatus ?? "Failed"),
         },
       ]
     );
@@ -524,7 +586,16 @@ export default function ConfirmPodScreen() {
             </View>
           )}
 
-          <View style={styles.actions}>
+          {!otpEnabled && (
+            <View style={[styles.skipBanner, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "50", borderRadius: colors.radius }]}>
+              <Feather name="info" size={15} color={colors.warning} />
+              <Text style={[styles.skipBannerText, { color: colors.warning }]}>
+                OTP verification is disabled. You can skip directly to face verification.
+              </Text>
+            </View>
+          )}
+
+          <View style={[styles.actions, { flexWrap: "wrap" }]}>
             <TouchableOpacity
               style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
               onPress={() => doSubmit("Bypassed", "Bypassed", true)}
@@ -534,6 +605,17 @@ export default function ConfirmPodScreen() {
               <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
               <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
             </TouchableOpacity>
+            {!otpEnabled && (
+              <TouchableOpacity
+                style={[styles.skipOtpBtn, { borderColor: colors.warning + "80", borderRadius: colors.radius }]}
+                onPress={handleSkipOtp}
+                disabled={sendingOtp || submitting}
+                activeOpacity={0.8}
+              >
+                <Feather name="skip-forward" size={16} color={colors.warning} />
+                <Text style={[styles.offlineBtnText, { color: colors.warning }]}>Skip OTP</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: sendingOtp ? 0.7 : 1 }]}
               onPress={handleSendOtp}
@@ -658,7 +740,18 @@ export default function ConfirmPodScreen() {
             )}
           </View>
 
-          <View style={styles.actions}>
+          {(smsDeliveryFailed || !otpEnabled) && (
+            <View style={[styles.skipBanner, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "50", borderRadius: colors.radius }]}>
+              <Feather name="alert-triangle" size={15} color={colors.warning} />
+              <Text style={[styles.skipBannerText, { color: colors.warning }]}>
+                {smsDeliveryFailed
+                  ? "SMS could not be delivered — no coverage at this location."
+                  : "OTP verification is currently disabled by your administrator."}
+              </Text>
+            </View>
+          )}
+
+          <View style={[styles.actions, { flexWrap: "wrap" }]}>
             <TouchableOpacity
               style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
               onPress={() => doSubmit("Bypassed", "Bypassed", true)}
@@ -668,6 +761,17 @@ export default function ConfirmPodScreen() {
               <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
               <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
             </TouchableOpacity>
+            {(smsDeliveryFailed || !otpEnabled) && (
+              <TouchableOpacity
+                style={[styles.skipOtpBtn, { borderColor: colors.warning + "80", borderRadius: colors.radius }]}
+                onPress={handleSkipOtp}
+                disabled={verifying || submitting}
+                activeOpacity={0.8}
+              >
+                <Feather name="skip-forward" size={16} color={colors.warning} />
+                <Text style={[styles.offlineBtnText, { color: colors.warning }]}>Skip OTP</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: (verifying || submitting) ? 0.7 : 1 }]}
               onPress={() => handleVerify()}
@@ -817,8 +921,10 @@ export default function ConfirmPodScreen() {
             <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{quantity} unit{Number(quantity) !== 1 ? "s" : ""} to be issued</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Feather name="shield" size={14} color={colors.success} />
-            <Text style={[styles.summaryText, { color: colors.success }]}>OTP verified</Text>
+            <Feather name="shield" size={14} color={otpBypassed ? colors.warning : colors.success} />
+            <Text style={[styles.summaryText, { color: otpBypassed ? colors.warning : colors.success }]}>
+              {otpBypassed ? "OTP skipped — flagged for review" : "OTP verified"}
+            </Text>
           </View>
         </View>
 
@@ -837,7 +943,7 @@ export default function ConfirmPodScreen() {
           {!facePhotoUri && !faceLoading && (
             <TouchableOpacity
               style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-              onPress={() => doSubmit("Verified", "Bypassed")}
+              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", "Bypassed")}
               disabled={submitting}
               activeOpacity={0.8}
             >
@@ -848,7 +954,7 @@ export default function ConfirmPodScreen() {
           {(faceVerified || faceNoReference) && (
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.success, borderRadius: colors.radius, opacity: submitting ? 0.7 : 1 }]}
-              onPress={() => doSubmit("Verified", faceResult?.faceStatus ?? "Verified")}
+              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", faceResult?.faceStatus ?? "Verified")}
               disabled={submitting}
               activeOpacity={0.85}
             >
@@ -947,4 +1053,7 @@ const styles = StyleSheet.create({
   summaryCard: { padding: 14, gap: 8 },
   summaryRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   summaryText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  skipBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, borderWidth: 1 },
+  skipBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  skipOtpBtn: { flex: 0.5, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1 },
 });

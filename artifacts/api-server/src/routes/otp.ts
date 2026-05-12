@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createHash } from "crypto";
 import { supa } from "../lib/supabase.js";
 import { requireAnyAuth } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -128,30 +129,32 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
 
   let channel = "none";
 
+  let deliveryFailed = false;
+
   try {
     await sendSms(f.phone, message);
     channel = "sms";
     req.log.info({ to: f.phone }, "OTP sent via EasySendSMS");
   } catch (err: any) {
     req.log.warn({ err: err.message }, "EasySendSMS delivery failed");
-    if (!isDev) {
-      res.status(502).json({
-        error: "Could not deliver verification code — SMS delivery failed. Please try again.",
-      });
-      return;
+    if (isDev) {
+      req.log.info("Dev mode: OTP not sent to handset, devCode returned instead");
+    } else {
+      deliveryFailed = true;
+      req.log.info("Production: SMS delivery failed — OTP stored, bypass option enabled for client");
     }
-    req.log.info("Dev mode: OTP not sent to handset, devCode returned instead");
   }
 
   await dbInsert(Number(farmerId), hashCode(code), channel);
 
   res.json({
-    sent:        true,
-    smsSent:     channel === "sms",
+    sent:          true,
+    smsSent:       channel === "sms",
+    deliveryFailed,
     channel,
-    maskedPhone: maskPhone(f.phone),
-    farmerName:  `${f.first_name} ${f.last_name}`,
-    devCode: isDev ? code : undefined,
+    maskedPhone:   maskPhone(f.phone),
+    farmerName:    `${f.first_name} ${f.last_name}`,
+    devCode:       isDev ? code : undefined,
   });
 });
 
@@ -197,6 +200,41 @@ router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
 
   await dbDeleteCode(e.id);
   res.json({ verified: true });
+});
+
+router.get("/api/pod/otp/status", requireAnyAuth, async (req, res) => {
+  const { data } = await supa
+    .from("system_settings")
+    .select("value")
+    .eq("key", "otp_enabled")
+    .maybeSingle();
+  const otpEnabled = data ? (data as any).value !== "false" && (data as any).value !== "0" : true;
+  res.json({ otpEnabled });
+});
+
+router.post("/api/pod/otp/bypass", requireAnyAuth, async (req, res) => {
+  const { farmerId, dispatchId, reason } = req.body as {
+    farmerId: number;
+    dispatchId?: number;
+    reason?: string;
+  };
+
+  if (!farmerId) {
+    res.status(400).json({ error: "farmerId is required" });
+    return;
+  }
+
+  const bypassReason = reason?.trim() || "No SMS coverage";
+
+  req.log.warn(
+    { farmerId, dispatchId, reason: bypassReason, officerId: req.user?.userId },
+    "OTP bypass recorded — flagged for supervisor review"
+  );
+
+  const description = `OTP bypassed for farmer #${farmerId}${dispatchId ? `, dispatch #${dispatchId}` : ""}. Reason: ${bypassReason}`;
+  await logAudit(req, "OTP_BYPASS", "PoD", description, "farmer", Number(farmerId));
+
+  res.json({ bypassed: true, reason: bypassReason, farmerId });
 });
 
 export default router;
