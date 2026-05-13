@@ -5,6 +5,8 @@ const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
 let metroProcess = null;
+let metroDomain = null;
+let metroReplId = null;
 
 const projectRoot = path.resolve(__dirname, "..");
 
@@ -138,6 +140,9 @@ function getExpoPublicReplId() {
 }
 
 async function startMetro(expoPublicDomain, expoPublicReplId) {
+  metroDomain = expoPublicDomain;
+  metroReplId = expoPublicReplId;
+
   const isRunning = await checkMetroHealth();
   if (isRunning) {
     console.log("Metro already running");
@@ -201,7 +206,51 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
   process.exit(1);
 }
 
-async function withRetry(label, fn, { maxAttempts = 4, baseDelayMs = 5000 } = {}) {
+async function restartMetroIfDead() {
+  const alive = await checkMetroHealth();
+  if (alive) return;
+
+  console.warn("[metro] Metro is not responding — attempting restart...");
+  if (metroProcess) {
+    try { metroProcess.kill("SIGKILL"); } catch {}
+    metroProcess = null;
+  }
+  // Clear cache before restart to avoid stale state
+  clearMetroCache();
+  await startMetro(metroDomain, metroReplId);
+  // Extra grace period after restart before accepting new requests
+  console.log("[metro] Waiting 15s for Metro to fully warm up after restart...");
+  await new Promise((r) => setTimeout(r, 15000));
+}
+
+async function warmupMetro() {
+  // After the initial startup health check, Metro's module resolver hasn't
+  // loaded anything yet. The first real bundle request is extremely heavy and
+  // can crash Metro if we fire it immediately. Wait briefly and confirm Metro
+  // is still alive before sending the bundle request.
+  console.log("[metro] Warmup: waiting 10s after startup before first bundle request...");
+  await new Promise((r) => setTimeout(r, 10000));
+  const alive = await checkMetroHealth();
+  if (!alive) {
+    exitWithError("Metro died during warmup period. Check Metro logs above.");
+  }
+  console.log("[metro] Warmup complete — Metro is stable.");
+}
+
+function isConnectionError(err) {
+  // "fetch failed" is Node's TypeError for TCP-level failures (connection
+  // refused, reset, or Metro crashed). Distinct from HTTP errors (400/500)
+  // which come through as normal Error objects with an HTTP status message.
+  return (
+    err instanceof TypeError ||
+    err.message === "fetch failed" ||
+    err.message.includes("ECONNREFUSED") ||
+    err.message.includes("ECONNRESET") ||
+    err.message.includes("socket hang up")
+  );
+}
+
+async function withRetry(label, fn, { maxAttempts = 4, baseDelayMs = 5000, restartMetroOnConnError = false } = {}) {
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -213,7 +262,13 @@ async function withRetry(label, fn, { maxAttempts = 4, baseDelayMs = 5000 } = {}
         console.warn(
           `[retry] ${label} failed (attempt ${attempt}/${maxAttempts}): ${err.message}. Retrying in ${delay / 1000}s...`,
         );
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        // If Metro dropped the connection, restart it before next attempt
+        if (restartMetroOnConnError && isConnectionError(err)) {
+          console.warn("[retry] Connection error detected — checking Metro health before retry...");
+          await restartMetroIfDead();
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
     }
   }
@@ -277,7 +332,11 @@ async function downloadBundle(platform, timestamp) {
   );
 
   console.log(`Fetching ${platform} bundle...`);
-  await withRetry(`${platform} bundle`, () => downloadFile(url.toString(), output));
+  await withRetry(
+    `${platform} bundle`,
+    () => downloadFile(url.toString(), output),
+    { maxAttempts: 4, baseDelayMs: 10000, restartMetroOnConnError: true },
+  );
   console.log(`${platform} bundle ready`);
 }
 
@@ -332,6 +391,7 @@ async function downloadBundlesAndManifests(timestamp) {
   console.log("This may take several minutes for production builds...");
 
   await assertMetroHealthy();
+  await warmupMetro();
 
   try {
     // Bundles are sequential — Metro can't handle both platforms simultaneously
