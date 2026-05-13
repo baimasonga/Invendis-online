@@ -22,7 +22,9 @@ let CameraView: React.ComponentType<{
   onBarcodeScanned?: (data: { data: string }) => void;
   barcodeScannerSettings?: { barcodeTypes: string[] };
 }> | null = null;
-let useCameraPermissions: (() => [{ granted: boolean } | null, () => Promise<void>]) | null = null;
+type CameraPermission = { granted: boolean } | null;
+type RequestCameraPermission = (() => Promise<unknown>) | null;
+let useCameraPermissions: (() => [CameraPermission, RequestCameraPermission]) | null = null;
 
 if (Platform.OS !== "web") {
   try {
@@ -44,7 +46,7 @@ export default function ScanFarmerScreen() {
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, async () => {}];
+  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, null];
   const [camPermission, requestCamPermission] = camPerms;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -121,7 +123,7 @@ export default function ScanFarmerScreen() {
             <View style={[styles.camUnavail, { backgroundColor: colors.muted }]}>
               <Feather name="lock" size={40} color={colors.mutedForeground} />
               <Text style={[styles.camUnavailText, { color: colors.foreground }]}>Camera permission needed</Text>
-              <TouchableOpacity style={[styles.switchBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]} onPress={requestCamPermission}>
+              <TouchableOpacity style={[styles.switchBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]} onPress={() => { void requestCamPermission?.(); }}>
                 <Text style={styles.switchBtnTxt}>Grant Access</Text>
               </TouchableOpacity>
             </View>

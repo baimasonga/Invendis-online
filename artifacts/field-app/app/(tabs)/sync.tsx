@@ -21,7 +21,7 @@ export default function SyncScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const { queue, syncAll, clearSynced, isSyncing, lastSync } = useOfflineQueue();
+  const { queue, syncAll, clearFailed, isSyncing, lastSync } = useOfflineQueue();
   const [syncResult, setSyncResult] = useState<{ success: number; failed: number } | null>(null);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -45,7 +45,7 @@ export default function SyncScreen() {
   const handleClear = () => {
     Alert.alert("Clear Failed Items", "Remove items that failed to sync?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Clear", style: "destructive", onPress: clearSynced },
+      { text: "Clear", style: "destructive", onPress: () => { void clearFailed(); } },
     ]);
   };
 

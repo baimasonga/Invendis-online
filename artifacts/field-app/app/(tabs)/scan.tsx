@@ -28,7 +28,9 @@ let CameraView: React.ComponentType<{
   onBarcodeScanned?: (data: { data: string }) => void;
   barcodeScannerSettings?: { barcodeTypes: string[] };
 }> | null = null;
-let useCameraPermissions: (() => [{ granted: boolean } | null, () => Promise<void>]) | null = null;
+type CameraPermission = { granted: boolean } | null;
+type RequestCameraPermission = (() => Promise<unknown>) | null;
+let useCameraPermissions: (() => [CameraPermission, RequestCameraPermission]) | null = null;
 
 if (Platform.OS !== "web") {
   try {
@@ -115,7 +117,7 @@ export default function ScanScreen() {
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, async () => {}];
+  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, null];
   const [camPermission, requestCamPermission] = camPerms;
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -254,7 +256,7 @@ export default function ScanScreen() {
           <Text style={[styles.permText, { color: colors.foreground }]}>Camera permission required</Text>
           <TouchableOpacity
             style={[styles.permBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
-            onPress={requestCamPermission}
+            onPress={() => { void requestCamPermission?.(); }}
           >
             <Text style={styles.permBtnText}>Grant Access</Text>
           </TouchableOpacity>
