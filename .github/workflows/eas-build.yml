@@ -1,0 +1,76 @@
+name: EAS Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'artifacts/field-app/**'
+      - 'lib/**'
+      - 'pnpm-lock.yaml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'artifacts/field-app/**'
+      - 'lib/**'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      platform:
+        description: Platform
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+
+jobs:
+  build:
+    name: EAS Build (${{ github.event.inputs.platform || 'android' }} / ${{ github.event.inputs.profile || 'preview' }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Expo + EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Run type check
+        working-directory: artifacts/field-app
+        run: pnpm typecheck
+
+      - name: EAS Build
+        working-directory: artifacts/field-app
+        run: |
+          eas build \
+            --platform ${{ github.event.inputs.platform || 'android' }} \
+            --profile ${{ github.event.inputs.profile || 'preview' }} \
+            --non-interactive
