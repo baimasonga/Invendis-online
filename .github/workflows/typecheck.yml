@@ -1,0 +1,35 @@
+name: Type Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check — api-server
+        run: pnpm --filter @workspace/api-server typecheck
+
+      - name: Type check — field-app
+        run: pnpm --filter @workspace/field-app typecheck
+
+      - name: Type check — web-portal
+        run: pnpm --filter @workspace/web-portal typecheck

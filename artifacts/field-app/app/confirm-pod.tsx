@@ -37,13 +37,18 @@ interface GPSCoords {
   accuracy?: number;
 }
 
-async function getLocation(): Promise<GPSCoords | null> {
+type LocationResult =
+  | { coords: GPSCoords }
+  | { denied: true }
+  | { error: true };
+
+async function getLocation(): Promise<LocationResult> {
   if (Platform.OS === "web") {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) { resolve(null); return; }
+      if (!navigator.geolocation) { resolve({ error: true }); return; }
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-        () => resolve(null),
+        (pos) => resolve({ coords: { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy } }),
+        (err) => resolve(err.code === err.PERMISSION_DENIED ? { denied: true } : { error: true }),
         { timeout: 8000 }
       );
     });
@@ -51,11 +56,11 @@ async function getLocation(): Promise<GPSCoords | null> {
   try {
     const Location = require("expo-location");
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return null;
+    if (status !== "granted") return { denied: true };
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced, timeInterval: 5000 });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+    return { coords: { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy } };
   } catch {
-    return null;
+    return { error: true };
   }
 }
 
@@ -103,12 +108,13 @@ export default function ConfirmPodScreen() {
   // Details
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
-  const [gps, setGps] = useState<GPSCoords | null>(null);
+  const [gpsResult, setGpsResult] = useState<LocationResult | null>(null);
+  const gps = gpsResult && "coords" in gpsResult ? gpsResult.coords : null;
+  const gpsDenied = gpsResult && "denied" in gpsResult;
   const [gpsLoading, setGpsLoading] = useState(false);
 
   // OTP
   const [otpResult, setOtpResult] = useState<OtpSendResult | null>(null);
-  const [devCode, setDevCode] = useState<string | null>(null);
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -137,14 +143,22 @@ export default function ConfirmPodScreen() {
 
   const captureGPS = async () => {
     setGpsLoading(true);
-    setGps(await getLocation());
+    setGpsResult(await getLocation());
     setGpsLoading(false);
   };
 
+  const handleSetQuantity = (raw: string) => {
+    // Allow only digits; clamp to 1–999
+    const digits = raw.replace(/[^0-9]/g, "");
+    if (digits === "") { setQuantity(""); return; }
+    const n = Math.min(999, Math.max(1, parseInt(digits, 10)));
+    setQuantity(String(n));
+  };
+
   const handleSendOtp = async () => {
-    const qty = Number(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      Alert.alert("Invalid Quantity", "Please enter a valid quantity before verifying.");
+    const qty = parseInt(quantity, 10);
+    if (!quantity || isNaN(qty) || qty <= 0 || qty > 999) {
+      Alert.alert("Invalid Quantity", "Please enter a whole number between 1 and 999.");
       return;
     }
     setSendingOtp(true);
@@ -152,7 +166,7 @@ export default function ConfirmPodScreen() {
     try {
       const result = await sendOtp(token!, Number(farmerId));
       setOtpResult(result);
-      setDevCode(result.devCode ?? null);
+
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
       setStep("otp");
@@ -222,7 +236,7 @@ export default function ConfirmPodScreen() {
     try {
       const result = await sendOtp(token!, Number(farmerId));
       setOtpResult(result);
-      setDevCode(result.devCode ?? null);
+
       setDigits(Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_SECONDS);
     } catch (e) {
@@ -468,6 +482,13 @@ export default function ConfirmPodScreen() {
                 </Text>
                 {gps.accuracy && <Text style={[styles.gpsAccuracy, { color: colors.mutedForeground }]}>±{Math.round(gps.accuracy)}m</Text>}
               </View>
+            ) : gpsDenied ? (
+              <View style={styles.gpsRow}>
+                <Feather name="lock" size={16} color={colors.destructive} />
+                <Text style={[styles.gpsText, { color: colors.destructive, flex: 1 }]}>
+                  Location permission denied — enable in device Settings
+                </Text>
+              </View>
             ) : (
               <View style={styles.gpsRow}>
                 <Feather name="alert-circle" size={16} color={colors.warning} />
@@ -484,20 +505,21 @@ export default function ConfirmPodScreen() {
             <View style={styles.qtyRow}>
               <TouchableOpacity
                 style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-                onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
+                onPress={() => setQuantity((v) => String(Math.max(1, parseInt(v, 10) - 1)))}
               >
                 <Feather name="minus" size={18} color={colors.foreground} />
               </TouchableOpacity>
               <TextInput
                 style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
                 value={quantity}
-                onChangeText={setQuantity}
+                onChangeText={handleSetQuantity}
                 keyboardType="numeric"
                 textAlign="center"
+                maxLength={3}
               />
               <TouchableOpacity
                 style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-                onPress={() => setQuantity((v) => String(Number(v) + 1))}
+                onPress={() => setQuantity((v) => String(Math.min(999, parseInt(v, 10) + 1)))}
               >
                 <Feather name="plus" size={18} color={colors.foreground} />
               </TouchableOpacity>
@@ -572,19 +594,6 @@ export default function ConfirmPodScreen() {
             <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
             <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
           </TouchableOpacity>
-
-          {devCode && (
-            <View style={[styles.devBanner, { backgroundColor: "#fef3c7", borderColor: "#f59e0b", borderRadius: colors.radius }]}>
-              <Feather name="terminal" size={16} color="#92400e" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.devBannerLabel}>
-                  Dev Mode —{" "}
-                  {otpResult?.channel === "sms" ? "SMS sent" : "Not delivered to handset"}
-                </Text>
-                <Text style={styles.devBannerCode}>{devCode}</Text>
-              </View>
-            </View>
-          )}
 
           <View style={[styles.otpCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
             <View style={[styles.otpIconWrap, { backgroundColor: colors.primary + "12" }]}>

@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# EAS / Google Play credentials — never commit these
+artifacts/field-app/google-service-account.json

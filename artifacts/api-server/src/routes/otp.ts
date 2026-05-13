@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createHash } from "crypto";
 import { pool } from "../lib/db.js";
 import { requireAnyAuth } from "../lib/auth.js";
+import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
 
 const router = Router();
 
@@ -97,12 +98,8 @@ setInterval(async () => {
 
 // ── POST /api/pod/otp/send ────────────────────────────────────────────────────
 
-router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), async (req, res) => {
   const { farmerId } = req.body as { farmerId: number };
-  if (!farmerId) {
-    res.status(400).json({ error: "farmerId is required" });
-    return;
-  }
 
   // Look up farmer via direct pg (no Supabase REST)
   const { rows: farmers } = await pool.query(
@@ -153,7 +150,8 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
       });
       return;
     }
-    req.log.info("Dev mode: OTP not sent to handset, devCode returned instead");
+    // In dev, log the code server-side only — never return it in the response
+    req.log.info({ farmerId, code }, "Dev mode: SMS not sent; OTP logged here for testing");
   }
 
   // Persist to DB
@@ -165,19 +163,13 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     channel,
     maskedPhone: maskPhone(farmer.phone),
     farmerName:  `${farmer.first_name} ${farmer.last_name}`,
-    // devCode only in development — never in production
-    devCode: isDev ? code : undefined,
   });
 });
 
 // ── POST /api/pod/otp/verify ──────────────────────────────────────────────────
 
-router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/otp/verify", requireAnyAuth, validateBody(OtpVerifySchema), async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };
-  if (!farmerId || !code) {
-    res.status(400).json({ verified: false, error: "farmerId and code are required" });
-    return;
-  }
 
   const entry = await dbGetActive(Number(farmerId));
   if (!entry) {

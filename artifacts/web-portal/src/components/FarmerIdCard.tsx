@@ -18,6 +18,15 @@ interface FarmerIdCardProps {
   };
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const qrValue = farmer.barcodeToken ?? farmer.farmerCode;
@@ -33,7 +42,7 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
       <html>
       <head>
         <meta charset="utf-8" />
-        <title>Farmer ID — ${farmer.farmerCode}</title>
+        <title>Farmer ID — ${escapeHtml(farmer.farmerCode)}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: system-ui, sans-serif; background: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -61,19 +70,19 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
           </div>
           <div class="card-body">
             <div style="text-align:center">
-              <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
-              <div class="farmer-code">${farmer.farmerCode}</div>
+              <div class="farmer-name">${escapeHtml(farmer.firstName)} ${escapeHtml(farmer.lastName)}</div>
+              <div class="farmer-code">${escapeHtml(farmer.farmerCode)}</div>
             </div>
             <div class="qr-wrap">
               ${card.querySelector("svg")?.outerHTML ?? ""}
             </div>
             <div class="info-grid">
-              ${farmer.gender ? `<div class="info-item"><label>Gender</label><p>${farmer.gender}</p></div>` : ""}
-              ${farmer.districtName ? `<div class="info-item"><label>District</label><p>${farmer.districtName}</p></div>` : ""}
-              ${farmer.chiefdomName ? `<div class="info-item"><label>Chiefdom</label><p>${farmer.chiefdomName}</p></div>` : ""}
-              ${farmer.valueChainName ? `<div class="info-item"><label>Value Chain</label><p>${farmer.valueChainName}</p></div>` : ""}
-              ${farmer.phone ? `<div class="info-item"><label>Phone</label><p>${farmer.phone}</p></div>` : ""}
-              <div class="info-item"><label>Status</label><p style="color:${farmer.status === 'approved' ? '#16a34a' : '#f59e0b'}">${farmer.status ?? '—'}</p></div>
+              ${farmer.gender ? `<div class="info-item"><label>Gender</label><p>${escapeHtml(farmer.gender)}</p></div>` : ""}
+              ${farmer.districtName ? `<div class="info-item"><label>District</label><p>${escapeHtml(farmer.districtName)}</p></div>` : ""}
+              ${farmer.chiefdomName ? `<div class="info-item"><label>Chiefdom</label><p>${escapeHtml(farmer.chiefdomName)}</p></div>` : ""}
+              ${farmer.valueChainName ? `<div class="info-item"><label>Value Chain</label><p>${escapeHtml(farmer.valueChainName)}</p></div>` : ""}
+              ${farmer.phone ? `<div class="info-item"><label>Phone</label><p>${escapeHtml(farmer.phone)}</p></div>` : ""}
+              <div class="info-item"><label>Status</label><p style="color:${farmer.status === 'approved' ? '#16a34a' : '#f59e0b'}">${escapeHtml(farmer.status ?? '—')}</p></div>
             </div>
           </div>
           <div class="card-footer">
