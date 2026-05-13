@@ -3,6 +3,12 @@
     "name": "Invendis Field",
     "slug": "field-app",
     "version": "1.0.0",
+    "owner": "medbangz",
+    "extra": {
+      "eas": {
+        "projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"
+      }
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "field-app",
