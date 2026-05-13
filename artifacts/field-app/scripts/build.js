@@ -55,8 +55,12 @@ function stripProtocol(domain) {
 }
 
 function getDeploymentDomain() {
-  if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
-    return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
+  // REPLIT_DOMAINS is the public-facing domain (comma-separated, take first).
+  // Must be checked BEFORE REPLIT_INTERNAL_APP_DOMAIN which is an internal
+  // cluster hostname unreachable from mobile devices on the public internet.
+  if (process.env.REPLIT_DOMAINS) {
+    const first = process.env.REPLIT_DOMAINS.split(",")[0].trim();
+    if (first) return stripProtocol(first);
   }
 
   if (process.env.REPLIT_DEV_DOMAIN) {
@@ -67,8 +71,14 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
 
+  // REPLIT_INTERNAL_APP_DOMAIN is an internal cluster address — only use as a
+  // last resort since it is not reachable from devices outside the cluster.
+  if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
+    return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
+  }
+
   console.error(
-    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
+    "ERROR: No deployment domain found. Set REPLIT_DOMAINS, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
   );
   process.exit(1);
 }
@@ -191,6 +201,25 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
   process.exit(1);
 }
 
+async function withRetry(label, fn, { maxAttempts = 4, baseDelayMs = 5000 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(
+          `[retry] ${label} failed (attempt ${attempt}/${maxAttempts}): ${err.message}. Retrying in ${delay / 1000}s...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw new Error(`${label} failed after ${maxAttempts} attempts: ${lastError.message}`);
+}
+
 async function downloadFile(url, outputPath) {
   const controller = new AbortController();
   const fiveMinMS = 5 * 60 * 1_000;
@@ -248,16 +277,15 @@ async function downloadBundle(platform, timestamp) {
   );
 
   console.log(`Fetching ${platform} bundle...`);
-  await downloadFile(url.toString(), output);
+  await withRetry(`${platform} bundle`, () => downloadFile(url.toString(), output));
   console.log(`${platform} bundle ready`);
 }
 
-async function downloadManifest(platform) {
+async function fetchManifestOnce(platform) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300_000);
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
   try {
-    console.log(`Fetching ${platform} manifest...`);
     const response = await fetch("http://localhost:8081/manifest", {
       headers: { "expo-platform": platform },
       signal: controller.signal,
@@ -267,14 +295,10 @@ async function downloadManifest(platform) {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    const manifest = await response.json();
-    console.log(`${platform} manifest ready`);
-    return manifest;
+    return await response.json();
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error(
-        `Manifest download timeout after 5m for platform: ${platform}`,
-      );
+      throw new Error(`Manifest fetch timed out after 2m (platform: ${platform})`);
     }
     throw error;
   } finally {
@@ -282,9 +306,32 @@ async function downloadManifest(platform) {
   }
 }
 
+async function downloadManifest(platform) {
+  console.log(`Fetching ${platform} manifest...`);
+  const manifest = await withRetry(
+    `${platform} manifest`,
+    () => fetchManifestOnce(platform),
+    { maxAttempts: 4, baseDelayMs: 8000 },
+  );
+  console.log(`${platform} manifest ready`);
+  return manifest;
+}
+
+async function assertMetroHealthy() {
+  for (let i = 0; i < 10; i++) {
+    const ok = await checkMetroHealth();
+    if (ok) return;
+    console.warn(`[metro] Not responding yet — waiting 3s (${i + 1}/10)...`);
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  exitWithError("Metro stopped responding before downloads could start. Check Metro logs above.");
+}
+
 async function downloadBundlesAndManifests(timestamp) {
   console.log("Downloading bundles and manifests...");
   console.log("This may take several minutes for production builds...");
+
+  await assertMetroHealthy();
 
   try {
     // Bundles are sequential — Metro can't handle both platforms simultaneously
