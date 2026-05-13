@@ -1,5 +1,6 @@
 const getBase = () => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (!domain) throw new Error("EXPO_PUBLIC_DOMAIN is not configured");
   return `https://${domain}/api`;
 };
 
@@ -154,7 +155,6 @@ export interface OtpSendResult {
   channel?: "whatsapp" | "sms" | "none";
   maskedPhone: string;
   farmerName: string;
-  devCode?: string;
 }
 
 export const sendOtp = (token: string, farmerId: number) =>
@@ -197,6 +197,7 @@ export const compareFace = (token: string, farmerId: number, deliveryKey: string
 
 export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
   const response = await fetch(photoUri);
+  if (!response.ok) throw new Error(`Failed to read photo file: ${response.status}`);
   const blob = await response.blob();
   const putRes = await fetch(uploadUrl, {
     method: "PUT",

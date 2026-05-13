@@ -43,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const domain = process.env.EXPO_PUBLIC_DOMAIN;
+    if (!domain) throw new Error("EXPO_PUBLIC_DOMAIN is not configured");
     const res = await fetch(`https://${domain}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
