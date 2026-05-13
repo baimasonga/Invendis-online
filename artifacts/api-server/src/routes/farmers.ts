@@ -2,6 +2,7 @@ import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { validateBody, FarmerCreateSchema } from "../lib/validate.js";
 import { randomBytes } from "crypto";
 
 const router = Router();
@@ -26,7 +27,7 @@ router.get("/api/farmers", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/farmers", requireAuth, async (req, res) => {
+router.post("/api/farmers", requireAuth, validateBody(FarmerCreateSchema), async (req, res) => {
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
   const body = camelToSnake(req.body);

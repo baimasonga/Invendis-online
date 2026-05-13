@@ -3,15 +3,30 @@ import { createClient } from "@supabase/supabase-js";
 import { supa } from "../lib/supabase.js";
 import { signToken, hashPassword, requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { validateBody, LoginSchema } from "../lib/validate.js";
 
 const router = Router();
 
-router.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ error: "Bad Request", message: "email and password required" });
+// Simple in-memory rate limiter: max 10 login attempts per IP per 15 min
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || entry.resetAt < now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return false;
+  }
+  entry.count++;
+  return entry.count > 10;
+}
+
+router.post("/api/auth/login", validateBody(LoginSchema), async (req, res) => {
+  const ip = req.ip ?? "unknown";
+  if (checkLoginRateLimit(ip)) {
+    res.status(429).json({ error: "Too many login attempts. Try again in 15 minutes." });
     return;
   }
+  const { email, password } = req.body as { email: string; password: string };
 
   // 1. Verify credentials via Supabase Auth (anon key required for signInWithPassword)
   const supaUrl = process.env.SUPABASE_URL;

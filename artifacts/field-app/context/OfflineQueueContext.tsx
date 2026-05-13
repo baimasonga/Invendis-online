@@ -49,7 +49,7 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
 
   const enqueue = async (payload: Record<string, unknown>) => {
     const item: QueuedPoD = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+      id: crypto.randomUUID(),
       payload,
       createdAt: new Date().toISOString(),
       status: "pending",

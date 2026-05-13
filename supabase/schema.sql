@@ -432,23 +432,161 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ── ROLE HELPER FUNCTIONS ────────────────────────────────────
+-- SECURITY DEFINER so these run as the function owner, not the calling role,
+-- preventing infinite recursion when profiles itself is RLS-protected.
+CREATE OR REPLACE FUNCTION auth_user_role()
+  RETURNS text LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT role FROM profiles WHERE id = auth.uid()
+$$;
+
+CREATE OR REPLACE FUNCTION auth_user_district_id()
+  RETURNS integer LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT district_id FROM profiles WHERE id = auth.uid()
+$$;
+
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────
 DO $$ DECLARE t text;
 BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
   EXECUTE 'ALTER TABLE ' || t || ' ENABLE ROW LEVEL SECURITY';
 END LOOP; END; $$;
 
--- Profiles: users see their own; authenticated see all (for admin purposes)
+-- Profiles: read all authenticated; update own record only
 DROP POLICY IF EXISTS "profiles_select" ON profiles;
 CREATE POLICY "profiles_select" ON profiles FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
 CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE USING (auth.uid() = id);
 
--- All other tables: authenticated users have full access
+-- Farmers: Admins/PMs see all; FieldOfficers see own district only
+DROP POLICY IF EXISTS "auth_all_farmers" ON farmers;
+DROP POLICY IF EXISTS "farmers_access" ON farmers;
+CREATE POLICY "farmers_access" ON farmers FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR district_id = auth_user_district_id()
+);
+
+-- Campaigns: Admins/PMs see all; FieldOfficers see own district
+DROP POLICY IF EXISTS "auth_all_campaigns" ON campaigns;
+DROP POLICY IF EXISTS "campaigns_access" ON campaigns;
+CREATE POLICY "campaigns_access" ON campaigns FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR district_id = auth_user_district_id()
+);
+
+-- Allocations: scoped to campaign's district
+DROP POLICY IF EXISTS "auth_all_allocations" ON allocations;
+DROP POLICY IF EXISTS "allocations_access" ON allocations;
+CREATE POLICY "allocations_access" ON allocations FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM campaigns c
+    WHERE c.id = campaign_id AND c.district_id = auth_user_district_id()
+  )
+);
+
+-- Campaign items: scoped to campaign's district
+DROP POLICY IF EXISTS "auth_all_campaign_items" ON campaign_items;
+DROP POLICY IF EXISTS "campaign_items_access" ON campaign_items;
+CREATE POLICY "campaign_items_access" ON campaign_items FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM campaigns c
+    WHERE c.id = campaign_id AND c.district_id = auth_user_district_id()
+  )
+);
+
+-- Dispatches: scoped to campaign's district
+DROP POLICY IF EXISTS "auth_all_dispatches" ON dispatches;
+DROP POLICY IF EXISTS "dispatches_access" ON dispatches;
+CREATE POLICY "dispatches_access" ON dispatches FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM campaigns c WHERE c.id = campaign_id
+    AND c.district_id = auth_user_district_id()
+  )
+);
+
+-- Dispatch items: scoped via dispatch → campaign district
+DROP POLICY IF EXISTS "auth_all_dispatch_items" ON dispatch_items;
+DROP POLICY IF EXISTS "dispatch_items_access" ON dispatch_items;
+CREATE POLICY "dispatch_items_access" ON dispatch_items FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM dispatches d
+    JOIN campaigns c ON c.id = d.campaign_id
+    WHERE d.id = dispatch_id AND c.district_id = auth_user_district_id()
+  )
+);
+
+-- PoD: scoped via farmer's district
+DROP POLICY IF EXISTS "auth_all_pod" ON pod;
+DROP POLICY IF EXISTS "pod_access" ON pod;
+CREATE POLICY "pod_access" ON pod FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM farmers f
+    WHERE f.id = farmer_id AND f.district_id = auth_user_district_id()
+  )
+);
+
+-- Incidents: by district_id column
+DROP POLICY IF EXISTS "auth_all_incidents" ON incidents;
+DROP POLICY IF EXISTS "incidents_access" ON incidents;
+CREATE POLICY "incidents_access" ON incidents FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR district_id = auth_user_district_id()
+);
+
+-- OTP codes: scoped via farmer's district
+DROP POLICY IF EXISTS "auth_all_otp_codes" ON otp_codes;
+DROP POLICY IF EXISTS "otp_codes_access" ON otp_codes;
+CREATE POLICY "otp_codes_access" ON otp_codes FOR ALL USING (
+  auth_user_role() IN ('Admin', 'ProjectManager')
+  OR EXISTS (
+    SELECT 1 FROM farmers f
+    WHERE f.id = farmer_id AND f.district_id = auth_user_district_id()
+  )
+);
+
+-- Audit logs: Admin only via web portal; api-server writes via service role (bypasses RLS)
+DROP POLICY IF EXISTS "auth_all_audit_logs" ON audit_logs;
+DROP POLICY IF EXISTS "audit_logs_access" ON audit_logs;
+CREATE POLICY "audit_logs_access" ON audit_logs FOR ALL USING (
+  auth_user_role() = 'Admin'
+);
+
+-- Users table: all authenticated can read (for profile display); Admins/PMs can write
+DROP POLICY IF EXISTS "auth_all_users" ON users;
+DROP POLICY IF EXISTS "users_select" ON users;
+DROP POLICY IF EXISTS "users_write" ON users;
+CREATE POLICY "users_select" ON users FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "users_write"  ON users FOR ALL    USING (auth_user_role() IN ('Admin', 'ProjectManager'));
+
+-- Reference/lookup tables: all authenticated can read; Admins/PMs can write
 DO $$ DECLARE t text;
-BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'profiles' LOOP
+BEGIN FOR t IN
+  SELECT unnest(ARRAY['districts','chiefdoms','sections','communities',
+                       'value_chains','warehouses','input_items',
+                       'vehicles','drivers','distribution_sites'])
+LOOP
   EXECUTE 'DROP POLICY IF EXISTS "auth_all_' || t || '" ON ' || t;
-  EXECUTE 'CREATE POLICY "auth_all_' || t || '" ON ' || t || ' FOR ALL USING (auth.role() = ''authenticated'')';
+  EXECUTE 'DROP POLICY IF EXISTS "ref_read_' || t || '" ON ' || t;
+  EXECUTE 'DROP POLICY IF EXISTS "ref_write_' || t || '" ON ' || t;
+  EXECUTE 'CREATE POLICY "ref_read_' || t || '" ON ' || t
+       || ' FOR SELECT USING (auth.role() = ''authenticated'')';
+  EXECUTE 'CREATE POLICY "ref_write_' || t || '" ON ' || t
+       || ' FOR ALL USING (auth_user_role() IN (''Admin'', ''ProjectManager''))';
+END LOOP; END; $$;
+
+-- Stock/inventory/reconciliation/GPS: all authenticated (cross-district operations)
+DO $$ DECLARE t text;
+BEGIN FOR t IN
+  SELECT unnest(ARRAY['stock_ledger','stock_balance','procurement_orders',
+                       'procurement_items','reconciliations','gps_track'])
+LOOP
+  EXECUTE 'DROP POLICY IF EXISTS "auth_all_' || t || '" ON ' || t;
+  EXECUTE 'CREATE POLICY "auth_all_' || t || '" ON ' || t
+       || ' FOR ALL USING (auth.role() = ''authenticated'')';
 END LOOP; END; $$;
 
 -- ── SEED DATA ────────────────────────────────────────────────
