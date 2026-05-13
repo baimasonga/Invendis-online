@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import * as Network from "expo-network";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 
 export interface QueuedPoD {
   id: string;
@@ -30,6 +31,8 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
   const [queue, setQueue] = useState<QueuedPoD[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  // Hold latest token for auto-sync on reconnect
+  const tokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -38,8 +41,29 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
         if (stored) setQueue(JSON.parse(stored));
         const ls = await AsyncStorage.getItem(LAST_SYNC_KEY);
         if (ls) setLastSync(ls);
-      } catch {}
+      } catch (err: unknown) {
+        console.warn("OfflineQueue: failed to load from storage", err);
+      }
     })();
+  }, []);
+
+  // Auto-sync pending items when network becomes available
+  useEffect(() => {
+    let subscription: { remove: () => void } | null = null;
+    Network.addNetworkStateListener((state) => {
+      const online = state.isConnected && state.isInternetReachable;
+      if (online && tokenRef.current) {
+        const hasPending = queue.some((i) => i.status === "pending");
+        if (hasPending && !isSyncing) {
+          syncAll(tokenRef.current).catch((err: unknown) => {
+            console.warn("OfflineQueue: auto-sync failed", err);
+          });
+        }
+      }
+    }).then((sub) => { subscription = sub; });
+    return () => { subscription?.remove(); };
+  // intentionally only runs once; syncAll is stable via useRef pattern below
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const saveQueue = async (q: QueuedPoD[]) => {
@@ -72,6 +96,7 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
 
   const syncAll = async (token: string) => {
     const domain = process.env.EXPO_PUBLIC_DOMAIN;
+    tokenRef.current = token;
     setIsSyncing(true);
     let success = 0;
     let failed = 0;
@@ -84,12 +109,13 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
         await submitPod(domain!, token, item.payload);
         updated[i] = { ...item, status: "synced" };
         success++;
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
         const retryCount = (item.retryCount ?? 0) + 1;
         updated[i] = {
           ...item,
           status: retryCount >= MAX_RETRIES ? "failed" : "pending",
-          error: e.message ?? "Unknown error",
+          error: message,
           retryCount,
         };
         failed++;
@@ -97,7 +123,6 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
     }
 
     const now = new Date().toISOString();
-    // Keep failed items, remove synced
     await saveQueue(updated.filter((i) => i.status !== "synced"));
     setLastSync(now);
     await AsyncStorage.setItem(LAST_SYNC_KEY, now);
@@ -114,8 +139,9 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
     try {
       await submitPod(domain!, token, item.payload);
       updated.splice(idx, 1);
-    } catch (e: any) {
-      updated[idx] = { ...item, status: "failed", error: e.message, retryCount: (item.retryCount ?? 0) + 1 };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      updated[idx] = { ...item, status: "failed", error: message, retryCount: (item.retryCount ?? 0) + 1 };
     }
     await saveQueue(updated);
   };

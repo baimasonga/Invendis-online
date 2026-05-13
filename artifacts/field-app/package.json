@@ -56,6 +56,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "expo-camera": "^17.0.10"
+    "expo-camera": "^17.0.10",
+    "expo-network": "^55.0.13",
+    "expo-secure-store": "^55.0.13"
   }
 }

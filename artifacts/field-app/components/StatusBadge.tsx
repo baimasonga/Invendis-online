@@ -5,7 +5,7 @@ import { useColors } from "@/hooks/useColors";
 type Status =
   | "Draft" | "Submitted" | "Approved" | "Active" | "Completed" | "Cancelled"
   | "In Transit" | "Delivered" | "Pending" | "Verified" | "pending" | "approved"
-  | "rejected" | "failed" | string;
+  | "rejected" | "failed";
 
 interface Props {
   status: Status;

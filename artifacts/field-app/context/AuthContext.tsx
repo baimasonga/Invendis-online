@@ -1,5 +1,8 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Platform } from "react-native";
+import { z } from "zod";
+import { setUnauthorizedHandler } from "@/lib/api";
 
 export interface AuthUser {
   id: number;
@@ -10,12 +13,53 @@ export interface AuthUser {
   districtId: number | null;
 }
 
+const LoginResponseSchema = z.object({
+  token: z.string().min(1),
+  user: z.object({
+    id: z.number(),
+    username: z.string(),
+    fullName: z.string(),
+    email: z.string(),
+    role: z.string(),
+    districtId: z.number().nullable(),
+  }),
+});
+
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+}
+
+const AUTH_KEY = "invendis_auth";
+const STORE_KEY = "@auth"; // fallback key for web (localStorage via AsyncStorage)
+
+async function secureRead(key: string): Promise<string | null> {
+  if (Platform.OS === "web") {
+    try {
+      const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
+      return AsyncStorage.getItem(key);
+    } catch { return null; }
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function secureWrite(key: string, value: string): Promise<void> {
+  if (Platform.OS === "web") {
+    const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
+    return AsyncStorage.setItem(key, value);
+  }
+  return SecureStore.setItemAsync(key, value);
+}
+
+async function secureDelete(key: string): Promise<void> {
+  if (Platform.OS === "web") {
+    const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
+    return AsyncStorage.removeItem(key);
+  }
+  return SecureStore.deleteItemAsync(key);
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -25,20 +69,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const logout = async () => {
+    await secureDelete(AUTH_KEY);
+    setUser(null);
+    setToken(null);
+  };
+
   useEffect(() => {
+    // Wire auto-logout when any API call gets a 401
+    setUnauthorizedHandler(logout);
+
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem("@auth");
+        const stored = await secureRead(AUTH_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           setUser(parsed.user);
           setToken(parsed.token);
         }
-      } catch {}
-      finally {
+      } catch {
+        // Corrupted storage — clear it
+        await secureDelete(AUTH_KEY).catch(() => {});
+      } finally {
         setIsLoading(false);
       }
     })();
+  // logout is stable (defined outside state), intentionally omitted from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -53,16 +110,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const err = await res.json().catch(() => ({}));
       throw new Error((err as { message?: string }).message ?? "Login failed");
     }
-    const data = (await res.json()) as { token: string; user: AuthUser };
-    await AsyncStorage.setItem("@auth", JSON.stringify({ user: data.user, token: data.token }));
-    setUser(data.user);
-    setToken(data.token);
-  };
-
-  const logout = async () => {
-    await AsyncStorage.removeItem("@auth");
-    setUser(null);
-    setToken(null);
+    const raw = await res.json();
+    const parsed = LoginResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new Error("Unexpected response from server");
+    const { token: tok, user: usr } = parsed.data;
+    await secureWrite(AUTH_KEY, JSON.stringify({ user: usr, token: tok }));
+    setUser(usr);
+    setToken(tok);
   };
 
   return (

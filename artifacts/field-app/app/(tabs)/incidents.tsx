@@ -73,6 +73,10 @@ export default function IncidentsScreen() {
     setSyncing(true);
     setSyncResult(null);
     const domain = process.env.EXPO_PUBLIC_DOMAIN;
+    if (!domain) {
+      setSyncing(false);
+      return;
+    }
     let synced = 0;
     let failed = 0;
     const updated = [...incidents];
@@ -102,7 +106,8 @@ export default function IncidentsScreen() {
         } else {
           failed++;
         }
-      } catch {
+      } catch (err: unknown) {
+        console.warn("incident sync failed", err);
         failed++;
       }
     }

@@ -1,8 +1,18 @@
+// Called by AuthContext to wire up auto-logout on 401
+let _onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void) {
+  _onUnauthorized = fn;
+}
+
 const getBase = () => {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain) throw new Error("EXPO_PUBLIC_DOMAIN is not configured");
   return `https://${domain}/api`;
 };
+
+export class UnauthorizedError extends Error {
+  constructor() { super("Session expired. Please log in again."); }
+}
 
 export async function apiFetch<T>(
   path: string,
@@ -17,6 +27,10 @@ export async function apiFetch<T>(
       ...(options.headers ?? {}),
     },
   });
+  if (res.status === 401) {
+    _onUnauthorized?.();
+    throw new UnauthorizedError();
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error((err as { error?: string; message?: string }).error ?? (err as { message?: string }).message ?? "Request failed");
