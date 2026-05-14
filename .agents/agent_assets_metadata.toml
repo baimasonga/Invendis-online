@@ -23,3 +23,9 @@ id = "zq5jsZcuInODI7a6cdAi8"
 uri = "file://docs/user-manual.txt"
 type = "text"
 title = "Invendis User Manual"
+
+[[outputs]]
+id = "jTp1zHfgXrYqF1AZXMfMH"
+uri = "file://docs/user-manual.zip"
+type = "unspecified"
+title = "Invendis User Manual (HTML + Screenshots)"
