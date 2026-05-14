@@ -6,8 +6,8 @@
 
 | Account | Email | Password | Role |
 |---------|-------|----------|------|
-| Admin | mohamedbangura@avdp.org.sl | Invendis@2024 | Admin |
-| Field Officer | mohamedamadubangura@gmail.com | Invendis@2024 | FieldOfficer |
+| Admin | admin@invendis.sl | ********** | Admin |
+| Field Officer | fieldofficer@invendis.sl | ********** | FieldOfficer |
 
 ---
 
@@ -28,7 +28,7 @@ Each scenario is self-contained and builds on realistic field operations in Sier
 
 **Steps:**
 1. Navigate to `/login`
-2. Enter email `mohamedbangura@avdp.org.sl` and password `Invendis@2024`
+2. Enter email `admin@invendis.sl` and password `**********`
 3. Click **Sign In**
 
 **Expected:** You land on the Dashboard (`/dashboard`) showing summary cards — total farmers, active campaigns, dispatches in transit, and PoDs today.
@@ -289,7 +289,7 @@ This sets up master data that everything else depends on.
 2. The user list shows all accounts with role, status, and last login
 
 **Test deactivate:**
-3. Find the Field Officer account (`mohamedamadubangura@gmail.com`)
+3. Find the Field Officer account (`fieldofficer@invendis.sl`)
 4. Click the toggle or **Deactivate** button
 5. **Expected:** Status changes to Inactive
 
@@ -303,7 +303,7 @@ This sets up master data that everything else depends on.
    - Full Name: `Test Coordinator`
    - Email: `testcoordinator@agripo.sl`
    - Role: `DistrictCoordinator`
-   - Password: `Invendis@2024`
+   - Password: `**********`
 10. Click **Create**
 
 **Expected:** New user appears in the list. They can now log in to the web portal.
@@ -336,8 +336,8 @@ Use **Expo Go** on your Android or iOS device. Scan the QR code shown in the Exp
 **Steps:**
 1. Open Expo Go → scan the QR code
 2. On the Login screen, enter:
-   - Email: `mohamedamadubangura@gmail.com`
-   - Password: `Invendis@2024`
+   - Email: `fieldofficer@invendis.sl`
+   - Password: `**********`
 3. Tap **Sign In**
 
 **Expected:** You land on the Dashboard tab showing:
@@ -517,7 +517,7 @@ After completing all scenarios above, verify the full audit trail:
 
 | Error | Likely Cause | Fix |
 |-------|-------------|-----|
-| "Invalid credentials" (login) | Wrong email or password | Check credentials — password is `Invendis@2024` |
+| "Invalid credentials" (login) | Wrong email or password | Check credentials — password is `**********` |
 | "Account is inactive" (login) | User deactivated | Admin reactivates in `/users` |
 | "Account profile not found" (field app) | First mobile login hasn't provisioned yet | Log in once via web portal first |
 | "Invalid or expired code" (OTP) | Code expired (10 min) or wrong digits | Tap Resend to get a new code |
