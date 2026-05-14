@@ -211,6 +211,12 @@ export const compareFace = (token: string, farmerId: number, deliveryKey: string
     body: JSON.stringify({ farmerId, deliveryKey }),
   });
 
+export const saveFaceReference = (token: string, farmerId: number, key: string) =>
+  apiFetch<{ success: boolean; photoUrl: string }>("/face/save-reference", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId, key }),
+  });
+
 export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
   const response = await fetch(photoUri);
   const blob = await response.blob();

@@ -25,6 +25,7 @@ import {
   submitPoD,
   getFaceUploadUrl,
   compareFace,
+  saveFaceReference,
   uploadPhotoToS3,
   getOtpStatus,
   bypassOtp,
@@ -305,8 +306,20 @@ export default function ConfirmPodScreen() {
       const uploadInfo = await getFaceUploadUrl(token!, Number(farmerId), "delivery");
       await uploadPhotoToS3(uploadInfo.uploadUrl, uri);
       const result = await compareFace(token!, Number(farmerId), uploadInfo.key);
+
+      // When no reference photo exists, save this delivery photo as the reference
+      // so all future deliveries compare against it.
+      if (result.faceStatus === "NoReference") {
+        try {
+          await saveFaceReference(token!, Number(farmerId), uploadInfo.key);
+        } catch (refErr) {
+          // Non-fatal — log but don't block the flow
+          console.warn("Could not save reference photo:", refErr);
+        }
+      }
+
       setFaceResult(result);
-      if (result.faceStatus === "Verified") {
+      if (result.faceStatus === "Verified" || result.faceStatus === "NoReference") {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
