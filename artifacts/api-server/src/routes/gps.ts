@@ -112,17 +112,19 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
 
   const { data: activeDispatches } = await supa
     .from("dispatches")
-    .select("id, vehicle_id, manifest_code, status, departed_at, arrived_at, campaign_id, driver_id")
+    .select("id, vehicle_id, manifest_code, status, departed_at, arrived_at, campaign_id, driver_id, warehouse_id")
     .in("vehicle_id", vehicleIds)
     .in("status", ["In Transit", "Arrived"]);
 
   const dispatchList = activeDispatches ?? [];
-  const campaignIds  = [...new Set(dispatchList.map((d: any) => d.campaign_id).filter(Boolean))];
-  const driverIds    = [...new Set(dispatchList.map((d: any) => d.driver_id).filter(Boolean))];
+  const campaignIds   = [...new Set(dispatchList.map((d: any) => d.campaign_id).filter(Boolean))];
+  const driverIds     = [...new Set(dispatchList.map((d: any) => d.driver_id).filter(Boolean))];
+  const warehouseIds  = [...new Set(dispatchList.map((d: any) => d.warehouse_id).filter(Boolean))];
 
-  const [{ data: campaigns }, { data: drivers }] = await Promise.all([
-    campaignIds.length ? supa.from("campaigns").select("id, name, distribution_site_id, district_id").in("id", campaignIds) : Promise.resolve({ data: [] }),
-    driverIds.length   ? supa.from("drivers").select("id, full_name").in("id", driverIds) : Promise.resolve({ data: [] }),
+  const [{ data: campaigns }, { data: drivers }, { data: warehouses }] = await Promise.all([
+    campaignIds.length  ? supa.from("campaigns").select("id, name, distribution_site_id, district_id").in("id", campaignIds) : Promise.resolve({ data: [] }),
+    driverIds.length    ? supa.from("drivers").select("id, full_name").in("id", driverIds) : Promise.resolve({ data: [] }),
+    warehouseIds.length ? supa.from("warehouses").select("id, name").in("id", warehouseIds) : Promise.resolve({ data: [] }),
   ]);
 
   const siteIds    = [...new Set((campaigns ?? []).map((c: any) => c.distribution_site_id).filter(Boolean))];
@@ -133,16 +135,18 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
     districtIds.length ? supa.from("districts").select("id, name, latitude, longitude").in("id", districtIds) : Promise.resolve({ data: [] }),
   ]);
 
-  const dispMap    = Object.fromEntries(dispatchList.map((d: any) => [d.vehicle_id, d]));
-  const campMap    = Object.fromEntries((campaigns ?? []).map((c: any) => [c.id, c]));
-  const driverMap  = Object.fromEntries((drivers ?? []).map((d: any) => [d.id, d]));
-  const siteMap    = Object.fromEntries((sites ?? []).map((s: any) => [s.id, s]));
-  const distMap    = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d]));
+  const dispMap      = Object.fromEntries(dispatchList.map((d: any) => [d.vehicle_id, d]));
+  const campMap      = Object.fromEntries((campaigns ?? []).map((c: any) => [c.id, c]));
+  const driverMap    = Object.fromEntries((drivers ?? []).map((d: any) => [d.id, d]));
+  const siteMap      = Object.fromEntries((sites ?? []).map((s: any) => [s.id, s]));
+  const distMap      = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d]));
+  const warehouseMap = Object.fromEntries((warehouses ?? []).map((w: any) => [w.id, w]));
 
   const rows = vList.map((v: any) => {
     const dispatch   = dispMap[v.id] as any;
-    const campaign   = dispatch?.campaign_id ? campMap[dispatch.campaign_id] as any : null;
-    const driver     = dispatch?.driver_id   ? driverMap[dispatch.driver_id] as any : null;
+    const campaign   = dispatch?.campaign_id   ? campMap[dispatch.campaign_id]   as any : null;
+    const driver     = dispatch?.driver_id     ? driverMap[dispatch.driver_id]   as any : null;
+    const warehouse  = dispatch?.warehouse_id  ? warehouseMap[dispatch.warehouse_id] as any : null;
     const site       = campaign?.distribution_site_id ? siteMap[campaign.distribution_site_id] as any : null;
     const district   = campaign?.district_id  ? distMap[campaign.district_id]  as any : null;
 
@@ -171,19 +175,20 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
       lastLatitude:     v.last_latitude,
       lastLongitude:    v.last_longitude,
       lastPing:         v.last_ping,
-      dispatchId:       dispatch?.id          ?? null,
+      dispatchId:       dispatch?.id           ?? null,
       manifestCode:     dispatch?.manifest_code ?? null,
-      dispatchStatus:   dispatch?.status       ?? null,
-      departedAt:       dispatch?.departed_at  ?? null,
-      arrivedAt:        dispatch?.arrived_at   ?? null,
-      campaignName:     campaign?.name         ?? null,
-      destinationName:  site?.name             ?? null,
+      dispatchStatus:   dispatch?.status        ?? null,
+      departedAt:       dispatch?.departed_at   ?? null,
+      arrivedAt:        dispatch?.arrived_at    ?? null,
+      campaignName:     campaign?.name          ?? null,
+      destinationName:  site?.name              ?? null,
       effectiveDestLat: destLat,
       effectiveDestLng: destLng,
       destinationLabel,
       hasDestination,
-      districtName:     district?.name         ?? null,
-      driverName:       driver?.full_name       ?? null,
+      districtName:     district?.name          ?? null,
+      driverName:       driver?.full_name        ?? null,
+      warehouseName:    warehouse?.name          ?? null,
       distanceToDestM,
       distanceLabel,
       withinGeofence,
