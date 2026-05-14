@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { supa } from "./supabase.js";
 import { logger } from "./logger.js";
 
@@ -20,35 +21,80 @@ function hasWialonToken(): boolean {
   return !!process.env["GPS_TRACE_WIALON_TOKEN"];
 }
 
+function hasWialonCredentials(): boolean {
+  return !!(process.env["GPS_TRACE_EMAIL"] && process.env["GPS_TRACE_PASSWORD"]);
+}
+
+export function canUseWialon(): boolean {
+  return hasWialonToken() || hasWialonCredentials();
+}
+
 let _wialonSid: string | null = null;
 let _wialonSidExpiry = 0;
+
+async function wialonLoginViaToken(host: string): Promise<string> {
+  const token = process.env["GPS_TRACE_WIALON_TOKEN"]!;
+  const params = encodeURIComponent(JSON.stringify({ token, fl: 1 }));
+  const url = `https://${host}/wialon/ajax.html?svc=token%2Flogin&params=${params}`;
+  const res = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" } });
+  const text = await res.text();
+  let data: any;
+  try { data = JSON.parse(text); }
+  catch (_) { throw new Error(`Wialon token/login: unexpected response: ${text.slice(0, 200)}`); }
+  if (data.error) throw new Error(`Wialon token/login error ${data.error}: ${data.reason ?? "unknown"}`);
+  return data.eid as string;
+}
+
+async function wialonLoginViaCredentials(host: string): Promise<string> {
+  const email = process.env["GPS_TRACE_EMAIL"]!;
+  const password = process.env["GPS_TRACE_PASSWORD"]!;
+  const md5 = createHash("md5").update(password).digest("hex");
+
+  const params = encodeURIComponent(JSON.stringify({ user: email, password: md5, checkService: 1 }));
+  const url = `https://${host}/wialon/ajax.html?svc=core%2Flogin&params=${params}`;
+  const res = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" } });
+  const text = await res.text();
+  let data: any;
+  try { data = JSON.parse(text); }
+  catch (_) { throw new Error(`Wialon core/login: unexpected response: ${text.slice(0, 200)}`); }
+  if (data.error) {
+    if (data.error === 4) {
+      const paramsPlain = encodeURIComponent(JSON.stringify({ user: email, password, checkService: 1 }));
+      const url2 = `https://${host}/wialon/ajax.html?svc=core%2Flogin&params=${paramsPlain}`;
+      const res2 = await fetch(url2, { headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" } });
+      const text2 = await res2.text();
+      let data2: any;
+      try { data2 = JSON.parse(text2); }
+      catch (_) { throw new Error(`Wialon core/login (plain): unexpected response: ${text2.slice(0, 200)}`); }
+      if (data2.error) throw new Error(`Wialon core/login error ${data2.error}: ${data2.reason ?? "unknown"}`);
+      return data2.eid as string;
+    }
+    throw new Error(`Wialon core/login error ${data.error}: ${data.reason ?? "unknown"}`);
+  }
+  return data.eid as string;
+}
 
 async function wialonLogin(): Promise<string> {
   const now = Date.now();
   if (_wialonSid && now < _wialonSidExpiry) return _wialonSid;
 
-  const token = process.env["GPS_TRACE_WIALON_TOKEN"]!;
   const host = WIALON_HOST();
-  const params = encodeURIComponent(JSON.stringify({ token, fl: 1 }));
-  const url = `https://${host}/wialon/ajax.html?svc=token%2Flogin&params=${params}`;
+  let sid: string;
+  let method: string;
 
-  const res = await fetch(url, {
-    headers: {
-      "X-Requested-With": "XMLHttpRequest",
-      "Accept": "application/json",
-    },
-  });
-  const text = await res.text();
+  if (hasWialonToken()) {
+    sid = await wialonLoginViaToken(host);
+    method = "token";
+  } else if (hasWialonCredentials()) {
+    sid = await wialonLoginViaCredentials(host);
+    method = "credentials";
+  } else {
+    throw new Error("No Wialon credentials configured. Set GPS_TRACE_WIALON_TOKEN or GPS_TRACE_EMAIL + GPS_TRACE_PASSWORD.");
+  }
 
-  let data: any;
-  try { data = JSON.parse(text); }
-  catch (_) { throw new Error(`Wialon login: unexpected response from ${host}: ${text.slice(0, 200)}`); }
-
-  if (data.error) throw new Error(`Wialon login error ${data.error}: ${data.reason ?? "unknown"}`);
-
-  _wialonSid = data.eid as string;
+  _wialonSid = sid;
   _wialonSidExpiry = now + 23 * 60 * 60 * 1000;
-  logger.info({ host }, "Wialon session established");
+  logger.info({ host, method }, "Wialon session established");
   return _wialonSid;
 }
 
@@ -134,27 +180,47 @@ async function fetchTrackerMessages(unitId: number, count = 1): Promise<any[]> {
 function extractPositionFromProviderData(telemetry: any, messages: any[]): {
   lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date
 } | null {
-  const tel = telemetry?.position ?? telemetry?.gps ?? telemetry?.data ?? telemetry;
-  const lat = tel?.lat ?? tel?.latitude;
-  const lng = tel?.lng ?? tel?.longitude ?? tel?.lon;
-  if (lat != null && lng != null && lat !== 0 && lng !== 0) {
+  // GPS-Trace telemetry: { "position": { "ts": unix, "value": { latitude, longitude, speed, direction } } }
+  const posEntry = telemetry?.["position"];
+  if (posEntry?.value?.latitude != null && posEntry?.value?.longitude != null) {
+    const v = posEntry.value;
+    const ts = posEntry.ts ?? telemetry?.["timestamp"]?.value;
     return {
-      lat: Number(lat), lng: Number(lng),
-      speed: tel?.speed != null ? Number(tel.speed) : null,
-      heading: tel?.heading ?? tel?.course != null ? Number(tel?.heading ?? tel?.course) : null,
-      recordedAt: tel?.time ? new Date(tel.time) : new Date(),
+      lat: Number(v.latitude),
+      lng: Number(v.longitude),
+      speed: v.speed != null ? Number(v.speed) : null,
+      heading: v.direction != null ? Number(v.direction) : null,
+      recordedAt: ts ? new Date(Number(ts) * 1000) : new Date(),
     };
   }
+
+  // Flat dot-notation telemetry fallback: "position.latitude", "position.longitude"
+  const flatLat = telemetry?.["position.latitude"]?.value ?? telemetry?.["position.latitude"];
+  const flatLng = telemetry?.["position.longitude"]?.value ?? telemetry?.["position.longitude"];
+  if (flatLat != null && flatLng != null && flatLat !== 0 && flatLng !== 0) {
+    const ts = telemetry?.["timestamp"]?.value ?? telemetry?.["timestamp"];
+    return {
+      lat: Number(flatLat),
+      lng: Number(flatLng),
+      speed: telemetry?.["position.speed"]?.value != null ? Number(telemetry["position.speed"].value) : null,
+      heading: telemetry?.["position.direction"]?.value != null ? Number(telemetry["position.direction"].value) : null,
+      recordedAt: ts ? new Date(Number(ts) * 1000) : new Date(),
+    };
+  }
+
+  // GPS-Trace messages: flat object with "position.latitude", "position.longitude" as string keys
   const msg = messages?.[0];
   if (!msg) return null;
-  const mlat = msg?.lat ?? msg?.latitude ?? msg?.position?.lat;
-  const mlng = msg?.lng ?? msg?.longitude ?? msg?.lon ?? msg?.position?.lng;
+  const mlat = msg?.["position.latitude"] ?? msg?.lat ?? msg?.latitude ?? msg?.position?.lat ?? msg?.position?.latitude;
+  const mlng = msg?.["position.longitude"] ?? msg?.lng ?? msg?.longitude ?? msg?.lon ?? msg?.position?.lng ?? msg?.position?.longitude;
   if (mlat != null && mlng != null && mlat !== 0 && mlng !== 0) {
+    const ts = msg?.timestamp ?? msg?.["server.timestamp"] ?? msg?.time;
     return {
-      lat: Number(mlat), lng: Number(mlng),
-      speed: msg?.speed != null ? Number(msg.speed) : null,
-      heading: msg?.heading ?? msg?.course != null ? Number(msg?.heading ?? msg?.course) : null,
-      recordedAt: msg?.time ? new Date(msg.time) : new Date(),
+      lat: Number(mlat),
+      lng: Number(mlng),
+      speed: msg?.["position.speed"] != null ? Number(msg["position.speed"]) : (msg?.speed != null ? Number(msg.speed) : null),
+      heading: msg?.["position.direction"] != null ? Number(msg["position.direction"]) : (msg?.heading ?? msg?.course != null ? Number(msg?.heading ?? msg?.course) : null),
+      recordedAt: ts ? new Date(Number(ts) * 1000) : new Date(),
     };
   }
   return null;
@@ -175,14 +241,14 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
   const vList: { id: number; gps_device_id: string }[] = vehicles ?? [];
   if (!vList.length) return { synced: 0, skipped: 0, source: "none" };
 
-  if (hasWialonToken()) {
-    return syncViaWialon(vList);
+  if (canUseWialon()) {
+    try {
+      return await syncViaWialon(vList);
+    } catch (err: any) {
+      logger.warn({ err: err.message }, "Wialon sync failed — falling back to Provider API");
+    }
   }
 
-  logger.warn(
-    { hint: "Set GPS_TRACE_WIALON_TOKEN from ForGuard UI: User → API Access → Generate token" },
-    "GPS_TRACE_WIALON_TOKEN not set — falling back to Provider API (positions may be unavailable)"
-  );
   return syncViaProviderApi(vList);
 }
 
@@ -192,17 +258,18 @@ async function syncViaWialon(
   let synced = 0;
   let skipped = 0;
 
-  try {
-    const positions = await wialonFetchUnitPositions();
-    logger.info({ unitCount: positions.size }, "Wialon positions fetched");
+  // Let login/fetch errors propagate so syncAllVehicles can fall back to provider API
+  const positions = await wialonFetchUnitPositions();
+  logger.info({ unitCount: positions.size }, "Wialon positions fetched");
 
-    for (const v of vehicles) {
-      const pos = positions.get(v.gps_device_id);
-      if (!pos) {
-        logger.warn({ vehicleId: v.id, gpsDeviceId: v.gps_device_id }, "No Wialon position for unit");
-        skipped++;
-        continue;
-      }
+  for (const v of vehicles) {
+    const pos = positions.get(v.gps_device_id);
+    if (!pos) {
+      logger.warn({ vehicleId: v.id, gpsDeviceId: v.gps_device_id }, "No Wialon position for unit");
+      skipped++;
+      continue;
+    }
+    try {
       await supa.from("gps_track").insert({
         vehicle_id:  v.id,
         dispatch_id: null,
@@ -219,10 +286,10 @@ async function syncViaWialon(
         last_ping:      pos.recordedAt.toISOString(),
       }).eq("id", v.id);
       synced++;
+    } catch (dbErr: any) {
+      logger.warn({ vehicleId: v.id, err: dbErr.message }, "Wialon: DB write error for vehicle");
+      skipped++;
     }
-  } catch (err: any) {
-    logger.warn({ err: err.message }, "Wialon sync error");
-    skipped += vehicles.length;
   }
 
   logger.info({ synced, skipped, source: "wialon" }, "GPS sync complete");
@@ -288,7 +355,7 @@ let _pollTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startGpsPoller(intervalMs = 30_000): void {
   if (_pollTimer) return;
-  logger.info({ intervalMs, wialonEnabled: hasWialonToken() }, "Starting GPS poller");
+  logger.info({ intervalMs, wialonEnabled: canUseWialon(), method: hasWialonToken() ? "token" : hasWialonCredentials() ? "credentials" : "provider-api" }, "Starting GPS poller");
   _pollTimer = setInterval(async () => {
     try { await syncAllVehicles(); }
     catch (err: any) { logger.warn({ err: err.message }, "GPS poller error"); }
