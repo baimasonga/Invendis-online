@@ -729,6 +729,41 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
   return resp.json();
 }
 
+export async function listGpsTraceDevices() {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/devices", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace devices fetch failed: ${resp.statusText}`);
+  return resp.json() as Promise<{ configured: boolean; devices: any[]; vehicles: any[] }>;
+}
+
+export async function syncGpsTrace() {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/sync", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace sync failed: ${resp.statusText}`);
+  return resp.json() as Promise<{ synced: number; total: number; linked: number }>;
+}
+
+export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, deviceName?: string) {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/link", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicleId, deviceId, deviceName }),
+  });
+  if (!resp.ok) throw new Error(`Link failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function unlinkGpsTraceDevice(vehicleId: number) {
+  const token = await gpsToken();
+  const resp = await fetch(`/api/gpstrace/unlink/${vehicleId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Unlink failed: ${resp.statusText}`);
+  return resp.json();
+}
+
 // ── POD ───────────────────────────────────────────────────────────────────────
 export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string) {
   let q = supabase

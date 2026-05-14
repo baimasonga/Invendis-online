@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listVehicleGpsStatus, listGpsTrack, KEYS } from "@/lib/db";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listVehicleGpsStatus, listGpsTrack, listGpsTraceDevices, syncGpsTrace, linkGpsTraceDevice, unlinkGpsTraceDevice, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
   ChevronRight, RefreshCw, Wifi, WifiOff, Target,
-  AlertTriangle, CheckCircle2, RouteOff,
+  AlertTriangle, CheckCircle2, RouteOff, Link2, Link2Off,
+  Satellite, PlugZap,
 } from "lucide-react";
 
 declare global {
@@ -318,6 +321,212 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle }: GpsMapProps) {
   );
 }
 
+// ── Tracker Setup Tab ─────────────────────────────────────────────────────────
+
+function TrackerSetup() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [linkingDeviceId, setLinkingDeviceId] = useState<string | null>(null);
+
+  const { data, isLoading, refetch, isFetching, error } = useQuery({
+    queryKey: ["gpstrace-devices"],
+    queryFn: listGpsTraceDevices,
+    retry: 1,
+  });
+
+  const syncMut = useMutation({
+    mutationFn: syncGpsTrace,
+    onSuccess: (result) => {
+      toast({ title: `Synced ${result.synced} position${result.synced !== 1 ? "s" : ""} from GPS-Trace` });
+      qc.invalidateQueries({ queryKey: KEYS.gpsVehicles() });
+      qc.invalidateQueries({ queryKey: ["gpstrace-devices"] });
+    },
+    onError: (err: any) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
+  });
+
+  const linkMut = useMutation({
+    mutationFn: ({ vehicleId, deviceId, deviceName }: { vehicleId: number; deviceId: string; deviceName?: string }) =>
+      linkGpsTraceDevice(vehicleId, deviceId, deviceName),
+    onSuccess: () => {
+      toast({ title: "Tracker linked successfully" });
+      setLinkingDeviceId(null);
+      refetch();
+    },
+    onError: (err: any) => toast({ title: "Link failed", description: err.message, variant: "destructive" }),
+  });
+
+  const unlinkMut = useMutation({
+    mutationFn: (vehicleId: number) => unlinkGpsTraceDevice(vehicleId),
+    onSuccess: () => { toast({ title: "Tracker unlinked" }); refetch(); },
+    onError: (err: any) => toast({ title: "Unlink failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3 mt-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}><CardContent className="p-4"><Skeleton className="h-14 w-full" /></CardContent></Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !data?.configured) {
+    return (
+      <Card className="mt-4 border-amber-200 bg-amber-50/50">
+        <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
+          <PlugZap className="h-10 w-10 text-amber-400 opacity-60" />
+          <div>
+            <p className="text-sm font-semibold">GPS-Trace not configured</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Set the <code className="bg-muted px-1 rounded text-[11px]">GPSTRACE_TOKEN</code> environment variable on the API server to connect your GPS-Trace account.
+              <br />Generate a token in GPS-Trace → My Account → API Access.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const devices: any[] = data.devices ?? [];
+  const vehicles: any[] = data.vehicles ?? [];
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* Header bar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Satellite className="h-4 w-4 text-blue-600" />
+          <p className="text-sm font-semibold">GPS-Trace Tracker Units</p>
+          {devices.length > 0 && (
+            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+              {devices.length} unit{devices.length !== 1 ? "s" : ""} found
+            </span>
+          )}
+        </div>
+        <Button
+          size="sm" variant="outline" className="h-8"
+          onClick={() => syncMut.mutate()}
+          disabled={syncMut.isPending || isFetching}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncMut.isPending ? "animate-spin" : ""}`} />
+          {syncMut.isPending ? "Syncing…" : "Sync Positions Now"}
+        </Button>
+      </div>
+
+      {devices.length > 0 && (
+        <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-2">
+          <Satellite className="h-3.5 w-3.5 shrink-0" />
+          {devices.length} tracker unit{devices.length !== 1 ? "s" : ""} found in GPS-Trace account. Link each unit to a vehicle below.
+        </p>
+      )}
+
+      {/* Device cards */}
+      {devices.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
+            <Satellite className="h-10 w-10 opacity-20" />
+            <p className="text-sm">No tracker units found in your GPS-Trace account.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {devices.map((device: any) => {
+            const linked: any = device.linkedVehicle;
+            const isLinkingThis = linkingDeviceId === device.deviceId;
+            return (
+              <Card key={device.deviceId} className={linked ? "border-emerald-200 bg-emerald-50/30" : ""}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${linked ? "bg-emerald-100" : "bg-slate-100"}`}>
+                        <Satellite className={`h-4 w-4 ${linked ? "text-emerald-700" : "text-slate-500"}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm">{device.deviceName}</p>
+                        <p className="text-xs text-muted-foreground font-mono mt-0.5">ID: {device.deviceId}</p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          {device.lastSeen ? (
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> {formatAgo(device.lastSeen)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Never seen</span>
+                          )}
+                          {device.latitude != null && (
+                            <span className="text-xs font-mono text-muted-foreground">{device.latitude.toFixed(4)}, {device.longitude.toFixed(4)}</span>
+                          )}
+                          {device.speed != null && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Gauge className="h-3 w-3" /> {device.speed} km/h
+                            </span>
+                          )}
+                        </div>
+                        {linked && (
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <Link2 className="h-3 w-3 text-emerald-600" />
+                            <p className="text-xs font-medium text-emerald-700">
+                              Linked to {linked.plate_number} ({linked.vehicle_code})
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 shrink-0">
+                      {linked ? (
+                        <Button
+                          size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                          onClick={() => unlinkMut.mutate(linked.id)}
+                          disabled={unlinkMut.isPending}
+                        >
+                          <Link2Off className="h-3.5 w-3.5 mr-1" /> Unlink
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                          onClick={() => setLinkingDeviceId(isLinkingThis ? null : device.deviceId)}
+                        >
+                          <Link2 className="h-3.5 w-3.5 mr-1" /> Link Tracker
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Vehicle picker */}
+                  {isLinkingThis && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-medium mb-2 text-muted-foreground">Select vehicle to link this tracker to:</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[200px] overflow-y-auto pr-1">
+                        {vehicles
+                          .filter((v: any) => !v.gps_device_id || v.gps_device_id === device.deviceId)
+                          .map((v: any) => (
+                            <button
+                              key={v.id}
+                              className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-left transition-colors"
+                              onClick={() => linkMut.mutate({ vehicleId: v.id, deviceId: device.deviceId, deviceName: device.deviceName })}
+                              disabled={linkMut.isPending}
+                            >
+                              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold leading-tight">{v.plate_number}</p>
+                                <p className="text-[10px] text-muted-foreground">{v.vehicle_code}</p>
+                              </div>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function GpsTracking() {
@@ -349,8 +558,8 @@ export default function GpsTracking() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Live Vehicle Tracking"
-        subtitle="Real-time GPS positions and destination monitoring. Refreshes every 30 seconds."
+        title="GPS Tracking"
+        subtitle="Real-time vehicle positions, destination monitoring, and hardware tracker management."
         badge={
           liveCount > 0 ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
@@ -369,6 +578,22 @@ export default function GpsTracking() {
           </Button>
         }
       />
+
+      <Tabs defaultValue="live">
+        <TabsList className="h-8">
+          <TabsTrigger value="live" className="text-xs flex items-center gap-1.5">
+            <Radio className="h-3 w-3" /> Live Tracking
+          </TabsTrigger>
+          <TabsTrigger value="trackers" className="text-xs flex items-center gap-1.5">
+            <Satellite className="h-3 w-3" /> Tracker Setup
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="trackers">
+          <TrackerSetup />
+        </TabsContent>
+
+        <TabsContent value="live">
 
       {/* Summary strip */}
       {!isLoading && vehicleList.length > 0 && (
@@ -668,6 +893,8 @@ export default function GpsTracking() {
           )}
         </div>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
