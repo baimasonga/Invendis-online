@@ -3,561 +3,1166 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Invendis User Manual</title>
+<title>Invendis — System User Manual</title>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px 60px; color: #222; line-height: 1.8; }
-  h1 { color: #126d34; border-bottom: 3px solid #126d34; padding-bottom: 10px; }
-  h2 { color: #126d34; margin-top: 40px; border-left: 4px solid #126d34; padding-left: 12px; }
-  h3 { color: #1a5c2e; margin-top: 28px; }
-  h4 { color: #333; margin-top: 20px; }
-  hr { border: none; border-top: 1px solid #ddd; margin: 36px 0; }
-  ul, ol { padding-left: 26px; }
-  li { margin-bottom: 6px; }
-  strong { color: #126d34; }
-  code { background: #f4f4f4; border: 1px solid #ddd; padding: 1px 6px; border-radius: 3px; font-size: 0.9em; }
-  blockquote { background: #fffbe6; border-left: 4px solid #f0c040; padding: 10px 16px; margin: 16px 0; border-radius: 4px; }
-  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.95em; }
-  th { background: #126d34; color: white; padding: 10px 14px; text-align: left; }
-  td { border: 1px solid #ddd; padding: 8px 14px; }
-  tr:nth-child(even) td { background: #f9f9f9; }
-  input[type=checkbox] { margin-right: 8px; width: 16px; height: 16px; }
-  @media print { body { margin: 20px; } h2 { page-break-before: auto; } }
+  :root {
+    --green:        #126d34;
+    --green-dark:   #0a4a22;
+    --green-light:  #e8f5ee;
+    --green-mid:    #d0ead9;
+    --text:         #1a1a1a;
+    --text-muted:   #5a6472;
+    --border:       #dce3e8;
+    --bg-light:     #f7f9fb;
+    --warning-bg:   #fffbeb;
+    --warning-bd:   #f0c040;
+    --info-bg:      #eff8ff;
+    --info-bd:      #3b9ede;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body { font-family: var(--font); color: var(--text); background: #fff; line-height: 1.65; }
+  p { margin-bottom: 12px; }
+  ul { padding-left: 20px; margin-bottom: 12px; }
+  ul li { margin-bottom: 6px; font-size: 14px; }
+  h2 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+
+  /* Cover */
+  .cover {
+    background: var(--green-dark); color: #fff;
+    min-height: 100vh; display: flex; flex-direction: column;
+    justify-content: center; padding: 80px 10%;
+    position: relative; overflow: hidden; page-break-after: always;
+  }
+  .cover::before { content:''; position:absolute; top:-120px; right:-120px; width:500px; height:500px; border-radius:50%; background:rgba(255,255,255,.04); }
+  .cover::after  { content:''; position:absolute; bottom:-80px; left:40%; width:320px; height:320px; border-radius:50%; background:rgba(255,255,255,.03); }
+  .cover-logo { display:flex; align-items:center; gap:12px; margin-bottom:72px; }
+  .cover-logo-icon { width:48px; height:48px; border-radius:12px; background:var(--green); display:flex; align-items:center; justify-content:center; font-size:22px; }
+  .cover-logo-name { font-size:22px; font-weight:600; letter-spacing:.02em; }
+  .cover-eyebrow { font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:#6fcf8a; margin-bottom:16px; }
+  .cover-title { font-size:clamp(36px,5vw,56px); font-weight:700; line-height:1.12; margin-bottom:24px; }
+  .cover-subtitle { font-size:18px; font-weight:300; color:rgba(255,255,255,.75); max-width:520px; margin-bottom:48px; }
+  .cover-meta { display:flex; gap:48px; border-top:1px solid rgba(255,255,255,.15); padding-top:32px; margin-top:32px; flex-wrap:wrap; }
+  .cover-meta-item label { display:block; font-size:10px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.5); margin-bottom:4px; }
+  .cover-meta-item span { font-size:14px; font-weight:500; color:rgba(255,255,255,.9); }
+
+  /* Layout */
+  .container { max-width: 960px; margin: 0 auto; padding: 0 40px; }
+
+  /* TOC */
+  .toc-section { padding:64px 0; border-bottom:2px solid var(--border); background:var(--bg-light); }
+  .toc-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 40px; }
+  .toc-part { margin-bottom:32px; }
+  .toc-part-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin-bottom:12px; padding-bottom:6px; border-bottom:2px solid var(--green-mid); }
+  .toc-item { display:flex; align-items:baseline; gap:8px; padding:5px 0; text-decoration:none; color:var(--text); font-size:13.5px; transition:color .15s; }
+  .toc-item:hover { color:var(--green); }
+  .toc-num { font-size:11px; font-weight:700; color:var(--green); min-width:28px; }
+  .toc-dots { flex:1; border-bottom:1px dotted var(--border); margin:0 6px; position:relative; top:-3px; }
+
+  /* Part headers */
+  .part-header { background:var(--green); color:#fff; padding:40px 0; }
+  .part-header .eyebrow { font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:rgba(255,255,255,.6); margin-bottom:8px; }
+  .part-header h2 { font-size:28px; font-weight:700; margin:0; color:#fff; }
+
+  /* Scenarios */
+  .scenario { padding:56px 0; border-bottom:1px solid var(--border); }
+  .scenario-header { display:flex; align-items:flex-start; gap:20px; margin-bottom:28px; }
+  .scenario-num { width:44px; height:44px; border-radius:50%; background:var(--green); color:#fff; font-size:16px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:3px; }
+  .scenario-title-block h3 { font-size:22px; font-weight:700; margin:0 0 6px; }
+  .scenario-meta { display:flex; gap:12px; flex-wrap:wrap; }
+  .meta-badge { font-size:11.5px; font-weight:500; padding:3px 10px; border-radius:20px; background:var(--green-light); color:var(--green); }
+  .meta-badge.path { background:#f0f4ff; color:#3a5bd9; }
+
+  /* Steps */
+  .steps-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted); margin-bottom:12px; margin-top:24px; }
+  .steps { counter-reset:step; list-style:none; margin:0; padding:0; }
+  .steps li { counter-increment:step; display:flex; gap:14px; margin-bottom:12px; font-size:14px; line-height:1.6; align-items:flex-start; }
+  .steps li::before { content:counter(step); min-width:26px; height:26px; border-radius:50%; background:var(--green-light); color:var(--green); font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+  .steps li strong { font-weight:600; }
+  .steps li code, code { font-family:'SF Mono','Fira Code',monospace; font-size:12.5px; background:var(--bg-light); padding:1px 6px; border-radius:4px; border:1px solid var(--border); color:#c0392b; }
+
+  /* Outcome */
+  .outcome { background:var(--green-light); border-left:4px solid var(--green); border-radius:0 6px 6px 0; padding:12px 16px; margin:6px 0 6px 40px; font-size:13.5px; }
+  .outcome-label { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--green); margin-bottom:3px; }
+
+  /* Callouts */
+  .callout { border-radius:8px; padding:14px 18px; margin:18px 0; font-size:13.5px; }
+  .callout.tip { background:var(--info-bg); border:1px solid var(--info-bd); }
+  .callout.warning { background:var(--warning-bg); border:1px solid var(--warning-bd); }
+  .callout-icon { font-size:15px; margin-right:6px; }
+
+  /* Figures */
+  .figure { margin:28px 0; border:1px solid var(--border); border-radius:10px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,.09); }
+  .figure img { display:block; width:100%; height:auto; }
+  .figure-caption { background:var(--bg-light); border-top:1px solid var(--border); padding:10px 16px; font-size:12px; color:var(--text-muted); font-style:italic; }
+  .figure-caption strong { color:var(--text); font-style:normal; font-weight:600; }
+
+  /* Tables */
+  .data-table { width:100%; border-collapse:collapse; font-size:13.5px; margin:16px 0; }
+  .data-table th { background:var(--green); color:#fff; font-weight:600; text-align:left; padding:10px 14px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .data-table td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .data-table tr:nth-child(even) td { background:var(--bg-light); }
+  .data-table tr:last-child td { border-bottom:none; }
+
+  /* Sub-sections */
+  .sub-section { background:var(--bg-light); border:1px solid var(--border); border-radius:8px; padding:20px 24px; margin:16px 0; }
+  .sub-section h4 { font-size:13px; font-weight:700; color:var(--green); text-transform:uppercase; letter-spacing:.08em; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--green-mid); }
+
+  /* Mobile note */
+  .mobile-note { background:var(--green-light); border:1px solid var(--green-mid); border-radius:8px; padding:16px 20px; display:flex; gap:12px; align-items:flex-start; margin-bottom:32px; font-size:13.5px; }
+  .mobile-note-icon { font-size:20px; flex-shrink:0; }
+
+  /* Checklist */
+  .checklist-grid { display:grid; grid-template-columns:1fr 1fr; gap:32px; margin-top:24px; }
+  .checklist-col h4 { font-size:13px; font-weight:700; color:var(--green); text-transform:uppercase; letter-spacing:.08em; margin-bottom:14px; }
+  .checklist-item { display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13.5px; }
+  .check-box { width:18px; height:18px; border-radius:3px; border:2px solid var(--border); flex-shrink:0; margin-top:2px; }
+
+  @media print {
+    .cover { page-break-after:always; }
+    .part-header { page-break-before:always; }
+    .scenario { page-break-inside:avoid; }
+    body { font-size:11pt; }
+    a { color:inherit; text-decoration:none; }
+  }
+  @media (max-width:720px) {
+    .toc-grid, .checklist-grid { grid-template-columns:1fr; }
+    .container { padding:0 20px; }
+    .cover { padding:48px 24px; }
+  }
 </style>
 </head>
 <body>
-<h1>Invendis — Scenario-Based User Manual</h1>
-<strong>System:</strong> Invendis Inventory &amp; Distribution System  
-<strong>Coverage:</strong> Web Portal (Admin/Manager) + Field App (Field Officer)  
-<strong>Test Credentials:</strong>
-<table><tr><th>Account</th><th>Email</th><th>Password</th><th>Role</th></tr><tr><td>Admin</td><td>mohamedbangura@avdp.org.sl</td><td>Invendis@2024</td><td>Admin</td></tr><tr><td>Field Officer</td><td>mohamedamadubangura@gmail.com</td><td>Invendis@2024</td><td>FieldOfficer</td></tr></table>
-<hr>
-<h2>How to Use This Manual</h2>
-<p>Each scenario is self-contained and builds on realistic field operations in Sierra Leone. Work through them in order for a complete end-to-end test, or jump to any section to test a specific feature. Every step has an expected outcome so you know if it worked.</p>
-<hr>
-<h2>PART A — WEB PORTAL</h2>
-<hr>
-<h3>Scenario 1 — Admin Logs In and Checks the Dashboard</h3>
-<strong>Who:</strong> Admin  
-<strong>URL:</strong> Open the web portal preview (main app, path <code>/</code>)
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <code>/login</code></li>
-<li>Enter email <code>mohamedbangura@avdp.org.sl</code> and password <code>Invendis@2024</code></li>
-<li>Click <strong>Sign In</strong></li>
-</ol>
-<strong>Expected:</strong> You land on the Dashboard (<code>/dashboard</code>) showing summary cards — total farmers, active campaigns, dispatches in transit, and PoDs today.
-<ol>
-<li>Check the charts — Farmer Registration Trend and Distribution Progress should display bars/lines.</li>
-<li>Note the "Dispatches In Transit" card number — you will verify this later in GPS Tracking.</li>
-</ol>
-<hr>
-<h3>Scenario 2 — Add a New District and Warehouse (Settings)</h3>
-<strong>Who:</strong> Admin  
-<strong>URL:</strong> <code>/settings</code>
-<p>This sets up master data that everything else depends on.</p>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Settings</strong> in the sidebar</li>
-<li>Under <strong>Districts</strong>, click <strong>Add District</strong> → enter name <code>Test District</code>, choose a region → Save</li>
-</ol>
-   - <strong>Expected:</strong> New district appears in the list
-<ol>
-<li>Under <strong>Warehouses</strong>, click <strong>Add Warehouse</strong> → enter:</li>
-</ol>
-   - Name: <code>Test Warehouse</code>
-   - District: <code>Test District</code>
-   - Capacity: <code>5000</code>
-   → Save
-   - <strong>Expected:</strong> Warehouse appears in the list with status Active
-<hr>
-<h3>Scenario 3 — Register a New Farmer</h3>
-<strong>Who:</strong> Admin or Project Manager  
-<strong>URL:</strong> <code>/farmers</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Farmers</strong> in the sidebar</li>
-<li>Click <strong>Add Farmer</strong> (or <strong>Register Farmer</strong> button)</li>
-<li>Fill in the form:</li>
-</ol>
-   - First Name: <code>Fatmata</code>
-   - Last Name: <code>Koroma</code>
-   - Phone: <code>+23276001234</code>
-   - Gender: Female
-   - District: pick any existing district
-   - Village / Community: <code>Makeni Central</code>
-   - Value Chain: pick any (e.g. Rice)
-<ol>
-<li>Click <strong>Save / Register</strong></li>
-</ol>
-<strong>Expected:</strong> Farmer is created with status <code>Pending</code>. You are taken to the farmer detail page.
-<ol>
-<li>On the farmer detail page, locate the <strong>QR Code</strong> — this is the farmer's unique barcode token used in the field app for scanning.</li>
-<li>Click <strong>Approve</strong> to approve the farmer.</li>
-</ol>
-<strong>Expected:</strong> Status changes to <code>Approved</code>. The farmer can now receive distributions.
-<ol>
-<li>Use the <strong>Search</strong> bar on <code>/farmers</code> to search by <code>Koroma</code> — the farmer you just created should appear.</li>
-</ol>
-<hr>
-<h3>Scenario 4 — Receive Stock into a Warehouse</h3>
-<strong>Who:</strong> Admin or Warehouse Manager  
-<strong>URL:</strong> <code>/inventory</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Inventory</strong> in the sidebar</li>
-<li>Click <strong>Receive Stock</strong></li>
-<li>Fill in:</li>
-</ol>
-   - Warehouse: <code>Test Warehouse</code> (created in Scenario 2)
-   - Input Item: pick any item (e.g. Improved Rice Seed)
-   - Quantity: <code>500</code>
-   - Reference: <code>PO-TEST-001</code>
-<ol>
-<li>Click <strong>Confirm Receipt</strong></li>
-</ol>
-<strong>Expected:</strong> Stock balance for that item in Test Warehouse shows <code>500</code> units available.
-<ol>
-<li>Scroll to the <strong>Stock Balance</strong> table — verify the new balance row appears.</li>
-</ol>
-<hr>
-<h3>Scenario 5 — Create a Distribution Campaign</h3>
-<strong>Who:</strong> Admin or Project Manager  
-<strong>URL:</strong> <code>/campaigns</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Campaigns</strong> in the sidebar</li>
-<li>Click <strong>New Campaign</strong></li>
-<li>Fill in:</li>
-</ol>
-   - Name: <code>2025 Test Season — Test District</code>
-   - Season: Raining 2025
-   - District: <code>Test District</code>
-   - Warehouse: <code>Test Warehouse</code>
-   - Start Date: today
-   - End Date: 30 days from today
-<ol>
-<li>Click <strong>Save</strong></li>
-</ol>
-<strong>Expected:</strong> Campaign created with status <code>Draft</code>. You see it in the campaigns list.
-<ol>
-<li>Click the campaign to open its detail page.</li>
-<li>Click <strong>Activate Campaign</strong> (or <strong>Start</strong>).</li>
-</ol>
-<strong>Expected:</strong> Status changes to <code>Active</code>.
-<ol>
-<li>Under <strong>Allocations</strong> on the campaign detail, click <strong>Add Allocation</strong> → select farmer <code>Fatmata Koroma</code> → set quantity <code>50 kg</code> → Save.</li>
-</ol>
-<strong>Expected:</strong> Fatmata Koroma appears in the allocation list for this campaign.
-<hr>
-<h3>Scenario 6 — Create and Dispatch a Manifest</h3>
-<strong>Who:</strong> Admin or Warehouse Manager  
-<strong>URL:</strong> <code>/dispatch</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Dispatch</strong> in the sidebar</li>
-<li>Click <strong>New Dispatch</strong></li>
-<li>Fill in:</li>
-</ol>
-   - Campaign: <code>2025 Test Season — Test District</code>
-   - Warehouse: <code>Test Warehouse</code>
-   - Vehicle: pick any vehicle (or enter hired plate if no vehicle is registered)
-   - Driver: pick any driver
-<ol>
-<li>Click <strong>Create Manifest</strong></li>
-</ol>
-<strong>Expected:</strong> Manifest created with a code like <code>MAN-XXXXXX</code>, status <code>Draft</code>.
-<ol>
-<li>Open the manifest detail — click <strong>Add Item</strong>:</li>
-</ol>
-   - Input Item: Improved Rice Seed
-   - Quantity Loaded: <code>50</code>
-   → Save
-<ol>
-<li>Click <strong>Approve Manifest</strong></li>
-</ol>
-<strong>Expected:</strong> Status changes to <code>Approved</code>.
-<ol>
-<li>Click <strong>Start Dispatch</strong> (or <strong>Dispatch</strong>)</li>
-</ol>
-<strong>Expected:</strong> Status changes to <code>In Transit</code>. The vehicle status updates to InTransit.
-<hr>
-<h3>Scenario 7 — Monitor Live GPS Tracking</h3>
-<strong>Who:</strong> Admin or Project Manager  
-<strong>URL:</strong> <code>/gps-tracking</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>GPS Tracking</strong> in the sidebar</li>
-<li>The map loads showing vehicles currently In Transit</li>
-</ol>
-<strong>Expected:</strong> Any vehicle marked InTransit from Scenario 6 appears as a pin on the map.
-<ol>
-<li>Click a vehicle pin — a tooltip should show:</li>
-</ol>
-   - Manifest code
-   - Driver name
-   - Distance to destination
-   - Last ping time
-<ol>
-<li>The page auto-refreshes every 30 seconds — watch the "Last Ping" timestamp update if a GPS ping is received.</li>
-</ol>
-<blockquote><strong>To simulate a GPS ping (optional):</strong>  </blockquote>
-<blockquote>Open a terminal and run:</blockquote>
-<blockquote><code>`</code></blockquote>
-<blockquote>curl -s -X POST http://localhost:80/api/gps/ping \</blockquote>
-<blockquote>  -H "Content-Type: application/json" \</blockquote>
-<blockquote>  -H "Authorization: Bearer &lt;token&gt;" \</blockquote>
-<blockquote>  -d '{"vehicleId":2,"dispatchId":4,"latitude":8.484,"longitude":-13.234,"speed":45}'</blockquote>
-<blockquote><code>`</code></blockquote>
-<hr>
-<h3>Scenario 8 — View Proof of Delivery Records</h3>
-<strong>Who:</strong> Admin or Project Manager  
-<strong>URL:</strong> <code>/pod</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>PoD</strong> in the sidebar</li>
-<li>The table lists all submitted Proof of Delivery records</li>
-<li>Check columns: Farmer Name, Manifest Code, Quantity, GPS Coordinates, OTP Status, Face Status, Date</li>
-</ol>
-<strong>Expected:</strong> Any PoDs submitted via the field app appear here.
-<ol>
-<li>Use the filter dropdowns to filter by Status (<code>Verified</code>, <code>Pending</code>, <code>Overridden</code>) or by Campaign.</li>
-<li>Click a PoD row to view the full detail — GPS map pin, face photo, OTP channel used.</li>
-</ol>
-<hr>
-<h3>Scenario 9 — Reconcile Stock</h3>
-<strong>Who:</strong> Warehouse Manager or Admin  
-<strong>URL:</strong> <code>/reconciliation</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Reconciliation</strong> in the sidebar</li>
-<li>Click <strong>New Reconciliation</strong></li>
-<li>Select:</li>
-</ol>
-   - Warehouse: <code>Test Warehouse</code>
-   - Manifest: the one created in Scenario 6
-<ol>
-<li>Enter quantities returned and quantities delivered as reported by the driver</li>
-<li>Click <strong>Submit Reconciliation</strong></li>
-</ol>
-<strong>Expected:</strong> A reconciliation record is created. Stock balance in Test Warehouse is adjusted by the returned quantity.
-<hr>
-<h3>Scenario 10 — Review Field Incidents</h3>
-<strong>Who:</strong> Admin or District Coordinator  
-<strong>URL:</strong> <code>/incidents</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Incidents</strong> in the sidebar</li>
-<li>Any incidents submitted via the field app appear here with columns: Code, Type, Status, Reported By, Date</li>
-</ol>
-<strong>Expected:</strong> Incidents show with status <code>Open</code>.
-<ol>
-<li>Click an incident row → click <strong>Resolve</strong></li>
-<li>Enter resolution notes: <code>Issue reviewed and addressed by district coordinator</code></li>
-<li>Click <strong>Confirm</strong></li>
-</ol>
-<strong>Expected:</strong> Incident status changes to <code>Resolved</code>. Resolution notes and timestamp are saved.
-<hr>
-<h3>Scenario 11 — Run Reports</h3>
-<strong>Who:</strong> Admin or Project Manager  
-<strong>URL:</strong> <code>/reports</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Reports</strong> in the sidebar</li>
-<li>Test each report tab:</li>
-</ol>
-<strong>Beneficiary Report:</strong>
-<ul>
-<li>Shows farmers by district with totals, approved counts, female percentages</li>
-<li>Expected: Table with district rows and a summary row at the bottom</li>
-</ul>
-<strong>Stock Movement Report:</strong>
-<ul>
-<li>Shows all stock transactions (RECEIVE, TRANSFER, ISSUE)</li>
-<li>Expected: Rows with date, item name, warehouse, quantity, transaction type</li>
-</ul>
-<strong>Distribution Report:</strong>
-<ul>
-<li>Shows each manifest with campaign name, warehouse, status, and % completion</li>
-<li>Expected: The manifest from Scenario 6 appears with its completion percentage</li>
-</ul>
-<strong>Incidents Report:</strong>
-<ul>
-<li>Filterable list of all incidents</li>
-<li>Expected: Shows open and resolved incidents with officer names</li>
-</ul>
-<hr>
-<h3>Scenario 12 — Manage Users</h3>
-<strong>Who:</strong> Admin  
-<strong>URL:</strong> <code>/users</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Users</strong> in the sidebar</li>
-<li>The user list shows all accounts with role, status, and last login</li>
-</ol>
-<strong>Test deactivate:</strong>
-<ol>
-<li>Find the Field Officer account (<code>mohamedamadubangura@gmail.com</code>)</li>
-<li>Click the toggle or <strong>Deactivate</strong> button</li>
-<li><strong>Expected:</strong> Status changes to Inactive</li>
-</ol>
-<strong>Test reactivate:</strong>
-<ol>
-<li>Click <strong>Activate</strong> to restore access</li>
-<li><strong>Expected:</strong> Status changes to Active again</li>
-</ol>
-<strong>Create new user:</strong>
-<ol>
-<li>Click <strong>Add User</strong></li>
-<li>Fill in:</li>
-</ol>
-   - Full Name: <code>Test Coordinator</code>
-   - Email: <code>testcoordinator@agripo.sl</code>
-   - Role: <code>DistrictCoordinator</code>
-   - Password: <code>Invendis@2024</code>
-<ol>
-<li>Click <strong>Create</strong></li>
-</ol>
-<strong>Expected:</strong> New user appears in the list. They can now log in to the web portal.
-<hr>
-<h3>Scenario 13 — Audit Log</h3>
-<strong>Who:</strong> Admin  
-<strong>URL:</strong> <code>/audit</code>
-<strong>Steps:</strong>
-<ol>
-<li>Navigate to <strong>Audit Log</strong> in the sidebar</li>
-<li>The paginated log shows every action performed in the system (create, approve, dispatch, login, etc.)</li>
-<li>Use filters to narrow by:</li>
-</ol>
-   - Action type (CREATE, APPROVE, DISPATCH, LOGIN, etc.)
-   - Date range
-<ol>
-<li><strong>Expected:</strong> Every action from Scenarios 1–12 above appears as an entry with timestamp, user, and description.</li>
-</ol>
-<hr>
-<h2>PART B — FIELD APP (Mobile)</h2>
-<p>Use <strong>Expo Go</strong> on your Android or iOS device. Scan the QR code shown in the Expo workflow console.</p>
-<hr>
-<h3>Scenario 14 — Field Officer Logs In</h3>
-<strong>Steps:</strong>
-<ol>
-<li>Open Expo Go → scan the QR code</li>
-<li>On the Login screen, enter:</li>
-</ol>
-   - Email: <code>mohamedamadubangura@gmail.com</code>
-   - Password: <code>Invendis@2024</code>
-<ol>
-<li>Tap <strong>Sign In</strong></li>
-</ol>
-<strong>Expected:</strong> You land on the Dashboard tab showing:
-<ul>
-<li>Today's PoD count</li>
-<li>Pending sync queue size</li>
-<li>Active dispatches</li>
-</ul>
-<strong>Test wrong password:</strong>
-<ol>
-<li>Log out (if you see a logout option) and try a wrong password</li>
-<li><strong>Expected:</strong> Red error banner: "Invalid credentials"</li>
-</ol>
-<hr>
-<h3>Scenario 15 — Browse Active Dispatches</h3>
-<strong>Who:</strong> Field Officer (logged in)  
-<strong>Tab:</strong> Dispatch (second tab)
-<strong>Steps:</strong>
-<ol>
-<li>Tap the <strong>Dispatch</strong> tab</li>
-<li>The list shows all dispatches with status <code>In Transit</code> or <code>Approved</code></li>
-<li>Use the search bar to search by manifest code (e.g. <code>MAN-</code>)</li>
-<li><strong>Expected:</strong> The manifest from Scenario 6 appears</li>
-</ol>
-<ol>
-<li>Tap the manifest to open its detail page:</li>
-</ol>
-   - Manifest code, campaign name, warehouse
-   - Items loaded (Improved Rice Seed — 50 units)
-   - Driver and vehicle info
-   - List of PoDs already submitted for this dispatch
-<hr>
-<h3>Scenario 16 — Scan a Farmer's Barcode</h3>
-<strong>Who:</strong> Field Officer  
-<strong>Tab:</strong> Scan (third tab)
-<strong>Steps (Camera scan):</strong>
-<ol>
-<li>Tap the <strong>Scan</strong> tab</li>
-<li>Allow camera permission when prompted</li>
-<li>Point the camera at the QR code from the farmer's detail page in the web portal (Scenario 3 — Fatmata Koroma)</li>
-<li><strong>Expected:</strong> The app beeps/vibrates and navigates to the farmer's profile showing name, district, allocation</li>
-</ol>
-<strong>Steps (Manual search):</strong>
-<ol>
-<li>Tap <strong>Search Manually</strong> (or the search icon)</li>
-<li>Type <code>Fatmata</code></li>
-<li><strong>Expected:</strong> Fatmata Koroma appears in results — tap to open her profile</li>
-</ol>
-<hr>
-<h3>Scenario 17 — Submit a Proof of Delivery (Full 3-Step Flow)</h3>
-<strong>Who:</strong> Field Officer  
-<strong>Entry:</strong> From the farmer profile found in Scenario 16, tap <strong>Confirm Delivery</strong>
-<p>This is the core field workflow.</p>
-<hr>
-<strong>Step 1 — Delivery Details</strong>
-<ol>
-<li>The form shows farmer name, campaign, and manifest</li>
-<li>Fill in:</li>
-</ol>
-   - Quantity Delivered: <code>50</code>
-   - Notes: <code>Delivered at community centre</code>
-<ol>
-<li>Tap <strong>Capture GPS</strong> — the app requests location permission</li>
-</ol>
-   - <strong>Expected:</strong> GPS coordinates are captured and displayed (latitude/longitude)
-<ol>
-<li>Tap <strong>Next</strong></li>
-</ol>
-<hr>
-<strong>Step 2 — OTP Verification</strong>
-<ol>
-<li>Tap <strong>Send OTP</strong> — a 6-digit code is sent to the farmer's registered phone via SMS</li>
-<li><strong>Expected:</strong> The button changes to "Resend" and a 60-second cooldown starts</li>
-<li>Ask the farmer for the code they received and enter it in the 6-digit field</li>
-<li>Tap <strong>Verify</strong></li>
-</ol>
-   - <strong>Expected:</strong> Green checkmark — "OTP Verified"
-<strong>Test wrong code:</strong>
-<ul>
-<li>Enter <code>000000</code> → <strong>Expected:</strong> "Invalid or expired code" error</li>
-</ul>
-<strong>Test OTP skip (no SMS coverage):</strong>
-<ul>
-<li>Tap <strong>Skip OTP</strong> (amber button)</li>
-<li>Confirm the alert: "This will be flagged for supervisor review"</li>
-<li><strong>Expected:</strong> Step advances to Face Verification with an amber "OTP Skipped" badge</li>
-</ul>
-<ol>
-<li>If verified, tap <strong>Next</strong></li>
-</ol>
-<hr>
-<strong>Step 3 — Face Verification</strong>
-<ol>
-<li>Tap <strong>Take Photo</strong> — camera opens</li>
-<li>Take a clear photo of the farmer's face</li>
-<li>Tap <strong>Use Photo</strong></li>
-<li>The app uploads the photo and compares it against the registered reference photo</li>
-<li><strong>Expected results by case:</strong></li>
-</ol>
-   - Photo matches (≥80% similarity) → green "Face Verified" badge
-   - Photo doesn't match → red "Match Failed" badge + <strong>Override</strong> button
-   - No reference photo on file → amber "No Reference — saved for future" badge
-<strong>Test override (if match fails):</strong>
-<ol>
-<li>Tap <strong>Override</strong> → enter reason: <code>Farmer does not have reference photo</code></li>
-<li><strong>Expected:</strong> Override is accepted and flagged for supervisor review</li>
-</ol>
-<ol>
-<li>Tap <strong>Submit Delivery</strong></li>
-</ol>
-<strong>Expected:</strong> Success screen — "Delivery Confirmed". PoD record is created and visible in the web portal under <code>/pod</code>.
-<hr>
-<h3>Scenario 18 — Submit a PoD While Offline (Queue &amp; Sync)</h3>
-<strong>Who:</strong> Field Officer
-<strong>Steps:</strong>
-<ol>
-<li>Turn on <strong>Airplane Mode</strong> on your device (disable Wi-Fi and mobile data)</li>
-<li>Go through Scenarios 16 and 17 again with a different farmer</li>
-<li>On the final Submit step, tap <strong>Save Offline</strong></li>
-</ol>
-   - <strong>Expected:</strong> The delivery is saved to the offline queue. A badge appears on the <strong>Sync</strong> tab showing pending count.
-<ol>
-<li>Turn Airplane Mode off (restore connectivity)</li>
-<li>Tap the <strong>Sync</strong> tab (fifth tab)</li>
-<li>The pending queue shows the offline PoD</li>
-<li>Tap <strong>Sync Now</strong></li>
-</ol>
-   - <strong>Expected:</strong> Progress bar runs → "1 record synced successfully"
-<ol>
-<li>Go back to the web portal <code>/pod</code> — the synced PoD should now appear</li>
-</ol>
-<hr>
-<h3>Scenario 19 — Report a Field Incident</h3>
-<strong>Who:</strong> Field Officer  
-<strong>Tab:</strong> Incidents (fourth tab)
-<strong>Steps:</strong>
-<ol>
-<li>Tap the <strong>Incidents</strong> tab</li>
-<li>Tap <strong>Report Incident</strong> (or <code>+</code> button)</li>
-<li>Fill in:</li>
-</ol>
-   - Type: <code>Distribution Issue</code>
-   - Description: <code>Farmer received damaged seed bags — 5 bags rejected</code>
-   - Location: tap <strong>Use Current Location</strong>
-<ol>
-<li>Tap <strong>Submit</strong></li>
-</ol>
-<strong>Expected:</strong> Incident saved locally and synced. It appears in the incident list with status <code>Open</code>.
-<ol>
-<li>Go to the web portal <code>/incidents</code> — the incident appears with the field officer's name.</li>
-<li>Follow Scenario 10 to resolve it from the web portal.</li>
-</ol>
-<hr>
-<h2>PART C — CROSS-SYSTEM VERIFICATION</h2>
-<h3>Scenario 20 — End-to-End Delivery Audit</h3>
-<p>After completing all scenarios above, verify the full audit trail:</p>
-<ol>
-<li><strong>Web portal → <code>/audit</code></strong></li>
-</ol>
-   - Search for actions by the field officer email
-   - Expected: LOGIN, POD_SUBMIT (or OTP_BYPASS if skipped), FACE entries all present
-   
-<ol>
-<li><strong>Web portal → <code>/pod</code></strong></li>
-</ol>
-   - Find the PoD from Scenario 17
-   - Verify: GPS coordinates, quantity, OTP status (<code>Verified</code> or <code>SMSBypass</code>), face status (<code>Verified</code>, <code>Failed</code>, or <code>NoReference</code>)
-<ol>
-<li><strong>Web portal → <code>/reports</code> → Distribution Report</strong></li>
-</ol>
-   - Find the manifest from Scenario 6
-   - Completion % should now reflect the 1 PoD submitted
-<ol>
-<li><strong>Web portal → <code>/reports</code> → Beneficiary Report</strong></li>
-</ol>
-   - Test District should show 1 approved female farmer (Fatmata Koroma)
-<hr>
-<h2>Quick Reference — Common Error Messages</h2>
-<table><tr><th>Error</th><th>Likely Cause</th><th>Fix</th></tr><tr><td>"Invalid credentials" (login)</td><td>Wrong email or password</td><td>Check credentials — password is <code>Invendis@2024</code></td></tr><tr><td>"Account is inactive" (login)</td><td>User deactivated</td><td>Admin reactivates in <code>/users</code></td></tr><tr><td>"Account profile not found" (field app)</td><td>First mobile login hasn't provisioned yet</td><td>Log in once via web portal first</td></tr><tr><td>"Invalid or expired code" (OTP)</td><td>Code expired (10 min) or wrong digits</td><td>Tap Resend to get a new code</td></tr><tr><td>"No farmer found for this barcode" (scan)</td><td>Farmer not yet approved</td><td>Approve farmer in web portal <code>/farmers/:id</code></td></tr><tr><td>"Network request failed" (field app)</td><td>Device offline or API down</td><td>Check connectivity; use Save Offline</td></tr><tr><td>Sync tab shows pending items</td><td>Records saved offline</td><td>Tap Sync Now when connected</td></tr></table>
-<hr>
-<h2>Test Checklist</h2>
-<p>Use this to track your progress:</p>
-<h3>Web Portal</h3>
-<input type="checkbox"> Login and view dashboard
-<input type="checkbox"> Add district and warehouse (Settings)
-<input type="checkbox"> Register and approve a new farmer
-<input type="checkbox"> Receive stock into warehouse (Inventory)
-<input type="checkbox"> Create and activate a campaign
-<input type="checkbox"> Create dispatch manifest, add items, approve, dispatch
-<input type="checkbox"> View live GPS map (GPS Tracking)
-<input type="checkbox"> View PoD records and filter by status
-<input type="checkbox"> Submit a reconciliation
-<input type="checkbox"> Resolve a field incident
-<input type="checkbox"> Generate all 4 report types
-<input type="checkbox"> Deactivate and reactivate a user
-<input type="checkbox"> Create a new user account
-<input type="checkbox"> View the audit log and verify all actions are recorded
-<h3>Field App</h3>
-<input type="checkbox"> Login with field officer credentials
-<input type="checkbox"> Browse dispatch list and open manifest detail
-<input type="checkbox"> Scan farmer barcode via camera
-<input type="checkbox"> Search farmer manually
-<input type="checkbox"> Submit PoD — OTP verified path
-<input type="checkbox"> Submit PoD — OTP skipped path (bypass)
-<input type="checkbox"> Submit PoD — face verified path
-<input type="checkbox"> Submit PoD — face override path
-<input type="checkbox"> Save PoD offline and sync later
-<input type="checkbox"> Report a field incident
-<h3>Cross-System</h3>
-<input type="checkbox"> PoD from field app appears in web portal <code>/pod</code>
-<input type="checkbox"> Incident from field app appears in web portal <code>/incidents</code>
-<input type="checkbox"> All actions appear in audit log
-<input type="checkbox"> Distribution report shows correct completion percentage
+
+<!-- COVER ──────────────────────────────────────── -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="cover-logo-icon">🌱</div>
+    <span class="cover-logo-name">Invendis</span>
+  </div>
+  <div class="cover-eyebrow">Official System Documentation</div>
+  <h1 class="cover-title">System User Manual</h1>
+  <p class="cover-subtitle">Step-by-step operational guide for the Invendis Inventory &amp; Distribution platform — Web Portal and Mobile Field App.</p>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><label>System</label><span>Invendis v1.0</span></div>
+    <div class="cover-meta-item"><label>Coverage</label><span>Web Portal &amp; Field App</span></div>
+    <div class="cover-meta-item"><label>Region</label><span>Sierra Leone</span></div>
+    <div class="cover-meta-item"><label>Scenarios</label><span>20 end-to-end workflows</span></div>
+  </div>
+</div>
+
+<!-- TABLE OF CONTENTS ──────────────────────────── -->
+<div class="toc-section">
+  <div class="container">
+    <div style="margin-bottom:32px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Contents</div>
+      <h2>Table of Contents</h2>
+    </div>
+    <div class="toc-grid">
+      <div>
+        <div class="toc-part">
+          <div class="toc-part-label">Part A — Web Portal</div>
+          <a class="toc-item" href="#s1"><span class="toc-num">01</span> Admin Login &amp; Dashboard<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s2"><span class="toc-num">02</span> Settings — Districts &amp; Warehouses<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s3"><span class="toc-num">03</span> Register &amp; Approve a Farmer<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s4"><span class="toc-num">04</span> Receive Stock into Warehouse<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s5"><span class="toc-num">05</span> Create a Distribution Campaign<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s6"><span class="toc-num">06</span> Create &amp; Dispatch a Manifest<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s7"><span class="toc-num">07</span> Monitor Live GPS Tracking<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s8"><span class="toc-num">08</span> Review Proof of Delivery Records<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s9"><span class="toc-num">09</span> Stock Reconciliation<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s10"><span class="toc-num">10</span> Review Field Incidents<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s11"><span class="toc-num">11</span> Run Reports &amp; Analytics<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s12"><span class="toc-num">12</span> Manage Users &amp; Roles<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s13"><span class="toc-num">13</span> Audit Log Review<span class="toc-dots"></span></a>
+        </div>
+      </div>
+      <div>
+        <div class="toc-part">
+          <div class="toc-part-label">Part B — Field App (Mobile)</div>
+          <a class="toc-item" href="#s14"><span class="toc-num">14</span> Field Officer Login<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s15"><span class="toc-num">15</span> Browse Active Dispatches<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s16"><span class="toc-num">16</span> Scan a Farmer Barcode<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s17"><span class="toc-num">17</span> Submit a Proof of Delivery<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s18"><span class="toc-num">18</span> Offline Queue &amp; Sync<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#s19"><span class="toc-num">19</span> Report a Field Incident<span class="toc-dots"></span></a>
+        </div>
+        <div class="toc-part">
+          <div class="toc-part-label">Part C — Cross-System</div>
+          <a class="toc-item" href="#s20"><span class="toc-num">20</span> End-to-End Delivery Audit<span class="toc-dots"></span></a>
+        </div>
+        <div class="toc-part">
+          <div class="toc-part-label">Reference</div>
+          <a class="toc-item" href="#credentials"><span class="toc-num">—</span> Credentials &amp; Roles<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#errors"><span class="toc-num">—</span> Common Error Messages<span class="toc-dots"></span></a>
+          <a class="toc-item" href="#checklist"><span class="toc-num">—</span> Test Checklist<span class="toc-dots"></span></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CREDENTIALS ────────────────────────────────── -->
+<div id="credentials" style="background:#fff;padding:48px 0;border-bottom:1px solid var(--border)">
+  <div class="container">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Quick Reference</div>
+    <h2 style="margin-bottom:20px">System Credentials</h2>
+    <table class="data-table">
+      <thead><tr><th>Account</th><th>Email</th><th>Password</th><th>Role</th><th>Access</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Admin</strong></td><td><code>mohamedbangura@avdp.org.sl</code></td><td><code>Invendis@2024</code></td><td>Admin</td><td>Full system access</td></tr>
+        <tr><td><strong>Field Officer</strong></td><td><code>mohamedamadubangura@gmail.com</code></td><td><code>Invendis@2024</code></td><td>FieldOfficer</td><td>Mobile app only</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- PART A ─────────────────────────────────────── -->
+<div class="part-header">
+  <div class="container">
+    <div class="eyebrow">Part A</div>
+    <h2>Web Portal — Admin &amp; Manager Workflows</h2>
+  </div>
+</div>
+
+<!-- S1 -->
+<div id="s1" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">1</div>
+      <div class="scenario-title-block">
+        <h3>Admin Login &amp; Dashboard Overview</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin</span>
+          <span class="meta-badge path">🔗 /login → /dashboard</span>
+        </div>
+      </div>
+    </div>
+    <p>The login screen is the entry point for all web portal users. After authentication, the Dashboard provides a real-time operational snapshot including farmer counts, active campaigns, dispatches in transit, and today's delivery totals.</p>
+
+    <div class="figure">
+      <img src="../screenshots/01-login.jpg" alt="Invendis Login Screen" loading="lazy">
+      <div class="figure-caption"><strong>Figure 1.1</strong> — Login screen. Enter admin credentials and click Sign In to proceed. The left panel shows live system statistics.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to the web portal and open <code>/login</code></li>
+      <li>Enter email <code>mohamedbangura@avdp.org.sl</code> and password <code>Invendis@2024</code></li>
+      <li>Click <strong>Sign In</strong></li>
+    </ol>
+    <div class="outcome">
+      <div class="outcome-label">Expected</div>
+      You land on <code>/dashboard</code> with summary cards — total farmers, active campaigns, dispatches in transit, and today's PoD count. Quick-action buttons are visible at the top.
+    </div>
+    <ol class="steps" start="4">
+      <li>Review the four quick-action cards: <strong>Register Farmer</strong>, <strong>New Dispatch</strong>, <strong>Review PoDs</strong>, <strong>View Reports</strong></li>
+      <li>Note the chart sections: <em>Farmers by Status</em> and <em>PoD Deliveries — Last 7 Days</em></li>
+      <li>Record the <em>Dispatches In Transit</em> count — verify this later in GPS Tracking</li>
+    </ol>
+
+    <div class="figure">
+      <img src="../screenshots/02-dashboard.jpg" alt="Invendis Dashboard" loading="lazy">
+      <div class="figure-caption"><strong>Figure 1.2</strong> — Dashboard after login. Quick-action cards across the top, status charts at the bottom, full navigation in the dark-green left sidebar.</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <strong>Role-based navigation:</strong> The sidebar adapts to your role. Admins see all modules. District Coordinators see Farmers, Campaigns, and Reports. Warehouse Managers see Inventory, Dispatch, and Reconciliation.
+    </div>
+  </div>
+</div>
+
+<!-- S2 -->
+<div id="s2" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">2</div>
+      <div class="scenario-title-block">
+        <h3>Settings — Configure Master Data</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin</span>
+          <span class="meta-badge path">🔗 /settings</span>
+        </div>
+      </div>
+    </div>
+    <p>Master data — districts, warehouses, value chains, chiefdoms, distribution sites, and input items — must be configured before running campaigns. The Settings module provides tabbed management for all reference data.</p>
+
+    <div class="figure">
+      <img src="../screenshots/14-settings.jpg" alt="Settings & Master Data" loading="lazy">
+      <div class="figure-caption"><strong>Figure 2.1</strong> — Settings &amp; Master Data page on the Warehouses tab. 8 active warehouses across Sierra Leone are listed with district, address, and status.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Add a District</h4>
+      <ol class="steps">
+        <li>Navigate to <strong>Settings</strong> → click the <strong>Districts</strong> tab</li>
+        <li>Click <strong>Add</strong> → enter name <code>Test District</code> and choose a region → <strong>Save</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>New district appears immediately in the list.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Add a Warehouse</h4>
+      <ol class="steps">
+        <li>Click the <strong>Warehouses</strong> tab → click <strong>Add</strong></li>
+        <li>Enter: Name <code>Test Warehouse</code>, District <code>Test District</code>, Address, Capacity <code>5000</code></li>
+        <li>Click <strong>Save</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Warehouse appears with status <strong>Active</strong> and is now selectable in Inventory, Campaigns, and Dispatch.</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <strong>Other tabs:</strong> <strong>Value Chains</strong> manages crop types (Rice, Cassava, Maize…). <strong>Input Items</strong> defines the agricultural inputs being distributed. <strong>System</strong> tab contains global defaults like SMS sender name.
+    </div>
+  </div>
+</div>
+
+<!-- S3 -->
+<div id="s3" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">3</div>
+      <div class="scenario-title-block">
+        <h3>Register &amp; Approve a Farmer</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Project Manager</span>
+          <span class="meta-badge path">🔗 /farmers</span>
+        </div>
+      </div>
+    </div>
+    <p>The Farmer Registry is the foundation of the distribution system. Every farmer must be registered and approved before they can receive inputs. Each approved farmer receives a unique QR code used by field officers for delivery verification.</p>
+
+    <div class="figure">
+      <img src="../screenshots/03-farmers.jpg" alt="Farmer Registry" loading="lazy">
+      <div class="figure-caption"><strong>Figure 3.1</strong> — Farmer Registry showing 27 registered farmers with search, district filter, and status tabs (All / Pending / Approved / Rejected). The amber notification banner shows 5 pending approvals.</div>
+    </div>
+
+    <div class="steps-label">Register a Farmer</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Farmers</strong> → click <strong>Register Farmer</strong></li>
+      <li>Fill in the form:
+        <ul style="margin-top:8px">
+          <li>First Name: <code>Fatmata</code> &nbsp;·&nbsp; Last Name: <code>Koroma</code></li>
+          <li>Phone: <code>+23276001234</code> &nbsp;·&nbsp; Gender: Female</li>
+          <li>District: any existing district &nbsp;·&nbsp; Value Chain: Rice</li>
+          <li>Village / Community: <code>Makeni Central</code></li>
+        </ul>
+      </li>
+      <li>Click <strong>Save / Register</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Farmer created with status <strong>Pending</strong>. You are taken to the farmer detail page.</div>
+
+    <div class="steps-label">Approve the Farmer</div>
+    <ol class="steps">
+      <li>On the farmer detail page, review all information for accuracy</li>
+      <li>Note the <strong>QR Code</strong> — this is used by the field app for barcode scanning</li>
+      <li>Click <strong>Approve</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Status changes to <strong>Approved</strong>. The farmer can now receive distributions.</div>
+    <ol class="steps" start="4">
+      <li>Return to <code>/farmers</code> and search <code>Koroma</code> — verify the farmer appears</li>
+      <li>Use the <strong>Pending</strong> tab to review any other farmers awaiting approval</li>
+    </ol>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <strong>Approval is required:</strong> A Pending farmer cannot be scanned or receive distributions in the field app. The officer will see "No farmer found for this barcode" until the farmer is approved.
+    </div>
+  </div>
+</div>
+
+<!-- S4 -->
+<div id="s4" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">4</div>
+      <div class="scenario-title-block">
+        <h3>Receive Stock into a Warehouse</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Warehouse Manager</span>
+          <span class="meta-badge path">🔗 /inventory</span>
+        </div>
+      </div>
+    </div>
+    <p>Stock is received against a reference order. Once received, units become Available in the warehouse balance and can be allocated to manifests for dispatch.</p>
+
+    <div class="figure">
+      <img src="../screenshots/05-inventory.jpg" alt="Inventory" loading="lazy">
+      <div class="figure-caption"><strong>Figure 4.1</strong> — Inventory page with summary cards (Available Units, Delivered, Catalogue Items) and tabs for Stock Balances and the Input Catalogue.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Inventory</strong> → click <strong>Receive Stock</strong></li>
+      <li>Fill in: Warehouse <code>Test Warehouse</code>, Input Item <em>Improved Rice Seed</em>, Quantity <code>500</code>, Reference <code>PO-TEST-001</code></li>
+      <li>Click <strong>Confirm Receipt</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>The <strong>Stock Balances</strong> tab shows a new row for Test Warehouse with 500 Available units and 0 Delivered.</div>
+    <ol class="steps" start="4">
+      <li>Click the <strong>Input Catalogue</strong> tab to review all registered items, categories, and units of measure</li>
+    </ol>
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <strong>Stock states:</strong> Available = received minus dispatched &nbsp;|&nbsp; Reserved = committed to an approved manifest &nbsp;|&nbsp; Delivered = confirmed via field app PoD
+    </div>
+  </div>
+</div>
+
+<!-- S5 -->
+<div id="s5" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">5</div>
+      <div class="scenario-title-block">
+        <h3>Create a Distribution Campaign</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Project Manager</span>
+          <span class="meta-badge path">🔗 /campaigns</span>
+        </div>
+      </div>
+    </div>
+    <p>Campaigns organise a season's distribution by district and value chain. A campaign must be Active before dispatches can be created against it. Allocations within the campaign define which approved farmers receive inputs and in what quantities.</p>
+
+    <div class="figure">
+      <img src="../screenshots/06-campaigns.jpg" alt="Campaigns" loading="lazy">
+      <div class="figure-caption"><strong>Figure 5.1</strong> — Campaigns list: CAM-2024-001 Active at 63% completion, CAM-2024-002 Submitted, CAM-2025-001 Draft. Progress bars show delivery completion per campaign.</div>
+    </div>
+
+    <div class="steps-label">Create &amp; Activate</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Campaigns</strong> → click <strong>New Campaign</strong></li>
+      <li>Fill in: Name <code>2025 Test Season — Test District</code>, District <code>Test District</code>, Warehouse <code>Test Warehouse</code>, start/end dates</li>
+      <li>Click <strong>Save</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Campaign created with status <strong>Draft</strong> at 0% completion.</div>
+    <ol class="steps" start="4">
+      <li>Click the campaign → click <strong>Activate Campaign</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Status changes to <strong>Active</strong>. The campaign now accepts dispatches and allocations.</div>
+
+    <div class="steps-label">Add a Farmer Allocation</div>
+    <ol class="steps">
+      <li>Scroll to <strong>Allocations</strong> on the campaign detail page → click <strong>Add Allocation</strong></li>
+      <li>Select farmer <code>Fatmata Koroma</code>, set quantity <code>50 kg</code> → <strong>Save</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Fatmata Koroma appears in the allocation list for this campaign.</div>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      The global <strong>Allocations</strong> view at <code>/allocations</code> shows all farmer allocations across every campaign.
+    </div>
+  </div>
+</div>
+
+<!-- S6 -->
+<div id="s6" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">6</div>
+      <div class="scenario-title-block">
+        <h3>Create &amp; Dispatch a Delivery Manifest</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Warehouse Manager</span>
+          <span class="meta-badge path">🔗 /dispatch</span>
+        </div>
+      </div>
+    </div>
+    <p>A manifest is a vehicle load assigned to a campaign and warehouse. The dispatch workflow progresses through Draft → Approved → In Transit. Once In Transit, the manifest is visible to the field officer's app for PoD confirmation.</p>
+
+    <div class="figure">
+      <img src="../screenshots/07-dispatch.jpg" alt="Vehicle Dispatch" loading="lazy">
+      <div class="figure-caption"><strong>Figure 6.1</strong> — Dispatch showing 2 manifests: MAN-DEMO-002 In Transit (SLL-5678, driver Alpha Jalloh) and MAN-DEMO-001 Arrived at Bo Central Warehouse.</div>
+    </div>
+
+    <div class="steps-label">Create the Manifest</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Dispatch</strong> → click <strong>Create Manifest</strong></li>
+      <li>Select Campaign, Warehouse, Vehicle, and Driver → click <strong>Create Manifest</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Manifest created as <code>MAN-XXXXXX</code>, status <strong>Draft</strong>.</div>
+
+    <div class="steps-label">Load Items &amp; Dispatch</div>
+    <ol class="steps">
+      <li>Open the manifest detail → <strong>Add Item</strong>: <em>Improved Rice Seed</em>, Quantity <code>50</code> → Save</li>
+      <li>Click <strong>Approve Manifest</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Status changes to <strong>Approved</strong>.</div>
+    <ol class="steps" start="3">
+      <li>Click <strong>Start Dispatch</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Status changes to <strong>In Transit</strong>. Vehicle status also updates to InTransit. The manifest is now visible in the field officer's app.</div>
+  </div>
+</div>
+
+<!-- S7 -->
+<div id="s7" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">7</div>
+      <div class="scenario-title-block">
+        <h3>Monitor Live GPS Tracking</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Project Manager</span>
+          <span class="meta-badge path">🔗 /gps-tracking</span>
+        </div>
+      </div>
+    </div>
+    <p>GPS Tracking displays real-time vehicle positions on an interactive map with automatic 30-second refresh. Each pin shows the manifest, driver, and last known speed.</p>
+
+    <div class="figure">
+      <img src="../screenshots/08-gps-tracking.jpg" alt="Live Vehicle Tracking" loading="lazy">
+      <div class="figure-caption"><strong>Figure 7.1</strong> — Live Vehicle Tracking. The left panel lists active vehicles; the map displays their GPS positions with colour-coded status indicators and a map legend at the bottom.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>GPS Tracking</strong> in the sidebar</li>
+      <li>Any vehicle with status <em>In Transit</em> appears as a pin on the map</li>
+      <li>Click a vehicle card or map pin — a tooltip shows manifest code, driver, distance to destination, and last ping time</li>
+      <li>The page auto-refreshes every 30 seconds — the <em>Last Ping</em> timestamp updates when a GPS signal is received</li>
+      <li>Click <strong>Tracker Setup</strong> to configure GPS tracker credentials for a new vehicle</li>
+    </ol>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <strong>Pin colour legend:</strong> <span style="color:#22c55e">●</span> Live (&lt;5 min) &nbsp;|&nbsp; <span style="color:#f97316">●</span> Recent (5–30 min) &nbsp;|&nbsp; <span style="color:#eab308">●</span> Stale (30–120 min) &nbsp;|&nbsp; <span style="color:#6b7280">●</span> Offline (&gt;2 hrs)
+    </div>
+  </div>
+</div>
+
+<!-- S8 -->
+<div id="s8" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">8</div>
+      <div class="scenario-title-block">
+        <h3>Review Proof of Delivery Records</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Project Manager</span>
+          <span class="meta-badge path">🔗 /pod</span>
+        </div>
+      </div>
+    </div>
+    <p>Every delivery confirmed via the field app creates a PoD record on the server. Supervisors use this module to verify delivery evidence — GPS location, OTP confirmation, and biometric face match — and manage exceptions.</p>
+
+    <div class="figure">
+      <img src="../screenshots/09-pod.jpg" alt="Proof of Delivery" loading="lazy">
+      <div class="figure-caption"><strong>Figure 8.1</strong> — Proof of Delivery: 0 Verified, 2 Pending, 0 Exceptions. The Review Queue tab surfaces records with bypassed OTP or failed face verification.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Proof of Delivery</strong> in the sidebar</li>
+      <li>Review summary cards: <strong>Verified</strong>, <strong>Pending</strong>, <strong>Exceptions</strong></li>
+      <li>Click <strong>Review Queue</strong> tab for records needing supervisor attention (OTP bypass or face fail)</li>
+      <li>Filter by status — <em>All / Pending / Verified / Exception</em></li>
+      <li>Click any PoD row to view detail — GPS map pin, face photo, OTP status, and timestamp</li>
+    </ol>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <strong>Face Check states:</strong> Verified (≥80% match) &nbsp;|&nbsp; Failed (&lt;80%, flagged) &nbsp;|&nbsp; Bypassed (officer override) &nbsp;|&nbsp; NoReference (first delivery, photo saved as future reference)
+    </div>
+  </div>
+</div>
+
+<!-- S9 -->
+<div id="s9" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">9</div>
+      <div class="scenario-title-block">
+        <h3>Stock Reconciliation</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Warehouse Manager / Admin</span>
+          <span class="meta-badge path">🔗 /reconciliation</span>
+        </div>
+      </div>
+    </div>
+    <p>After a vehicle returns, the warehouse manager reconciles loaded vs. delivered vs. returned quantities. Approved reconciliations adjust the warehouse balance and flag unexplained variance for investigation.</p>
+
+    <div class="figure">
+      <img src="../screenshots/10-reconciliation.jpg" alt="Stock Reconciliation" loading="lazy">
+      <div class="figure-caption"><strong>Figure 9.1</strong> — Reconciliation showing REC-306D22: 100 loaded, 85 delivered, 10 returned, variance +5 — status Approved.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Reconciliation</strong> → click <strong>New Reconciliation</strong></li>
+      <li>Select Warehouse <code>Test Warehouse</code> and the manifest from Scenario 6</li>
+      <li>Enter <strong>Delivered</strong> and <strong>Returned</strong> quantities as reported by the driver</li>
+      <li>Click <strong>Submit Reconciliation</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Reconciliation record created. Warehouse stock is adjusted by the returned quantity. Any positive variance is logged and flagged.</div>
+  </div>
+</div>
+
+<!-- S10 -->
+<div id="s10" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">10</div>
+      <div class="scenario-title-block">
+        <h3>Review &amp; Resolve Field Incidents</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / District Coordinator</span>
+          <span class="meta-badge path">🔗 /incidents</span>
+        </div>
+      </div>
+    </div>
+    <p>Field officers report distribution issues via the mobile app. The web portal provides a management view where incidents can be reviewed and formally resolved with supervisor notes.</p>
+
+    <div class="figure">
+      <img src="../screenshots/11-incidents.jpg" alt="Field Incidents" loading="lazy">
+      <div class="figure-caption"><strong>Figure 10.1</strong> — Field Incidents registry with All / Open / Resolved tabs and columns for Code, Type, Officer, Location, Status, and Reported date.</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Incidents</strong> → review the <strong>Open</strong> tab</li>
+      <li>Click an incident row → click <strong>Resolve</strong></li>
+      <li>Enter resolution notes: <code>Issue reviewed and addressed by district coordinator</code></li>
+      <li>Click <strong>Confirm</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Incident status changes to <strong>Resolved</strong>. Resolution notes, resolver name, and timestamp are saved and appear in the audit log.</div>
+  </div>
+</div>
+
+<!-- S11 -->
+<div id="s11" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">11</div>
+      <div class="scenario-title-block">
+        <h3>Reports &amp; Analytics</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin / Project Manager</span>
+          <span class="meta-badge path">🔗 /reports</span>
+        </div>
+      </div>
+    </div>
+    <p>Four report tabs aggregate operational data across all modules. Every report can be exported to CSV for external analysis or donor reporting.</p>
+
+    <div class="figure">
+      <img src="../screenshots/12-reports.jpg" alt="Reports & Analytics" loading="lazy">
+      <div class="figure-caption"><strong>Figure 11.1</strong> — Reports &amp; Analytics — Beneficiary tab. 27 total farmers, 17 approved (63% rate), 16 female. District breakdown shows bar chart and table by location with Export CSV option.</div>
+    </div>
+
+    <table class="data-table" style="margin-top:24px">
+      <thead><tr><th>Report Tab</th><th>What It Shows</th><th>Primary Use</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Beneficiaries</strong></td><td>Farmers by district — totals, approved, female counts, approval rate</td><td>Social targeting &amp; gender equity monitoring</td></tr>
+        <tr><td><strong>Stock Movement</strong></td><td>All transactions (RECEIVE, ISSUE, TRANSFER) with date, item, warehouse, quantity</td><td>Supply chain audit &amp; stock flow verification</td></tr>
+        <tr><td><strong>Distribution</strong></td><td>Each manifest with campaign, warehouse, status, and % completion</td><td>Delivery progress tracking per campaign</td></tr>
+        <tr><td><strong>Incidents</strong></td><td>All field incidents with officer names, types, and resolution status</td><td>Field risk management &amp; resolution tracking</td></tr>
+      </tbody>
+    </table>
+
+    <ol class="steps" style="margin-top:16px">
+      <li>Navigate to <strong>Reports</strong> → click through each tab to review data</li>
+      <li>Click <strong>Export CSV</strong> on any report to download</li>
+    </ol>
+  </div>
+</div>
+
+<!-- S12 -->
+<div id="s12" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">12</div>
+      <div class="scenario-title-block">
+        <h3>Manage Users &amp; Roles</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin only</span>
+          <span class="meta-badge path">🔗 /users</span>
+        </div>
+      </div>
+    </div>
+    <p>The User Management page is the sole interface for creating system accounts and controlling access. Only Admins can create, edit, deactivate, or delete users.</p>
+
+    <div class="figure">
+      <img src="../screenshots/13-users.jpg" alt="User Management" loading="lazy">
+      <div class="figure-caption"><strong>Figure 12.1</strong> — User Management showing Amadu Bangura (FieldOfficer, Active) and Mohamed Bangura (Admin — marked "you"). Deactivate and edit actions are available per row.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Deactivate / Reactivate a User</h4>
+      <ol class="steps">
+        <li>Find the target user in the list → click <strong>Deactivate</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Status changes to <strong>Inactive</strong>. The user can no longer log in.</div>
+      <ol class="steps" start="2">
+        <li>Click <strong>Activate</strong> to restore access</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Status returns to <strong>Active</strong>.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Create a New User</h4>
+      <ol class="steps">
+        <li>Click <strong>Add User</strong></li>
+        <li>Fill in: Full Name <code>Test Coordinator</code>, Email <code>testcoordinator@agripo.sl</code>, Role <code>DistrictCoordinator</code>, Password <code>Invendis@2024</code></li>
+        <li>Click <strong>Create</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>New user appears in the list and can log in immediately.</div>
+    </div>
+
+    <table class="data-table">
+      <thead><tr><th>Role</th><th>Web Portal Access</th><th>Field App</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Admin</strong></td><td>All modules incl. Users, Settings, Audit</td><td>No</td></tr>
+        <tr><td><strong>Project Manager</strong></td><td>All operational modules</td><td>No</td></tr>
+        <tr><td><strong>District Coordinator</strong></td><td>Farmers, Campaigns, Reports, Incidents</td><td>No</td></tr>
+        <tr><td><strong>Warehouse Manager</strong></td><td>Inventory, Procurement, Dispatch, Reconciliation</td><td>No</td></tr>
+        <tr><td><strong>Field Officer</strong></td><td>Limited / none</td><td>Yes — full app</td></tr>
+        <tr><td><strong>Viewer</strong></td><td>Read-only across all modules</td><td>No</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- S13 -->
+<div id="s13" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">13</div>
+      <div class="scenario-title-block">
+        <h3>Audit Log Review</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin only</span>
+          <span class="meta-badge path">🔗 /audit</span>
+        </div>
+      </div>
+    </div>
+    <p>The Audit Log records every system event with full user attribution and timestamps. It is append-only, providing a tamper-evident trail for compliance and investigation. An anomaly detection layer automatically flags suspicious patterns.</p>
+
+    <div class="figure">
+      <img src="../screenshots/15-audit.jpg" alt="Audit Logs" loading="lazy">
+      <div class="figure-caption"><strong>Figure 13.1</strong> — Audit Logs: 24 events in 30 days. Events-by-action bar chart, 14-day activity trend line, and anomaly detection panel flagging 2 items (9 off-hours events, 1 config change).</div>
+    </div>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Navigate to <strong>Audit Logs</strong> in the sidebar</li>
+      <li>Review the summary stats: Total Events (30D), Active Users, Top Action, Top Module</li>
+      <li>Check the <strong>Anomalies Detected</strong> section for any flagged activity requiring review</li>
+      <li>Use action-type and date-range filters to narrow entries</li>
+      <li>Verify that all actions from Scenarios 1–12 appear with correct timestamps and user attribution</li>
+    </ol>
+
+    <div class="callout warning">
+      <span class="callout-icon">🔒</span>
+      <strong>Compliance note:</strong> Audit records cannot be edited or deleted. The off-hours anomaly detector flags activity between 22:00–06:00 for administrator review.
+    </div>
+  </div>
+</div>
+
+<!-- PART B ─────────────────────────────────────── -->
+<div class="part-header">
+  <div class="container">
+    <div class="eyebrow">Part B</div>
+    <h2>Field App — Mobile Workflows for Field Officers</h2>
+  </div>
+</div>
+
+<div style="padding:32px 0 0">
+  <div class="container">
+    <div class="mobile-note">
+      <div class="mobile-note-icon">📱</div>
+      <div>
+        <strong>Access the app:</strong> The Invendis Field App runs on Android and iOS via Expo Go. Scan the QR code from the Expo workflow console, or install the published APK directly on Android.<br><br>
+        <strong>Android APK:</strong> <code>https://expo.dev/artifacts/eas/obY1z6QeFFi9MjMsUYwAJ6.apk</code><br>
+        <strong>Same credentials</strong> as the web portal — email + password.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S14 -->
+<div id="s14" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">14</div>
+      <div class="scenario-title-block">
+        <h3>Field Officer Login</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 App Login screen</span>
+        </div>
+      </div>
+    </div>
+    <p>The field app authenticates via the same email/password as the web portal. A JWT token is stored securely on the device for all subsequent API calls, supporting offline continuity.</p>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Open Expo Go → scan the QR code from the Expo workflow console</li>
+      <li>Enter: Email <code>mohamedamadubangura@gmail.com</code>, Password <code>Invendis@2024</code></li>
+      <li>Tap <strong>Sign In</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>You land on the <strong>Dashboard tab</strong> showing today's PoD count, pending sync queue size, and active dispatches.</div>
+
+    <div class="steps-label">Test Error Handling</div>
+    <ol class="steps">
+      <li>Log out and enter a wrong password → tap Sign In</li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Red error banner: <em>"Invalid credentials"</em></div>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      If you see <em>"Account is inactive"</em>, an Admin must reactivate the account at <code>/users</code> in the web portal.
+    </div>
+  </div>
+</div>
+
+<!-- S15 -->
+<div id="s15" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">15</div>
+      <div class="scenario-title-block">
+        <h3>Browse Active Dispatches</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Dispatch tab — Tab 2</span>
+        </div>
+      </div>
+    </div>
+    <p>The Dispatch tab shows manifests that are In Transit or Arrived. The field officer selects the correct manifest before confirming any farmer delivery.</p>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Tap the <strong>Dispatch</strong> tab (second tab in the navigation bar)</li>
+      <li>The list shows manifests with status <em>In Transit</em> or <em>Approved</em></li>
+      <li>Search by manifest code (e.g. <code>MAN-</code>) using the search bar</li>
+      <li>Tap a manifest to open its detail page</li>
+    </ol>
+    <div class="outcome">
+      <div class="outcome-label">Expected — Manifest Detail</div>
+      Shows: manifest code, campaign name, warehouse, driver &amp; vehicle info, items loaded with quantities, and a list of PoDs already submitted for this dispatch.
+    </div>
+  </div>
+</div>
+
+<!-- S16 -->
+<div id="s16" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">16</div>
+      <div class="scenario-title-block">
+        <h3>Scan a Farmer's Barcode</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Scan tab — Tab 3</span>
+        </div>
+      </div>
+    </div>
+    <p>The Scan tab provides two lookup methods: fast camera-based QR scan for field use, and a manual text search fallback for damaged barcodes or low-light conditions.</p>
+
+    <div class="sub-section">
+      <h4>Camera Scan</h4>
+      <ol class="steps">
+        <li>Tap the <strong>Scan</strong> tab → allow camera permission when prompted</li>
+        <li>Point the camera at the QR code from the farmer's web portal detail page</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>App vibrates/beeps and navigates to the farmer's profile with name, district, and allocation details.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Manual Search</h4>
+      <ol class="steps">
+        <li>Tap <strong>Search Manually</strong> → type <code>Fatmata</code></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Fatmata Koroma appears in results — tap to open her profile.</div>
+    </div>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <strong>"No farmer found for this barcode"</strong> — The farmer has not been approved in the web portal. Approve them at <code>/farmers/:id</code> before scanning.
+    </div>
+  </div>
+</div>
+
+<!-- S17 -->
+<div id="s17" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">17</div>
+      <div class="scenario-title-block">
+        <h3>Submit a Proof of Delivery — 3-Step Flow</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Farmer Profile → Confirm Delivery</span>
+        </div>
+      </div>
+    </div>
+    <p>This is the core field workflow. From the farmer profile, the officer confirms a delivery through three sequential verification steps, building a tamper-resistant record of who received what, where, and when.</p>
+
+    <div class="sub-section">
+      <h4>Step 1 — Delivery Details</h4>
+      <ol class="steps">
+        <li>From the farmer profile, tap <strong>Confirm Delivery</strong></li>
+        <li>The form pre-fills farmer name, campaign, and manifest</li>
+        <li>Enter: Quantity Delivered <code>50</code>, Notes <code>Delivered at community centre</code></li>
+        <li>Tap <strong>Capture GPS</strong> → allow location permission</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>GPS coordinates captured and displayed. Tap <strong>Next</strong>.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Step 2 — OTP Verification</h4>
+      <ol class="steps">
+        <li>Tap <strong>Send OTP</strong> — a 6-digit code is sent to the farmer's phone via SMS (EasySendSMS)</li>
+        <li>Button changes to "Resend" with a 60-second cooldown</li>
+        <li>Ask the farmer for their SMS code → enter it in the 6-digit field → tap <strong>Verify</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Green checkmark — "OTP Verified". Tap <strong>Next</strong>.</div>
+      <div class="callout warning" style="margin-top:12px">
+        <span class="callout-icon">📵</span>
+        <strong>No SMS coverage:</strong> Tap <strong>Skip OTP</strong> (amber) → confirm the alert. The step advances with an amber "OTP Skipped" badge — flagged for supervisor review in the web portal PoD queue.
+      </div>
+    </div>
+
+    <div class="sub-section">
+      <h4>Step 3 — Face Verification</h4>
+      <ol class="steps">
+        <li>Tap <strong>Take Photo</strong> → take a clear photo of the farmer's face → tap <strong>Use Photo</strong></li>
+        <li>The app uploads the photo and compares it against the registered reference via AWS Rekognition</li>
+      </ol>
+      <table class="data-table" style="margin-top:12px">
+        <thead><tr><th>Similarity Score</th><th>Badge Shown</th><th>Next Action</th></tr></thead>
+        <tbody>
+          <tr><td>≥ 80%</td><td style="color:#16a34a">✅ Face Verified</td><td>Tap Submit Delivery</td></tr>
+          <tr><td>&lt; 80%</td><td style="color:#dc2626">❌ Match Failed</td><td>Tap Override + enter reason</td></tr>
+          <tr><td>No reference on file</td><td style="color:#d97706">⚠️ No Reference</td><td>Photo saved; submit normally</td></tr>
+        </tbody>
+      </table>
+      <ol class="steps" start="3">
+        <li>Tap <strong>Submit Delivery</strong></li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Success screen — <em>"Delivery Confirmed"</em>. PoD record is created and immediately visible in the web portal at <code>/pod</code>.</div>
+    </div>
+  </div>
+</div>
+
+<!-- S18 -->
+<div id="s18" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">18</div>
+      <div class="scenario-title-block">
+        <h3>Offline Queue &amp; Sync</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Sync tab — Tab 5</span>
+        </div>
+      </div>
+    </div>
+    <p>The app fully supports offline operation. Deliveries queued offline are uploaded in bulk when connectivity is restored, ensuring no data loss in remote areas.</p>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Enable <strong>Airplane Mode</strong> on the device</li>
+      <li>Complete Scenarios 16 &amp; 17 with a different farmer</li>
+      <li>On the final Submit step, tap <strong>Save Offline</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Delivery saved to offline queue. A numeric badge appears on the <strong>Sync</strong> tab.</div>
+    <ol class="steps" start="4">
+      <li>Disable Airplane Mode to restore connectivity</li>
+      <li>Tap the <strong>Sync</strong> tab → review the pending queue</li>
+      <li>Tap <strong>Sync Now</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Progress bar completes → <em>"1 record synced successfully"</em>. PoD now appears at <code>/pod</code> on the web portal.</div>
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      Offline records survive app restarts — they persist in device storage until explicitly synced.
+    </div>
+  </div>
+</div>
+
+<!-- S19 -->
+<div id="s19" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">19</div>
+      <div class="scenario-title-block">
+        <h3>Report a Field Incident</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Incidents tab — Tab 4</span>
+        </div>
+      </div>
+    </div>
+    <p>Field officers can report distribution issues, damaged goods, road incidents, or access problems directly from the app. Reports are synced to the web portal for supervisor resolution.</p>
+
+    <div class="steps-label">Steps</div>
+    <ol class="steps">
+      <li>Tap the <strong>Incidents</strong> tab → tap <strong>Report Incident</strong> (or the + button)</li>
+      <li>Fill in: Type <code>Distribution Issue</code>, Description <code>Farmer received damaged seed bags — 5 bags rejected</code></li>
+      <li>Tap <strong>Use Current Location</strong> to attach GPS coordinates</li>
+      <li>Tap <strong>Submit</strong></li>
+    </ol>
+    <div class="outcome"><div class="outcome-label">Expected</div>Incident saved and synced. It appears in the list with status <strong>Open</strong>. The web portal <code>/incidents</code> shows it with the field officer's name.</div>
+    <ol class="steps" start="5">
+      <li>Go to the web portal <code>/incidents</code> and follow <strong>Scenario 10</strong> to resolve it</li>
+    </ol>
+  </div>
+</div>
+
+<!-- PART C ─────────────────────────────────────── -->
+<div class="part-header">
+  <div class="container">
+    <div class="eyebrow">Part C</div>
+    <h2>Cross-System Verification</h2>
+  </div>
+</div>
+
+<!-- S20 -->
+<div id="s20" class="scenario">
+  <div class="container">
+    <div class="scenario-header">
+      <div class="scenario-num">20</div>
+      <div class="scenario-title-block">
+        <h3>End-to-End Delivery Audit</h3>
+        <div class="scenario-meta">
+          <span class="meta-badge">👤 Admin</span>
+          <span class="meta-badge">📱 Field Officer</span>
+          <span class="meta-badge path">🔗 Multiple modules</span>
+        </div>
+      </div>
+    </div>
+    <p>After completing all preceding scenarios, this final check confirms that data created in the field app is correctly reflected across every web portal module and that the full audit trail is intact.</p>
+
+    <div class="sub-section">
+      <h4>1 — Audit Trail</h4>
+      <ol class="steps">
+        <li>Open <code>/audit</code> → filter by the field officer email</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Events present: LOGIN, POD_SUBMIT (or OTP_BYPASS), FACE — all with correct timestamps and user attribution.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>2 — PoD Record Completeness</h4>
+      <ol class="steps">
+        <li>Open <code>/pod</code> → locate the PoD from Scenario 17 → click to view detail</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>All three signals present: GPS location pin on map, OTP status (Verified or Bypassed), face match result with similarity score.</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>3 — Distribution Report Completion %</h4>
+      <ol class="steps">
+        <li>Open <code>/reports</code> → <strong>Distribution</strong> tab → locate the manifest from Scenario 6</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Completion % reflects the PoD submitted (e.g. 1 of 50 farmers = 2%).</div>
+    </div>
+
+    <div class="sub-section">
+      <h4>4 — Beneficiary Report</h4>
+      <ol class="steps">
+        <li>Open <code>/reports</code> → <strong>Beneficiaries</strong> tab → check the district breakdown</li>
+      </ol>
+      <div class="outcome"><div class="outcome-label">Expected</div>Test District shows 1 approved female farmer (Fatmata Koroma).</div>
+    </div>
+
+    <div class="figure">
+      <img src="../screenshots/15-audit.jpg" alt="Audit Logs cross-system" loading="lazy">
+      <div class="figure-caption"><strong>Figure 20.1</strong> — Audit Logs. Every action from all 20 scenarios should be traceable here with user, timestamp, action type, and module.</div>
+    </div>
+    <div class="figure">
+      <img src="../screenshots/12-reports.jpg" alt="Reports Beneficiary cross-system" loading="lazy">
+      <div class="figure-caption"><strong>Figure 20.2</strong> — Beneficiary Report. Use this view to confirm Fatmata Koroma is counted under the correct district with Approved status.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ERROR REFERENCE ─────────────────────────────── -->
+<div id="errors" style="padding:56px 0;background:var(--bg-light);border-top:2px solid var(--border)">
+  <div class="container">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Reference</div>
+    <h2 style="margin-bottom:20px">Common Error Messages</h2>
+    <table class="data-table">
+      <thead><tr><th>Error Message</th><th>Likely Cause</th><th>Resolution</th></tr></thead>
+      <tbody>
+        <tr><td><code>"Invalid credentials"</code></td><td>Wrong email or password</td><td>Check credentials — password is <code>Invendis@2024</code></td></tr>
+        <tr><td><code>"Account is inactive"</code></td><td>User deactivated by Admin</td><td>Admin reactivates at <code>/users</code></td></tr>
+        <tr><td><code>"Account profile not found"</code></td><td>First mobile login, profile not yet provisioned</td><td>Log in once via web portal first, then retry mobile</td></tr>
+        <tr><td><code>"Invalid or expired code"</code></td><td>OTP expired (10 min) or wrong digits</td><td>Tap <strong>Resend</strong> to generate a fresh code</td></tr>
+        <tr><td><code>"No farmer found for this barcode"</code></td><td>Farmer not registered or not approved</td><td>Approve farmer at <code>/farmers/:id</code></td></tr>
+        <tr><td><code>"Network request failed"</code></td><td>Device offline or API server down</td><td>Check connectivity; use <strong>Save Offline</strong></td></tr>
+        <tr><td>Sync tab shows pending items</td><td>Records saved offline, not yet synced</td><td>Tap <strong>Sync Now</strong> when connected</td></tr>
+        <tr><td><code>"OTP rate limit — try again in Xs"</code></td><td>OTP sent within 60-second cooldown</td><td>Wait for countdown to complete, then resend</td></tr>
+        <tr><td><code>"Face match failed"</code></td><td>Live photo &lt;80% similarity against reference</td><td>Retake in better lighting; or tap Override + reason</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- CHECKLIST ───────────────────────────────────── -->
+<div id="checklist" style="padding:56px 0;border-top:2px solid var(--border)">
+  <div class="container">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Reference</div>
+    <h2 style="margin-bottom:8px">Test Checklist</h2>
+    <p style="color:var(--text-muted);margin-bottom:24px">Use this to track progress through all 20 scenarios. All items should be complete before system sign-off.</p>
+    <div class="checklist-grid">
+      <div class="checklist-col">
+        <h4>Part A — Web Portal</h4>
+        <div class="checklist-item"><div class="check-box"></div>Login and view dashboard</div>
+        <div class="checklist-item"><div class="check-box"></div>Add district and warehouse (Settings)</div>
+        <div class="checklist-item"><div class="check-box"></div>Register a new farmer</div>
+        <div class="checklist-item"><div class="check-box"></div>Approve the farmer and verify QR code</div>
+        <div class="checklist-item"><div class="check-box"></div>Receive stock into warehouse</div>
+        <div class="checklist-item"><div class="check-box"></div>Create and activate a campaign</div>
+        <div class="checklist-item"><div class="check-box"></div>Add farmer allocation to campaign</div>
+        <div class="checklist-item"><div class="check-box"></div>Create manifest, load items, approve, dispatch</div>
+        <div class="checklist-item"><div class="check-box"></div>View live GPS map</div>
+        <div class="checklist-item"><div class="check-box"></div>View PoD records and filter by status</div>
+        <div class="checklist-item"><div class="check-box"></div>Submit a stock reconciliation</div>
+        <div class="checklist-item"><div class="check-box"></div>Resolve a field incident</div>
+        <div class="checklist-item"><div class="check-box"></div>Generate all 4 report types and export CSV</div>
+        <div class="checklist-item"><div class="check-box"></div>Deactivate and reactivate a user</div>
+        <div class="checklist-item"><div class="check-box"></div>Create a new user account</div>
+        <div class="checklist-item"><div class="check-box"></div>View audit log and verify all actions</div>
+      </div>
+      <div class="checklist-col">
+        <h4>Part B — Field App</h4>
+        <div class="checklist-item"><div class="check-box"></div>Login with field officer credentials</div>
+        <div class="checklist-item"><div class="check-box"></div>Browse dispatch list and open manifest detail</div>
+        <div class="checklist-item"><div class="check-box"></div>Scan farmer barcode via camera</div>
+        <div class="checklist-item"><div class="check-box"></div>Search farmer manually</div>
+        <div class="checklist-item"><div class="check-box"></div>Submit PoD — OTP verified path</div>
+        <div class="checklist-item"><div class="check-box"></div>Submit PoD — OTP skipped (bypass) path</div>
+        <div class="checklist-item"><div class="check-box"></div>Submit PoD — face verified path</div>
+        <div class="checklist-item"><div class="check-box"></div>Submit PoD — face override path</div>
+        <div class="checklist-item"><div class="check-box"></div>Save PoD offline and sync later</div>
+        <div class="checklist-item"><div class="check-box"></div>Report a field incident</div>
+        <h4 style="margin-top:28px">Part C — Cross-System</h4>
+        <div class="checklist-item"><div class="check-box"></div>PoD from field app visible in /pod</div>
+        <div class="checklist-item"><div class="check-box"></div>Incident from field app visible in /incidents</div>
+        <div class="checklist-item"><div class="check-box"></div>All actions traceable in audit log</div>
+        <div class="checklist-item"><div class="check-box"></div>Distribution report shows correct completion %</div>
+        <div class="checklist-item"><div class="check-box"></div>Beneficiary report shows correct district totals</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER ─────────────────────────────────────── -->
+<div style="background:var(--green-dark);color:rgba(255,255,255,.6);padding:32px 0">
+  <div class="container">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.9)">
+        <span style="font-size:16px">🌱</span>
+        <strong style="font-size:14px">Invendis</strong>
+        <span style="color:rgba(255,255,255,.5)">— Inventory &amp; Distribution System</span>
+      </div>
+      <div style="font-size:12px">Sierra Leone &nbsp;·&nbsp; Version 1.0 &nbsp;·&nbsp; Confidential</div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
