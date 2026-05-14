@@ -142,7 +142,7 @@ export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
-    queryKey: KEYS.vehicles(),
+    queryKey: KEYS.gpsVehicles(),
     queryFn: listVehicleGpsStatus,
     refetchInterval: 30_000,
   });
@@ -155,7 +155,7 @@ export default function GpsTracking() {
   });
 
   const vehicleList: any[] = Array.isArray(vehicles) ? vehicles : [];
-  const trackPoints: any[] = Array.isArray(track) ? (track as any[]).slice().reverse() : [];
+  const trackPoints: any[] = Array.isArray(track) ? (track as any[]) : [];
   const selectedData = vehicleList.find((v: any) => v.id === selectedVehicle);
   const liveCount = vehicleList.filter((v: any) => getSignalTier(v.lastPing) === "live").length;
   const arrivedCount = vehicleList.filter((v: any) => getArrivalStatus(v) === "arrived").length;

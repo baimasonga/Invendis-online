@@ -141,7 +141,7 @@ router.get("/api/gps/track/:vehicleId", requireAnyAuth, async (req, res) => {
     `SELECT * FROM gps_track WHERE vehicle_id=$1 ORDER BY recorded_at DESC LIMIT $2`,
     [Number(req.params.vehicleId), Number(limit)]
   );
-  res.json(snakeToCamel(result.rows.reverse()));
+  res.json(snakeToCamel(result.rows));
 });
 
 export default router;

@@ -75,6 +75,7 @@ export const KEYS = {
   stockBalance:  () => ["stock-balance"],
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
+  gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
   dispatches:    (page?: number) => ["dispatches", page],
   dispatch:      (id: number) => ["dispatch", id],
