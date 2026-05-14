@@ -11,3 +11,9 @@ id = "rESsvndBKVRt5_DzsBihz"
 uri = "file://docs/user-manual.md"
 type = "text"
 title = "Invendis User Manual — Scenario-Based Testing Guide"
+
+[[outputs]]
+id = "hHNwAE1t9kJT2U_eVArIJ"
+uri = "file://user-manual.md"
+type = "text"
+title = "Invendis User Manual"
