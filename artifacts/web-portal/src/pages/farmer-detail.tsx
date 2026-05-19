@@ -228,6 +228,7 @@ export default function FarmerDetail() {
                   status:         f.status,
                   phone:          f.phone,
                 }}
+                photoUrl={photoSrc ?? null}
               />
             </CardContent>
           </Card>

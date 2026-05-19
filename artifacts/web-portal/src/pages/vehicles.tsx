@@ -1,19 +1,24 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listVehicles, listDrivers, KEYS } from "@/lib/db";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listVehicles, listDrivers, deleteVehicle, deleteDriver, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, Truck, User, Pencil } from "lucide-react";
+import { Plus, Truck, User, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AddVehicleModal } from "@/components/modals/AddVehicleModal";
 import { AddDriverModal } from "@/components/modals/AddDriverModal";
 import { EditVehicleModal } from "@/components/modals/EditVehicleModal";
 import { EditDriverModal } from "@/components/modals/EditDriverModal";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 
 function DriverAvatar({ name }: { name?: string }) {
@@ -49,11 +54,40 @@ function LicenceStatus({ expiry }: { expiry?: string | null }) {
 
 export default function Vehicles() {
   const can = usePermissions();
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const [tab, setTab] = useState("vehicles");
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const [driverOpen, setDriverOpen]   = useState(false);
   const [editVehicle, setEditVehicle] = useState<any>(null);
   const [editDriver, setEditDriver]   = useState<any>(null);
+  const [deleteVehicleTarget, setDeleteVehicleTarget] = useState<{ id: number; name: string } | null>(null);
+  const [deleteDriverTarget, setDeleteDriverTarget]   = useState<{ id: number; name: string } | null>(null);
+
+  const deleteVehicleMutation = useMutation({ mutationFn: (id: number) => deleteVehicle(id) });
+  const deleteDriverMutation  = useMutation({ mutationFn: (id: number) => deleteDriver(id) });
+
+  async function handleDeleteVehicleConfirm() {
+    if (!deleteVehicleTarget) return;
+    try {
+      await deleteVehicleMutation.mutateAsync(deleteVehicleTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.vehicles() });
+      toast({ title: "Vehicle deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setDeleteVehicleTarget(null); }
+  }
+
+  async function handleDeleteDriverConfirm() {
+    if (!deleteDriverTarget) return;
+    try {
+      await deleteDriverMutation.mutateAsync(deleteDriverTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.drivers() });
+      toast({ title: "Driver deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setDeleteDriverTarget(null); }
+  }
 
   const { data: vehiclesData, isLoading: loadingVehicles } = useQuery({
     queryKey: KEYS.vehicles(),
@@ -166,13 +200,22 @@ export default function Vehicles() {
                           <TableCell><StatusBadge status={v.status} /></TableCell>
                           {can.manageFleet && (
                             <TableCell className="pr-4 text-right">
-                              <Button
-                                size="sm" variant="ghost"
-                                className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                                onClick={() => setEditVehicle(v)}
-                              >
-                                <Pencil className="h-3 w-3 mr-1" /> Edit
-                              </Button>
+                              <div className="flex items-center gap-1 justify-end">
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                  onClick={() => setEditVehicle(v)}
+                                >
+                                  <Pencil className="h-3 w-3 mr-1" /> Edit
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
+                                  onClick={() => setDeleteVehicleTarget({ id: v.id, name: v.plateNumber })}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </TableCell>
                           )}
                         </TableRow>
@@ -234,13 +277,22 @@ export default function Vehicles() {
                           <TableCell><StatusBadge status={d.isActive ? "Active" : "Inactive"} /></TableCell>
                           {can.manageFleet && (
                             <TableCell className="pr-4 text-right">
-                              <Button
-                                size="sm" variant="ghost"
-                                className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                                onClick={() => setEditDriver(d)}
-                              >
-                                <Pencil className="h-3 w-3 mr-1" /> Edit
-                              </Button>
+                              <div className="flex items-center gap-1 justify-end">
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                  onClick={() => setEditDriver(d)}
+                                >
+                                  <Pencil className="h-3 w-3 mr-1" /> Edit
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
+                                  onClick={() => setDeleteDriverTarget({ id: d.id, name: d.fullName })}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </TableCell>
                           )}
                         </TableRow>
@@ -275,6 +327,40 @@ export default function Vehicles() {
           <EditDriverModal  open={!!editDriver}  driver={editDriver}   onClose={() => setEditDriver(null)} />
         </>
       )}
+
+      <AlertDialog open={!!deleteVehicleTarget} onOpenChange={(v) => { if (!v) setDeleteVehicleTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Vehicle?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete vehicle <strong>{deleteVehicleTarget?.name}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleDeleteVehicleConfirm}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteDriverTarget} onOpenChange={(v) => { if (!v) setDeleteDriverTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Driver?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete driver <strong>{deleteDriverTarget?.name}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleDeleteDriverConfirm}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

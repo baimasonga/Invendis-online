@@ -16,17 +16,17 @@ interface FarmerIdCardProps {
     status?: string;
     phone?: string | null;
   };
+  photoUrl?: string | null;
 }
 
-export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
+export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const qrValue = farmer.barcodeToken ?? farmer.farmerCode;
 
   function handlePrint() {
     const card = cardRef.current;
     if (!card) return;
-    const html = card.innerHTML;
-    const win = window.open("", "_blank", "width=400,height=640");
+    const win = window.open("", "_blank", "width=400,height=680");
     if (!win) return;
     win.document.write(`
       <!DOCTYPE html>
@@ -41,7 +41,8 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
           .card-header { background: #15803d; padding: 16px; color: white; }
           .card-header h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.05em; }
           .card-header p { font-size: 10px; opacity: 0.8; margin-top: 2px; }
-          .card-body { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+          .card-body { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+          .farmer-photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #16a34a; }
           .farmer-name { font-size: 18px; font-weight: 700; color: #111; text-align: center; }
           .farmer-code { font-family: monospace; font-size: 12px; color: #6b7280; margin-top: 2px; }
           .qr-wrap { padding: 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; }
@@ -60,6 +61,7 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
             <p>Farmer Identification Card</p>
           </div>
           <div class="card-body">
+            ${photoUrl ? `<img src="${photoUrl}" class="farmer-photo" crossorigin="anonymous" />` : ""}
             <div style="text-align:center">
               <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
               <div class="farmer-code">${farmer.farmerCode}</div>
@@ -87,17 +89,114 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
     win.document.close();
   }
 
-  function handleDownload() {
-    const svg = cardRef.current?.querySelector("svg");
-    if (!svg) return;
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([svgData], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${farmer.farmerCode}-qr.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleDownload() {
+    const W = 340;
+    const fields: [string, string][] = [
+      ...(farmer.gender       ? [["GENDER",      farmer.gender]      as [string,string]] : []),
+      ...(farmer.districtName ? [["DISTRICT",    farmer.districtName] as [string,string]] : []),
+      ...(farmer.chiefdomName ? [["CHIEFDOM",    farmer.chiefdomName] as [string,string]] : []),
+      ...(farmer.valueChainName ? [["VALUE CHAIN", farmer.valueChainName] as [string,string]] : []),
+      ...(farmer.phone        ? [["PHONE",        farmer.phone]       as [string,string]] : []),
+      ...(farmer.status       ? [["STATUS",       farmer.status]      as [string,string]] : []),
+    ];
+    const infoRows = Math.ceil(fields.length / 2);
+    const hasPhoto = !!photoUrl;
+    const H = 60 + (hasPhoto ? 120 : 0) + 60 + 160 + 12 + infoRows * 38 + 50;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d")!;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+
+    // Header
+    ctx.fillStyle = "#15803d";
+    ctx.beginPath();
+    ctx.moveTo(12, 0); ctx.lineTo(W - 12, 0);
+    ctx.quadraticCurveTo(W, 0, W, 12); ctx.lineTo(W, 60);
+    ctx.lineTo(0, 60); ctx.lineTo(0, 12);
+    ctx.quadraticCurveTo(0, 0, 12, 0); ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText("INVENDIS — AGRI-POD", 16, 30);
+    ctx.font = "10px sans-serif"; ctx.globalAlpha = 0.8;
+    ctx.fillText("Farmer Identification Card", 16, 47);
+    ctx.globalAlpha = 1;
+
+    let y = 70;
+
+    // Photo circle
+    if (hasPhoto && photoUrl) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); img.src = photoUrl; });
+      if (img.naturalWidth > 0) {
+        const cx = W / 2, cy = y + 50, r = 48;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+        const aspect = img.naturalWidth / img.naturalHeight;
+        const dw = aspect > 1 ? r * 2 * aspect : r * 2;
+        const dh = aspect > 1 ? r * 2 : r * 2 / aspect;
+        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+        ctx.restore();
+        ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      }
+      y += 115;
+    }
+
+    // Name + code
+    ctx.fillStyle = "#111827"; ctx.font = "bold 17px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(`${farmer.firstName} ${farmer.lastName}`, W / 2, y + 20);
+    ctx.font = "11px monospace"; ctx.fillStyle = "#6b7280";
+    ctx.fillText(farmer.farmerCode, W / 2, y + 38);
+    y += 55;
+
+    // QR code
+    const svgEl = cardRef.current?.querySelector("svg");
+    if (svgEl) {
+      const svgData = new XMLSerializer().serializeToString(svgEl);
+      const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+      const qrImg = new Image();
+      await new Promise<void>(r => { qrImg.onload = () => r(); qrImg.onerror = () => r(); qrImg.src = `data:image/svg+xml;base64,${svgBase64}`; });
+      const qrSize = 140, boxPad = 10, boxX = (W - qrSize - boxPad * 2) / 2;
+      ctx.fillStyle = "#f8fafc"; ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.rect(boxX, y, qrSize + boxPad * 2, qrSize + boxPad * 2); ctx.fill(); ctx.stroke();
+      ctx.drawImage(qrImg, boxX + boxPad, y + boxPad, qrSize, qrSize);
+      y += qrSize + boxPad * 2 + 14;
+    }
+
+    // Divider
+    ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(W - 16, y); ctx.stroke();
+    y += 12;
+
+    // Info grid
+    for (let i = 0; i < fields.length; i++) {
+      const col = i % 2, row = Math.floor(i / 2);
+      const x = col === 0 ? 16 : W / 2 + 8;
+      const iy = y + row * 38;
+      ctx.fillStyle = "#9ca3af"; ctx.font = "8px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText(fields[i][0], x, iy + 10);
+      ctx.fillStyle = "#374151"; ctx.font = "bold 11px sans-serif";
+      ctx.fillText(fields[i][1], x, iy + 24);
+    }
+    y += infoRows * 38 + 8;
+
+    // Footer
+    ctx.fillStyle = "#f0fdf4"; ctx.fillRect(0, y, W, H - y);
+    ctx.strokeStyle = "#bbf7d0"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = "#6b7280"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("Present this card at distribution points for identification", W / 2, y + 22);
+
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${farmer.farmerCode}-id-card.png`; a.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
   }
 
   return (
@@ -107,7 +206,7 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
           <Printer className="h-3 w-3 mr-1.5" /> Print ID Card
         </Button>
         <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={handleDownload}>
-          <Download className="h-3 w-3 mr-1.5" /> Download QR
+          <Download className="h-3 w-3 mr-1.5" /> Download Card
         </Button>
       </div>
 
@@ -132,6 +231,11 @@ export function FarmerIdCard({ farmer }: FarmerIdCardProps) {
 
         {/* Body */}
         <div className="bg-white p-4 flex flex-col items-center gap-3">
+          {photoUrl && (
+            <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-300 bg-gray-100 shrink-0">
+              <img src={photoUrl} alt={`${farmer.firstName} ${farmer.lastName}`} className="w-full h-full object-cover" />
+            </div>
+          )}
           <div className="text-center">
             <p className="font-bold text-base leading-tight">{farmer.firstName} {farmer.lastName}</p>
             <p className="font-mono text-xs text-muted-foreground mt-0.5">{farmer.farmerCode}</p>

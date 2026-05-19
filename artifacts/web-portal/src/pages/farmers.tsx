@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, listDistricts, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, deleteFarmer, listDistricts, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -50,6 +50,7 @@ export default function Farmers() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
   const limit = 20;
@@ -70,6 +71,7 @@ export default function Farmers() {
 
   const approveMutation = useMutation({ mutationFn: (id: number) => approveFarmer(id) });
   const rejectMutation  = useMutation({ mutationFn: (id: number) => rejectFarmer(id) });
+  const deleteMutation  = useMutation({ mutationFn: (id: number) => deleteFarmer(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
@@ -94,6 +96,19 @@ export default function Farmers() {
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
     } finally { setLoadingId(null); setRejectTarget(null); }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setLoadingId(deleteTarget.id);
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
+      await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
+      toast({ title: "Farmer deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setLoadingId(null); setDeleteTarget(null); }
   }
 
   function resetFilters() {
@@ -238,6 +253,16 @@ export default function Farmers() {
                               <Pencil className="h-3 w-3 mr-1" /> Edit
                             </Button>
                           )}
+                          {can.editFarmer && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
+                              disabled={loadingId === farmer.id}
+                              onClick={() => setDeleteTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                           <Link href={`/farmers/${farmer.id}`}>
                             <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer ml-1">View</span>
                           </Link>
@@ -296,6 +321,23 @@ export default function Farmers() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleRejectConfirm}>
               Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Farmer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.name}</strong> and all associated records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleDeleteConfirm}>
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

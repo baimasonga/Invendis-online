@@ -75,6 +75,7 @@ export const KEYS = {
   stockBalance:  () => ["stock-balance"],
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
+  gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
   dispatches:    (page?: number) => ["dispatches", page],
   dispatch:      (id: number) => ["dispatch", id],
@@ -89,6 +90,7 @@ export const KEYS = {
   chiefdoms:     (districtId?: number) => ["chiefdoms", districtId],
   valueChains:   () => ["value-chains"],
   warehouses:    () => ["warehouses"],
+  inputItems:    () => ["input-items"],
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
@@ -290,6 +292,12 @@ export async function rejectFarmer(id: number, reason = "Rejected by administrat
   if (error) throw new Error(error.message);
   await logAudit("REJECT", "farmers", `Rejected farmer #${id}`, "farmer", id);
   return cc(data);
+}
+
+export async function deleteFarmer(id: number) {
+  const { error } = await supabase.from("farmers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "farmers", `Deleted farmer #${id}`, "farmer", id);
 }
 
 // ── CAMPAIGNS ─────────────────────────────────────────────────────────────────
@@ -605,6 +613,18 @@ export async function createDriver(payload: any) {
   return cc(data);
 }
 
+export async function deleteVehicle(id: number) {
+  const { error } = await supabase.from("vehicles").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted vehicle #${id}`, "vehicle", id);
+}
+
+export async function deleteDriver(id: number) {
+  const { error } = await supabase.from("drivers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted driver #${id}`, "driver", id);
+}
+
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
 async function dispatchToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -725,6 +745,41 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
   const token = await gpsToken();
   const resp = await fetch(`/api/gps/track/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS track fetch failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function listGpsTraceDevices() {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/devices", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace devices fetch failed: ${resp.statusText}`);
+  return resp.json() as Promise<{ configured: boolean; devices: any[]; vehicles: any[] }>;
+}
+
+export async function syncGpsTrace() {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/sync", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace sync failed: ${resp.statusText}`);
+  return resp.json() as Promise<{ synced: number; total: number; linked: number }>;
+}
+
+export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, deviceName?: string) {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/link", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicleId, deviceId, deviceName }),
+  });
+  if (!resp.ok) throw new Error(`Link failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function unlinkGpsTraceDevice(vehicleId: number) {
+  const token = await gpsToken();
+  const resp = await fetch(`/api/gpstrace/unlink/${vehicleId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Unlink failed: ${resp.statusText}`);
   return resp.json();
 }
 
