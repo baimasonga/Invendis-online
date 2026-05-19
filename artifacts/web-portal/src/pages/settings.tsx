@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listDistricts, listValueChains, listWarehouses, createValueChain, KEYS } from "@/lib/db";
+import { listDistricts, listValueChains, listWarehouses, createValueChain, listInputItems, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, MapPin, Layers, Warehouse } from "lucide-react";
+import { Plus, MapPin, Layers, Warehouse, Package } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { AddWarehouseModal } from "@/components/modals/AddWarehouseModal";
@@ -70,10 +70,12 @@ export default function Settings() {
   const { data: districts,   isLoading: loadingDistricts } = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
   const { data: valueChains, isLoading: loadingVC }        = useQuery({ queryKey: KEYS.valueChains(), queryFn: listValueChains });
   const { data: warehouses,  isLoading: loadingWh }        = useQuery({ queryKey: KEYS.warehouses(),  queryFn: listWarehouses });
+  const { data: inputItems,  isLoading: loadingItems }     = useQuery({ queryKey: KEYS.inputItems(),  queryFn: listInputItems });
 
   const districtList:   any[] = Array.isArray(districts)   ? districts   : [];
   const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
   const warehouseList:  any[] = Array.isArray(warehouses)  ? warehouses  : [];
+  const inputItemList:  any[] = Array.isArray(inputItems)  ? inputItems  : [];
 
   return (
     <div className="space-y-5">
@@ -87,6 +89,7 @@ export default function Settings() {
           <TabsTrigger value="warehouses"   className="text-xs">Warehouses</TabsTrigger>
           <TabsTrigger value="value-chains" className="text-xs">Value Chains</TabsTrigger>
           <TabsTrigger value="districts"    className="text-xs">Districts</TabsTrigger>
+          <TabsTrigger value="input-items"  className="text-xs">Input Items</TabsTrigger>
         </TabsList>
 
         <TabsContent value="warehouses" className="mt-4">
@@ -240,6 +243,53 @@ export default function Settings() {
                     : (
                         <TableRow>
                           <TableCell colSpan={2} className="h-24 text-center text-sm text-muted-foreground">No districts</TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="input-items" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center gap-2">
+              <Package className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-semibold">Input Items</CardTitle>
+              {!loadingItems && <span className="text-xs text-muted-foreground ml-1">{inputItemList.length}</span>}
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4">Name</TableHead>
+                    <TableHead className="hidden md:table-cell">Category</TableHead>
+                    <TableHead className="hidden md:table-cell">Value Chain</TableHead>
+                    <TableHead className="pr-4">Unit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingItems
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-32" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell className="pr-4"><Skeleton className="h-4 w-16" /></TableCell>
+                        </TableRow>
+                      ))
+                    : inputItemList.length > 0
+                    ? inputItemList.map((item: any) => (
+                        <TableRow key={item.id} className="hover:bg-muted/40">
+                          <TableCell className="pl-4 text-sm font-medium">{item.name}</TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground capitalize">{item.category ?? "—"}</TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{item.valueChainName ?? "—"}</TableCell>
+                          <TableCell className="pr-4 text-sm text-muted-foreground">{item.unit ?? "—"}</TableCell>
+                        </TableRow>
+                      ))
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={4} className="h-24 text-center text-sm text-muted-foreground">No input items configured</TableCell>
                         </TableRow>
                       )}
                 </TableBody>

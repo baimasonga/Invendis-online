@@ -90,6 +90,7 @@ export const KEYS = {
   chiefdoms:     (districtId?: number) => ["chiefdoms", districtId],
   valueChains:   () => ["value-chains"],
   warehouses:    () => ["warehouses"],
+  inputItems:    () => ["input-items"],
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
@@ -291,6 +292,12 @@ export async function rejectFarmer(id: number, reason = "Rejected by administrat
   if (error) throw new Error(error.message);
   await logAudit("REJECT", "farmers", `Rejected farmer #${id}`, "farmer", id);
   return cc(data);
+}
+
+export async function deleteFarmer(id: number) {
+  const { error } = await supabase.from("farmers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "farmers", `Deleted farmer #${id}`, "farmer", id);
 }
 
 // ── CAMPAIGNS ─────────────────────────────────────────────────────────────────
@@ -604,6 +611,18 @@ export async function createDriver(payload: any) {
   }).select().single();
   if (error) throw new Error(error.message);
   return cc(data);
+}
+
+export async function deleteVehicle(id: number) {
+  const { error } = await supabase.from("vehicles").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted vehicle #${id}`, "vehicle", id);
+}
+
+export async function deleteDriver(id: number) {
+  const { error } = await supabase.from("drivers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted driver #${id}`, "driver", id);
 }
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────

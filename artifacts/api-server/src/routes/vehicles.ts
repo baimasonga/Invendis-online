@@ -44,4 +44,20 @@ router.get("/api/vehicles/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(rows[0]));
 });
 
+router.delete("/api/vehicles/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { error } = await supa.from("vehicles").delete().eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "Vehicles", `Deleted vehicle ID ${id}`, "vehicle", id);
+  res.json({ success: true });
+});
+
+router.delete("/api/vehicles/drivers/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { error } = await supa.from("drivers").delete().eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "Vehicles", `Deleted driver ID ${id}`, "driver", id);
+  res.json({ success: true });
+});
+
 export default router;

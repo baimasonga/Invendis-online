@@ -85,4 +85,12 @@ router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
+router.delete("/api/farmers/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { error } = await supa.from("farmers").delete().eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "Farmers", `Deleted farmer ID ${id}`, "farmer", id);
+  res.json({ success: true });
+});
+
 export default router;

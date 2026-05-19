@@ -47,14 +47,12 @@ async function seed() {
   // Value Chains
   console.log("Creating value chains...");
   const valueChains = await db.insert(valueChainsTable).values([
-    { name: "Rice", description: "Upland and swamp rice production" },
-    { name: "Cassava", description: "Cassava production and processing" },
-    { name: "Maize", description: "Maize/corn production" },
-    { name: "Groundnut", description: "Groundnut production" },
-    { name: "Vegetable", description: "Mixed vegetable production" },
-    { name: "Cocoa", description: "Cocoa production and export" },
-    { name: "Coffee", description: "Robusta coffee production" },
-    { name: "Palm Oil", description: "Palm oil production and processing" },
+    { name: "Invalley Swamp", description: "Invalley swamp rice production" },
+    { name: "Tree Crops", description: "Oil palm and cocoa production" },
+    { name: "Vegetables", description: "Bulb pepper and onions production" },
+    { name: "Infrastructure", description: "Roads, grain stores, and other infrastructure" },
+    { name: "Agribusiness", description: "Agricultural business and enterprise development" },
+    { name: "Adaptation", description: "Farmer feed schools and other adaptation programs" },
   ]).onConflictDoNothing().returning();
 
   // Warehouses
