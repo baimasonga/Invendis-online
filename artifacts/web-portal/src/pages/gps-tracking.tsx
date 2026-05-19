@@ -594,6 +594,7 @@ export default function GpsTracking() {
         </TabsContent>
 
         <TabsContent value="live">
+        <div className="space-y-5">
 
       {/* Summary strip */}
       {!isLoading && vehicleList.length > 0 && (
@@ -893,6 +894,7 @@ export default function GpsTracking() {
           )}
         </div>
       </div>
+        </div>
         </TabsContent>
       </Tabs>
     </div>

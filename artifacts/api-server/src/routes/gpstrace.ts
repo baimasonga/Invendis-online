@@ -151,8 +151,7 @@ router.post("/api/gpstrace/sync", requireAuth, async (_req, res) => {
 
       await query(
         `INSERT INTO gps_track (vehicle_id, latitude, longitude, speed, heading, recorded_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [vehicle.id, unit.pos.y, unit.pos.x, unit.pos.s ?? null, unit.pos.c ?? null, posTime]
       );
 
