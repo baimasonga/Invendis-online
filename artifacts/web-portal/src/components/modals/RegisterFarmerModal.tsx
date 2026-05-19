@@ -44,7 +44,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
 
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
   const { data: chiefdoms }   = useQuery({
-    queryKey: [...KEYS.districts(), "chiefdoms", districtId],
+    queryKey: KEYS.chiefdoms(districtId ? Number(districtId) : undefined),
     queryFn: () => listChiefdoms(districtId ? Number(districtId) : undefined),
     enabled: !!districtId,
   });
