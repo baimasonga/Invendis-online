@@ -22,7 +22,7 @@ interface Props {
 }
 
 const LABEL_SIZES = [
-  { id: "thermal4x5", label: '5.5" × 7.5" Thermal Transfer', pageW: "5.5in", pageH: "7.5in" },
+  { id: "thermal4x5", label: '6" × 8" Thermal Transfer', pageW: "6in", pageH: "8in" },
   { id: "large",      label: "Large  (100 × 50 mm)",          pageW: "100mm", pageH: "50mm"  },
   { id: "medium",     label: "Medium  (72 × 36 mm)",          pageW: "72mm",  pageH: "36mm"  },
   { id: "small",      label: "Small   (54 × 25 mm)",          pageW: "54mm",  pageH: "25mm"  },
@@ -30,7 +30,7 @@ const LABEL_SIZES = [
 type SizeId = (typeof LABEL_SIZES)[number]["id"];
 
 // Preview pixel dimensions (in dialog) — 5.5×7.5 ratio for thermal
-const PREVIEW_W: Record<SizeId, number> = { thermal4x5: 330, large: 400, medium: 324, small: 270 };
+const PREVIEW_W: Record<SizeId, number> = { thermal4x5: 338, large: 400, medium: 324, small: 270 };
 const PREVIEW_H: Record<SizeId, number> = { thermal4x5: 450, large: 200, medium: 162, small: 125 };
 
 const CAT_COLORS: Record<string, string> = {
