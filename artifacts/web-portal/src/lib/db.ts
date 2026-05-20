@@ -1158,6 +1158,29 @@ export async function getPhotoUrl(key: string): Promise<string | null> {
   try { return await getFaceViewUrl(key); } catch { return null; }
 }
 
+export interface PublicCardData {
+  firstName: string;
+  lastName: string;
+  farmerCode: string;
+  barcodeToken: string;
+  gender?: string | null;
+  phone?: string | null;
+  status?: string | null;
+  districtName?: string | null;
+  chiefdomName?: string | null;
+  valueChainName?: string | null;
+  photoUrl?: string | null;
+}
+
+export async function getPublicCard(token: string): Promise<PublicCardData> {
+  const res = await fetch(`${API_BASE}/cards/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as any).error ?? "Card not found");
+  }
+  return res.json();
+}
+
 export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendingPod: number }> {
   const [farmers, pod] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),

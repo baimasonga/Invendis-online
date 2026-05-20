@@ -50,14 +50,20 @@ export default function ScanFarmerScreen() {
 
   const lookup = async (code: string) => {
     if (!token || loading) return;
+    // Newer ID-card QR codes encode the full share URL (e.g.
+    // "https://invendisapp.com/card/BC12345678"). Pull the trailing token
+    // segment out so we can still look the farmer up by barcode.
+    const trimmed = code.trim();
+    const urlMatch = trimmed.match(/\/card\/([^/?#]+)/);
+    const scanned = urlMatch ? decodeURIComponent(urlMatch[1]) : trimmed;
     setLoading(true);
     setFarmer(null);
     try {
-      const result = await farmerByBarcode(token, code);
+      const result = await farmerByBarcode(token, scanned);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      const results = await searchFarmers(token, code).catch(() => ({ data: [] as Farmer[] }));
+      const results = await searchFarmers(token, scanned).catch(() => ({ data: [] as Farmer[] }));
       if (results.data.length > 0) {
         setFarmer(results.data[0]);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

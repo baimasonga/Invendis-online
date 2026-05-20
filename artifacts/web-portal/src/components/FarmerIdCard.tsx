@@ -1,7 +1,9 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
-import { Printer, Download } from "lucide-react";
+import { Printer, Download, Share2, Copy, Check, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
 interface FarmerIdCardProps {
   farmer: {
@@ -21,7 +23,28 @@ interface FarmerIdCardProps {
 
 export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const qrValue = farmer.barcodeToken ?? farmer.farmerCode;
+  const { toast } = useToast();
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // QR encodes the full public card URL so a phone-camera scan opens the
+  // mobile card view directly. Falls back to bare token in SSR or if window
+  // is unavailable.
+  const shareToken = farmer.barcodeToken ?? farmer.farmerCode;
+  const shareUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/card/${encodeURIComponent(shareToken)}`
+    : `/card/${encodeURIComponent(shareToken)}`;
+  const qrValue = shareUrl;
+
+  async function copyShareUrl() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast({ title: "Copy failed", description: "Could not copy link to clipboard.", variant: "destructive" });
+    }
+  }
 
   function handlePrint() {
     const card = cardRef.current;
@@ -229,14 +252,60 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={handlePrint}>
-          <Printer className="h-3 w-3 mr-1.5" /> Print ID Card
+      <div className="grid grid-cols-3 gap-2">
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrint}>
+          <Printer className="h-3 w-3 mr-1.5" /> Print
         </Button>
-        <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={handleDownload}>
-          <Download className="h-3 w-3 mr-1.5" /> Download Card
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleDownload}>
+          <Download className="h-3 w-3 mr-1.5" /> Download
+        </Button>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShareOpen(true)}>
+          <Share2 className="h-3 w-3 mr-1.5" /> Share
         </Button>
       </div>
+
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-green-700" />
+              Send Card to Phone
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-xs text-muted-foreground">
+              Have field staff scan this QR code with their phone camera, or share the short link below — it opens a mobile-friendly version of <strong>{farmer.firstName} {farmer.lastName}</strong>'s ID card.
+            </p>
+
+            <div className="flex justify-center p-4 bg-white rounded-lg border-2 border-slate-200">
+              <QRCodeSVG value={shareUrl} size={220} level="M" includeMargin={false} />
+            </div>
+
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+              <code className="flex-1 text-[11px] font-mono text-slate-700 truncate select-all">{shareUrl}</code>
+              <Button size="sm" variant="ghost" className="h-7 px-2 shrink-0" onClick={copyShareUrl}>
+                {copied
+                  ? <><Check className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Copied</>
+                  : <><Copy className="h-3.5 w-3.5 mr-1" /> Copy</>
+                }
+              </Button>
+            </div>
+
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Open on this device
+            </a>
+
+            <p className="text-[10px] text-muted-foreground border-t pt-3">
+              The QR printed on this farmer's physical ID card encodes the same link, so scanning the printed card with a phone camera opens this page directly.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Hidden render source for QR extraction */}
       <div ref={cardRef} className="hidden">

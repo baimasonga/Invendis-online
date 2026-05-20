@@ -2,6 +2,7 @@ import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { getPresignedViewUrl } from "../lib/aws.js";
 import { randomBytes } from "crypto";
 
 const router = Router();
@@ -91,6 +92,51 @@ router.delete("/api/farmers/:id", requireAuth, async (req, res) => {
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "DELETE", "Farmers", `Deleted farmer ID ${id}`, "farmer", id);
   res.json({ success: true });
+});
+
+// ── Public ID card endpoint ───────────────────────────────────────────────────
+// Returns ID-card-safe fields for a farmer given their barcode_token.
+// Intentionally no auth: this powers the shareable mobile card view that field
+// staff open by scanning the QR on a farmer's printed card. The token already
+// gates the printed physical card, so the digital view is the same trust level.
+router.get("/api/cards/:token", async (req, res) => {
+  const token = req.params.token;
+  if (!token || token.length < 4) { res.status(400).json({ error: "Invalid token" }); return; }
+
+  const { data: rows, error } = await supa
+    .from("farmers")
+    .select("id, first_name, last_name, farmer_code, barcode_token, gender, phone, status, photo_url, district_id, chiefdom_id, value_chain_id")
+    .eq("barcode_token", token)
+    .limit(1);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const farmer = rows?.[0] as any;
+  if (!farmer) { res.status(404).json({ error: "Card not found" }); return; }
+
+  const [districtRes, chiefdomRes, vcRes] = await Promise.all([
+    farmer.district_id     ? supa.from("districts").select("name").eq("id", farmer.district_id).limit(1)         : Promise.resolve({ data: null }),
+    farmer.chiefdom_id     ? supa.from("chiefdoms").select("name").eq("id", farmer.chiefdom_id).limit(1)         : Promise.resolve({ data: null }),
+    farmer.value_chain_id  ? supa.from("value_chains").select("name").eq("id", farmer.value_chain_id).limit(1)   : Promise.resolve({ data: null }),
+  ]);
+
+  let photoUrl: string | null = null;
+  if (farmer.photo_url) {
+    try { photoUrl = await getPresignedViewUrl(farmer.photo_url); } catch { photoUrl = null; }
+  }
+
+  res.set("Cache-Control", "private, max-age=60");
+  res.json({
+    firstName:      farmer.first_name,
+    lastName:       farmer.last_name,
+    farmerCode:     farmer.farmer_code,
+    barcodeToken:   farmer.barcode_token,
+    gender:         farmer.gender,
+    phone:          farmer.phone,
+    status:         farmer.status,
+    districtName:   (districtRes.data as any)?.[0]?.name ?? null,
+    chiefdomName:   (chiefdomRes.data as any)?.[0]?.name ?? null,
+    valueChainName: (vcRes.data as any)?.[0]?.name ?? null,
+    photoUrl,
+  });
 });
 
 export default router;

@@ -123,16 +123,21 @@ export default function ScanScreen() {
   // ─── Farmer lookup ────────────────────────────────────────────────────────
   const lookupFarmer = async (code: string) => {
     if (!token || loading) return;
+    // ID-card QR codes encode the full share URL (".../card/<token>"). Pull
+    // the token segment out so the lookup still hits a barcode_token.
+    const trimmed = code.trim();
+    const urlMatch = trimmed.match(/\/card\/([^/?#]+)/);
+    const scanned = urlMatch ? decodeURIComponent(urlMatch[1]) : trimmed;
     setLoading(true);
     setFarmer(null);
     setDispatch(null);
     try {
-      const result = await farmerByBarcode(token, code);
+      const result = await farmerByBarcode(token, scanned);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       try {
-        const results = await searchFarmers(token, code);
+        const results = await searchFarmers(token, scanned);
         if (results.data.length > 0) {
           setFarmer(results.data[0]);
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
