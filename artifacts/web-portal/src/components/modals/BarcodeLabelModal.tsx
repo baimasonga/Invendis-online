@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import JsBarcode from "jsbarcode";
 import { QRCodeSVG } from "qrcode.react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,23 +45,23 @@ function catColor(cat?: string) {
 const BRAND = "AVDP Farming Inputs";
 
 export function BarcodeLabelModal({ open, onClose, item }: Props) {
-  const barcodeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const qrSourceRef      = useRef<HTMLDivElement>(null);
+  // Use a callback ref so the barcode renders the moment the canvas mounts
+  // inside the Dialog portal — a plain useRef misses the first mount.
+  const barcodeCanvasNode = useRef<HTMLCanvasElement | null>(null);
+  const qrSourceRef       = useRef<HTMLDivElement>(null);
 
-  const [qty, setQty]           = useState("1");
-  const [size, setSize]         = useState<SizeId>("medium");
+  const [qty, setQty]             = useState("1");
+  const [size, setSize]           = useState<SizeId>("medium");
   const [bcDataUrl, setBcDataUrl] = useState<string>("");
-  const [hasError, setHasError] = useState(false);
+  const [hasError, setHasError]   = useState(false);
 
   const barcodeValue = item.barcode?.trim() || item.itemCode?.trim();
 
-  // Render CODE128 barcode → PNG data URL whenever value changes
-  useEffect(() => {
-    if (!open) return;
+  function renderBarcode(canvas: HTMLCanvasElement) {
+    if (!barcodeValue) { setBcDataUrl(""); return; }
     setHasError(false);
-    if (!barcodeValue || !barcodeCanvasRef.current) { setBcDataUrl(""); return; }
     try {
-      JsBarcode(barcodeCanvasRef.current, barcodeValue, {
+      JsBarcode(canvas, barcodeValue, {
         format:       "CODE128",
         width:        2.8,
         height:       60,
@@ -70,12 +70,24 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
         background:   "#ffffff",
         lineColor:    "#111827",
       });
-      setBcDataUrl(barcodeCanvasRef.current.toDataURL("image/png"));
+      setBcDataUrl(canvas.toDataURL("image/png"));
     } catch {
       setHasError(true);
       setBcDataUrl("");
     }
-  }, [open, barcodeValue]);
+  }
+
+  // Callback ref — fires immediately when the canvas enters the DOM
+  const barcodeCanvasRef = useCallback((node: HTMLCanvasElement | null) => {
+    barcodeCanvasNode.current = node;
+    if (node && open) renderBarcode(node);
+  }, [open, barcodeValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Also re-render if barcodeValue changes while modal is already open
+  useEffect(() => {
+    if (!open) { setBcDataUrl(""); setHasError(false); return; }
+    if (barcodeCanvasNode.current) renderBarcode(barcodeCanvasNode.current);
+  }, [open, barcodeValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Extract QR SVG from hidden source div, strip fixed pixel dimensions
   function getQrSvgHtml(): string {
@@ -397,7 +409,7 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
           </div>
         </div>
 
-        {/* Hidden CODE128 canvas — toDataURL() source for print */}
+        {/* Hidden CODE128 canvas — callback ref fires on mount so barcode renders immediately */}
         <canvas ref={barcodeCanvasRef} className="hidden" />
 
         {/* Hidden QR source — SVG outerHTML extracted for print template */}
