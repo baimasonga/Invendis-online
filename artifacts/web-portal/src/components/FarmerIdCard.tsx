@@ -26,30 +26,38 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   function handlePrint() {
     const card = cardRef.current;
     if (!card) return;
-    const svgHtml = card.querySelector("svg")?.outerHTML ?? "";
+
+    // Strip hardcoded pixel width/height from SVG so CSS physical sizing takes over.
+    // QRCodeSVG sets width="N" height="N" which prints at a fixed px size (~12mm at
+    // 300dpi). Removing them while keeping viewBox makes the SVG scale with CSS.
+    const rawSvg = card.querySelector("svg")?.outerHTML ?? "";
+    const svgHtml = rawSvg
+      .replace(/\s+width="[^"]*"/, "")
+      .replace(/\s+height="[^"]*"/, "");
 
     const photoBlock = photoUrl
       ? `<div class="photo-wrap">
-           <img src="${photoUrl}" alt="${farmer.firstName} ${farmer.lastName}" class="photo-img" />
+           <img src="${photoUrl}" alt="${farmer.firstName} ${farmer.lastName}" class="photo-img" crossorigin="anonymous" />
          </div>`
       : `<div class="photo-wrap">
            <div class="photo-placeholder">
-             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:40%;height:40%">
                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
              </svg>
            </div>
          </div>`;
 
     const infoItems = [
-      farmer.gender       ? `<div class="info-item"><label>Gender</label><p>${farmer.gender}</p></div>` : "",
-      farmer.districtName ? `<div class="info-item"><label>District</label><p>${farmer.districtName}</p></div>` : "",
-      farmer.chiefdomName ? `<div class="info-item"><label>Chiefdom</label><p>${farmer.chiefdomName}</p></div>` : "",
+      farmer.gender         ? `<div class="info-item"><label>Gender</label><p>${farmer.gender}</p></div>` : "",
+      farmer.districtName   ? `<div class="info-item"><label>District</label><p>${farmer.districtName}</p></div>` : "",
+      farmer.chiefdomName   ? `<div class="info-item"><label>Chiefdom</label><p>${farmer.chiefdomName}</p></div>` : "",
       farmer.valueChainName ? `<div class="info-item"><label>Value Chain</label><p>${farmer.valueChainName}</p></div>` : "",
-      farmer.phone        ? `<div class="info-item"><label>Phone</label><p>${farmer.phone}</p></div>` : "",
-      `<div class="info-item"><label>Status</label><p style="color:${farmer.status === 'approved' ? '#16a34a' : '#f59e0b'};text-transform:capitalize">${farmer.status ?? "—"}</p></div>`,
+      farmer.phone          ? `<div class="info-item"><label>Phone</label><p>${farmer.phone}</p></div>` : "",
+      `<div class="info-item"><label>Status</label><p style="color:${farmer.status === "approved" ? "#16a34a" : "#f59e0b"};text-transform:capitalize">${farmer.status ?? "—"}</p></div>`,
     ].join("");
 
-    const win = window.open("", "_blank", "width=520,height=820");
+    // Open a full-page window — @page CSS below controls the actual paper size/margins.
+    const win = window.open("", "_blank", "width=800,height=1100");
     if (!win) return;
     win.document.write(`
       <!DOCTYPE html>
@@ -58,32 +66,136 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
         <meta charset="utf-8" />
         <title>Farmer ID — ${farmer.farmerCode}</title>
         <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: system-ui, -apple-system, sans-serif; background: #f9fafb; display: flex; justify-content: center; align-items: flex-start; padding: 32px 20px; min-height: 100vh; }
-          .card { width: 420px; border: 2px solid #16a34a; border-radius: 14px; overflow: hidden; background: white; box-shadow: 0 4px 24px rgba(0,0,0,0.12); }
-          .card-header { background: linear-gradient(135deg, #14532d 0%, #16a34a 100%); padding: 20px 20px 16px; color: white; display: flex; align-items: center; gap: 14px; }
-          .header-logo { width: 42px; height: 42px; background: rgba(255,255,255,0.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; color: white; letter-spacing: -1px; flex-shrink: 0; }
-          .header-text h1 { font-size: 17px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
-          .header-text p { font-size: 10px; opacity: 0.75; margin-top: 2px; }
-          .card-body { padding: 20px 20px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
-          .photo-wrap { width: 96px; height: 96px; border-radius: 50%; overflow: hidden; border: 3px solid #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.15); flex-shrink: 0; }
-          .photo-img { width: 100%; height: 100%; object-fit: cover; }
-          .photo-placeholder { width: 100%; height: 100%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; }
-          .farmer-name { font-size: 20px; font-weight: 700; color: #111827; text-align: center; line-height: 1.2; }
-          .farmer-code { font-family: 'Courier New', monospace; font-size: 11px; color: #6b7280; margin-top: 4px; text-align: center; }
-          .divider { width: 100%; border: none; border-top: 1px solid #e5e7eb; }
-          .qr-section { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-          .qr-wrap { padding: 10px; border: 1.5px solid #e5e7eb; border-radius: 10px; background: white; }
-          .qr-label { font-size: 9px; color: #9ca3af; text-align: center; letter-spacing: 0.06em; text-transform: uppercase; }
-          .info-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-          .info-item label { font-size: 9px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; }
-          .info-item p { font-size: 12px; font-weight: 600; color: #374151; margin-top: 2px; }
-          .card-footer { background: #f0fdf4; border-top: 1px solid #dcfce7; padding: 10px 20px; text-align: center; }
-          .card-footer p { font-size: 9.5px; color: #6b7280; letter-spacing: 0.01em; }
-          @media print {
-            body { background: white; padding: 0; margin: 0; display: block; }
-            .card { box-shadow: none; margin: 0 auto; }
+          /* ── Page setup ──────────────────────────────────────────── */
+          @page {
+            size: A5 portrait;
+            margin: 12mm;
           }
+
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+
+          /* Screen: center the card nicely */
+          body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 24px;
+            min-height: 100vh;
+          }
+
+          /* Print: no chrome, card fills the page */
+          @media print {
+            body {
+              background: white;
+              padding: 0;
+              margin: 0;
+              display: block;
+            }
+          }
+
+          /* ── Card shell ──────────────────────────────────────────── */
+          .card {
+            width: 148mm;          /* A5 width minus 2×12mm margin */
+            background: white;
+            border: 2px solid #16a34a;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+            page-break-inside: avoid;
+          }
+          @media print {
+            .card { box-shadow: none; border-radius: 8px; }
+          }
+
+          /* ── Header ──────────────────────────────────────────────── */
+          .card-header {
+            background: linear-gradient(135deg, #14532d 0%, #16a34a 100%);
+            padding: 5mm 6mm;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 4mm;
+          }
+          .header-logo {
+            width: 11mm; height: 11mm;
+            background: rgba(255,255,255,0.15);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 5.5mm; font-weight: 900; color: white;
+            flex-shrink: 0;
+          }
+          .header-text h1 { font-size: 4.8mm; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+          .header-text p  { font-size: 2.8mm; opacity: 0.75; margin-top: 0.5mm; }
+
+          /* ── Body ────────────────────────────────────────────────── */
+          .card-body {
+            padding: 5mm 6mm 4mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4mm;
+          }
+
+          /* ── Photo ───────────────────────────────────────────────── */
+          .photo-wrap {
+            width: 22mm; height: 22mm;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 0.8mm solid #16a34a;
+            flex-shrink: 0;
+          }
+          .photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+          .photo-placeholder {
+            width: 100%; height: 100%;
+            background: #f1f5f9;
+            display: flex; align-items: center; justify-content: center;
+          }
+
+          /* ── Name / code ─────────────────────────────────────────── */
+          .farmer-name { font-size: 5.5mm; font-weight: 700; color: #111827; text-align: center; line-height: 1.25; }
+          .farmer-code { font-family: 'Courier New', monospace; font-size: 3mm; color: #6b7280; margin-top: 1mm; text-align: center; }
+
+          .divider { width: 100%; border: none; border-top: 1px solid #e5e7eb; }
+
+          /* ── QR section ──────────────────────────────────────────── */
+          .qr-section { display: flex; flex-direction: column; align-items: center; gap: 2mm; }
+          .qr-wrap {
+            padding: 3mm;
+            border: 0.4mm solid #e5e7eb;
+            border-radius: 3mm;
+            background: white;
+            line-height: 0;
+          }
+          /* This is the key fix: force QR to a large physical size regardless of SVG attributes */
+          .qr-wrap svg {
+            width: 45mm !important;
+            height: 45mm !important;
+            display: block;
+          }
+          .qr-label { font-size: 2.5mm; color: #9ca3af; letter-spacing: 0.06em; text-transform: uppercase; }
+
+          /* ── Info grid ───────────────────────────────────────────── */
+          .info-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2.5mm 5mm;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 3.5mm;
+          }
+          .info-item label { font-size: 2.5mm; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; display: block; }
+          .info-item p     { font-size: 3.2mm; font-weight: 600; color: #374151; margin-top: 0.5mm; }
+
+          /* ── Footer ──────────────────────────────────────────────── */
+          .card-footer {
+            background: #f0fdf4;
+            border-top: 1px solid #dcfce7;
+            padding: 2.5mm 6mm;
+            text-align: center;
+          }
+          .card-footer p { font-size: 2.5mm; color: #6b7280; }
         </style>
       </head>
       <body>
@@ -93,7 +205,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
             <div class="header-text">
               <h1>AVDP Farmer</h1>
               <p>Agricultural Verified Distribution Programme</p>
-              <p style="margin-top:1px;opacity:0.6">Agri-PoD Identification Card</p>
+              <p style="margin-top:0.5mm;opacity:0.6;font-size:2.5mm">Agri-PoD Identification Card</p>
             </div>
           </div>
           <div class="card-body">
@@ -148,8 +260,8 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
       <div ref={cardRef} className="hidden">
         <QRCodeSVG
           value={qrValue}
-          size={150}
-          level="M"
+          size={400}
+          level="H"
           includeMargin={false}
           style={{ display: "block" }}
         />
