@@ -30,6 +30,7 @@ node_modules
 # misc
 /.sass-cache
 /connect.lock
+artifacts/web-portal/package-lock.json
 /coverage
 /libpeerconnection.log
 npm-debug.log
