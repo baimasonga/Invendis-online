@@ -1470,6 +1470,9 @@ export async function updateInputItem(id: number, payload: any) {
 export async function toggleInputItem(id: number) {
   return mdFetch(`/api/master-data/input-items/${id}/toggle`, { method: "PATCH" });
 }
+export async function deleteInputItem(id: number) {
+  return mdFetch(`/api/master-data/input-items/${id}`, { method: "DELETE" });
+}
 
 // ── System Settings ───────────────────────────────────────────────────────────
 export async function listSystemSettings(): Promise<{ key: string; value: string; description: string }[]> {

@@ -259,6 +259,14 @@ router.patch("/api/master-data/input-items/:id/toggle", requireAnyAuth, requireR
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json(snakeToCamel(data));
 });
+router.delete("/api/master-data/input-items/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
+  const id = Number(req.params.id);
+  const { data: item } = await supa.from("input_items").select("name").eq("id", id).single();
+  const { error } = await supa.from("input_items").update({ is_active: 0 }).eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "MasterData", `Deleted input item: ${(item as any)?.name ?? id}`, "input_item", id);
+  res.json({ success: true });
+});
 
 // ── System Settings ───────────────────────────────────────────────────────────
 router.get("/api/master-data/system-settings", requireAnyAuth, async (_req, res) => {

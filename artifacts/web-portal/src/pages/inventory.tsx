@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listInputItems, getStockBalance, KEYS } from "@/lib/db";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listInputItems, getStockBalance, deleteInputItem, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowDownToLine, Box, PackageCheck, Pencil, Printer } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ArrowDownToLine, Box, PackageCheck, Pencil, Printer, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
 import { EditInputItemModal } from "@/components/modals/EditInputItemModal";
 import { BarcodeLabelModal } from "@/components/modals/BarcodeLabelModal";
+import { useToast } from "@/hooks/use-toast";
 
 const CATEGORY_STYLES: Record<string, string> = {
   seed:       "bg-green-100  text-green-800  dark:bg-green-900/30   dark:text-green-400",
@@ -45,10 +47,26 @@ function StockBar({ available, total }: { available: number; total: number }) {
 }
 
 export default function Inventory() {
-  const can = usePermissions();
-  const [receiveOpen, setReceiveOpen] = useState(false);
-  const [editItem, setEditItem]       = useState<any>(null);
-  const [labelItem, setLabelItem]     = useState<any>(null);
+  const can  = usePermissions();
+  const qc   = useQueryClient();
+  const { toast } = useToast();
+
+  const [receiveOpen, setReceiveOpen]   = useState(false);
+  const [editItem, setEditItem]         = useState<any>(null);
+  const [labelItem, setLabelItem]       = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteInputItem(id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.inventory() });
+      toast({ title: "Item removed", description: `"${deleteTarget?.name}" has been removed from the catalogue.` });
+      setDeleteTarget(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const { data: inputItems, isLoading: loadingItems } = useQuery({
     queryKey: KEYS.inventory(),
@@ -226,9 +244,18 @@ export default function Inventory() {
                                 <Button
                                   size="sm" variant="ghost"
                                   className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                  title="Edit item"
                                   onClick={() => setEditItem(item)}
                                 >
                                   <Pencil className="h-3 w-3 mr-1" /> Edit
+                                </Button>
+                                <Button
+                                  size="sm" variant="ghost"
+                                  className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  title="Remove item"
+                                  onClick={() => setDeleteTarget(item)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
                                 </Button>
                               </div>
                             </TableCell>
@@ -269,6 +296,27 @@ export default function Inventory() {
               }}
             />
           )}
+          <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove input item?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  <strong>{deleteTarget?.name}</strong> will be removed from the catalogue and hidden from all
+                  inventory views. Existing stock records are preserved. This action can be reversed by an Admin.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+                >
+                  {deleteMutation.isPending ? "Removing…" : "Remove item"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </div>
