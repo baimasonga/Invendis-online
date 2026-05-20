@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS } from "@/lib/db";
+import {
+  getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference,
+} from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera } from "lucide-react";
+import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -51,6 +54,56 @@ export default function FarmerDetail() {
 
   const approveMutation = useMutation({ mutationFn: () => approveFarmer(id) });
   const rejectMutation  = useMutation({ mutationFn: () => rejectFarmer(id) });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  async function downscaleImage(file: File, maxDim = 1024): Promise<Blob> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("Invalid image"));
+      i.src = dataUrl;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * scale);
+    const h = Math.round(img.naturalHeight * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error("Could not encode image")), "image/jpeg", 0.88);
+    });
+  }
+
+  async function handlePhotoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please choose an image file.", variant: "destructive" });
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const blob = await downscaleImage(file);
+      const { uploadUrl, key } = await getFaceUploadUrl(id, "reference");
+      await uploadBlobToS3(uploadUrl, blob);
+      await saveFaceReference(id, key);
+      await qc.invalidateQueries({ queryKey: KEYS.farmer(id) });
+      toast({ title: "Photo updated", description: "Profile photo saved." });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message ?? "Could not upload photo.", variant: "destructive" });
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   async function handleApprove() {
     setActionLoading(true);
@@ -190,6 +243,31 @@ export default function FarmerDetail() {
                     <Camera className="h-8 w-8 opacity-25" />
                     <span className="text-[10px] text-center px-2 leading-tight">No photo</span>
                   </div>
+                )}
+                {can.editFarmer && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePhotoFileSelected}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                    >
+                      {uploadingPhoto ? (
+                        <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Uploading…</>
+                      ) : (
+                        <><Upload className="h-3 w-3 mr-1.5" /> {photoSrc ? "Change Photo" : "Upload Photo"}</>
+                      )}
+                    </Button>
+                  </>
                 )}
                 <div className="text-center space-y-1.5">
                   <p className="text-base font-bold leading-tight">{f.firstName} {f.lastName}</p>
