@@ -100,8 +100,10 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
 router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
   const { data: vehicles, error } = await supa
     .from("vehicles")
-    .select("id, plate_number, vehicle_code, vehicle_type, last_latitude, last_longitude, last_ping, status")
+    .select("id, plate_number, vehicle_code, vehicle_type, last_latitude, last_longitude, last_ping, status, gps_device_id")
     .eq("status", "InTransit")
+    .not("gps_device_id", "is", null)
+    .neq("gps_device_id", "")
     .order("last_ping", { ascending: false, nullsFirst: false });
 
   if (error) { res.status(500).json({ error: error.message }); return; }
