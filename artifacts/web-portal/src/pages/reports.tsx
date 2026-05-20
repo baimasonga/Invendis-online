@@ -295,8 +295,9 @@ export default function Reports() {
   const [stockTo,   setStockTo]   = useState("");
   const [distFrom,  setDistFrom]  = useState("");
   const [distTo,    setDistTo]    = useState("");
-  const [incPage,   setIncPage]   = useState(1);
-  const [incStatus, setIncStatus] = useState("");
+  const [incPage,      setIncPage]      = useState(1);
+  const [incStatus,    setIncStatus]    = useState("");
+  const [incExporting, setIncExporting] = useState(false);
 
   // consolidation tab state
   const [conStatus,     setConStatus]     = useState("");
@@ -340,6 +341,23 @@ export default function Reports() {
     { key: "manifestCode", label: "Manifest" }, { key: "campaignName", label: "Campaign" },
     { key: "warehouseName", label: "Warehouse" }, { key: "status", label: "Status" }, { key: "completionPct", label: "Completion %" },
   ];
+
+  const incidentsCols = [
+    { key: "incidentCode", label: "Code" }, { key: "incidentType", label: "Type" },
+    { key: "officerName", label: "Officer" }, { key: "location", label: "Location" },
+    { key: "status", label: "Status" }, { key: "createdAt", label: "Reported" },
+    { key: "resolutionNotes", label: "Resolution Notes" },
+  ];
+
+  async function exportIncidents() {
+    setIncExporting(true);
+    try {
+      const result = await listIncidents(1, 9999, incStatus || undefined);
+      downloadCSV(result.data ?? [], incidentsCols, `incidents-${today}.csv`);
+    } finally {
+      setIncExporting(false);
+    }
+  }
 
   const benRows: any[]  = (benReport as any)?.rows ?? [];
   const summary: any    = (benReport as any)?.summary ?? {};
@@ -1041,9 +1059,15 @@ export default function Reports() {
                   {label}
                 </button>
               ))}
-              {!loadingInc && (
-                <span className="text-xs text-muted-foreground ml-auto">{incTotal} incidents</span>
-              )}
+                      <div className="ml-auto flex items-center gap-2">
+                {!loadingInc && (
+                  <span className="text-xs text-muted-foreground">{incTotal} incidents</span>
+                )}
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={incExporting || incTotal === 0}
+                  onClick={exportIncidents}>
+                  <Download className="h-3.5 w-3.5 mr-1" /> {incExporting ? "Exporting…" : "Export CSV"}
+                </Button>
+              </div>
             </div>
             <CardContent className="p-0">
               <Table>

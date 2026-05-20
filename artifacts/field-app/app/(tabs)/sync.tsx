@@ -21,7 +21,7 @@ export default function SyncScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const { queue, syncAll, clearFailed, isSyncing, lastSync } = useOfflineQueue();
+  const { queue, syncAll, clearFailed, retryItem, isSyncing, lastSync } = useOfflineQueue();
   const [syncResult, setSyncResult] = useState<{ success: number; failed: number } | null>(null);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -133,13 +133,25 @@ export default function SyncScreen() {
                 <Text style={[styles.itemError, { color: colors.destructive }]}>{item.error}</Text>
               )}
             </View>
-            <View style={[styles.badge, {
-              backgroundColor: item.status === "pending" ? colors.warning + "18" : colors.destructive + "18",
-              borderRadius: 6,
-            }]}>
-              <Text style={[styles.badgeText, { color: item.status === "pending" ? colors.warning : colors.destructive }]}>
-                {item.status}
-              </Text>
+            <View style={{ alignItems: "flex-end", gap: 6 }}>
+              <View style={[styles.badge, {
+                backgroundColor: item.status === "pending" ? colors.warning + "18" : colors.destructive + "18",
+                borderRadius: 6,
+              }]}>
+                <Text style={[styles.badgeText, { color: item.status === "pending" ? colors.warning : colors.destructive }]}>
+                  {item.status}
+                </Text>
+              </View>
+              {item.status === "failed" && (
+                <TouchableOpacity
+                  style={[styles.retryBtn, { borderColor: colors.primary + "60", borderRadius: 6 }]}
+                  onPress={() => token && retryItem(item.id, token)}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="refresh-cw" size={11} color={colors.primary} />
+                  <Text style={[styles.retryBtnText, { color: colors.primary }]}>Retry</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -195,6 +207,8 @@ const styles = StyleSheet.create({
   itemError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   badge: { paddingHorizontal: 8, paddingVertical: 3 },
   badgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  retryBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
+  retryBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   footer: { padding: 16, borderTopWidth: 1 },
   syncBtn: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   syncBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },

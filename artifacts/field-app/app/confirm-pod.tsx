@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -161,6 +162,24 @@ export default function ConfirmPodScreen() {
         .catch(() => {});
     }
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    if (step === "result") return;
+    if (step === "details") return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      Alert.alert(
+        "Discard Delivery?",
+        "Going back will discard this PoD. Are you sure?",
+        [
+          { text: "Stay", style: "cancel" },
+          { text: "Discard", style: "destructive", onPress: () => router.back() },
+        ]
+      );
+      return true;
+    });
+    return () => sub.remove();
+  }, [step]);
   useEffect(() => {
     if (resendTimer <= 0) return;
     const t = setTimeout(() => setResendTimer((s) => s - 1), 1000);

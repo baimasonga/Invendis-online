@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, MapPin, Layers, Warehouse, Download, Upload, Pencil, PowerOff, Power, Leaf, Navigation, Settings2, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 
@@ -850,18 +851,38 @@ export default function Settings() {
                 <div className="space-y-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
               ) : settings.length > 0 ? (
                 <div className="space-y-5 max-w-lg">
-                  {settings.map(s => (
-                    <div key={s.key} className="space-y-1.5">
-                      <Label className="text-sm font-medium capitalize">{s.key.replace(/_/g, " ")}</Label>
-                      {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
-                      <Input
-                        value={sysVal(s.key)}
-                        onChange={e => setSysEdits(prev => ({ ...prev, [s.key]: e.target.value }))}
-                        disabled={!can.manageSettings}
-                        className={sysEdits[s.key] != null ? "border-amber-400 ring-1 ring-amber-300" : ""}
-                      />
-                    </div>
-                  ))}
+                  {settings.map(s => {
+                    const isBoolean = s.key === "otp_enabled" || s.key === "face_verification_enabled" || (s as any).type === "boolean";
+                    const boolVal = sysEdits[s.key] != null ? sysEdits[s.key] === "true" : s.value === "true";
+                    return (
+                      <div key={s.key} className="space-y-1.5">
+                        <Label className="text-sm font-medium capitalize">{s.key.replace(/_/g, " ")}</Label>
+                        {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
+                        {isBoolean ? (
+                          <div className="flex items-center gap-3 pt-0.5">
+                            <Switch
+                              checked={boolVal}
+                              onCheckedChange={v => setSysEdits(prev => ({ ...prev, [s.key]: String(v) }))}
+                              disabled={!can.manageSettings}
+                            />
+                            <span className={`text-sm font-medium ${boolVal ? "text-emerald-700" : "text-muted-foreground"}`}>
+                              {boolVal ? "Enabled" : "Disabled"}
+                            </span>
+                            {sysEdits[s.key] != null && (
+                              <span className="text-xs text-amber-600 font-medium">unsaved</span>
+                            )}
+                          </div>
+                        ) : (
+                          <Input
+                            value={sysVal(s.key)}
+                            onChange={e => setSysEdits(prev => ({ ...prev, [s.key]: e.target.value }))}
+                            disabled={!can.manageSettings}
+                            className={sysEdits[s.key] != null ? "border-amber-400 ring-1 ring-amber-300" : ""}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                   {can.manageSettings && Object.keys(sysEdits).length > 0 && (
                     <div className="flex gap-2 pt-2">
                       <Button className="bg-green-700 hover:bg-green-800 text-white" onClick={saveSys} disabled={sysSaving}>
