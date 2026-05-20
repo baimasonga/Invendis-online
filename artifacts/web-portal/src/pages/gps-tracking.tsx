@@ -394,15 +394,24 @@ function TrackerSetup() {
   return (
     <div className="mt-4 space-y-4">
       {/* Header bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Satellite className="h-4 w-4 text-blue-600" />
-          <p className="text-sm font-semibold">GPS-Trace Tracker Units</p>
-          {devices.length > 0 && (
-            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-              {devices.length} unit{devices.length !== 1 ? "s" : ""} found
-            </span>
-          )}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-2">
+          <Satellite className="h-4 w-4 text-blue-600 mt-0.5" />
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold">GPS-Trace Tracker Units</p>
+              {devices.length > 0 && (
+                <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                  {devices.length} unit{devices.length !== 1 ? "s" : ""} found
+                </span>
+              )}
+            </div>
+            {devices.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Link each unit to a vehicle below.
+              </p>
+            )}
+          </div>
         </div>
         <Button
           size="sm" variant="outline" className="h-8"
@@ -413,13 +422,6 @@ function TrackerSetup() {
           {syncMut.isPending ? "Syncing…" : "Sync Positions Now"}
         </Button>
       </div>
-
-      {devices.length > 0 && (
-        <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-2">
-          <Satellite className="h-3.5 w-3.5 shrink-0" />
-          {devices.length} tracker unit{devices.length !== 1 ? "s" : ""} found in GPS-Trace account. Link each unit to a vehicle below.
-        </p>
-      )}
 
       {/* Device cards */}
       {devices.length === 0 ? (
