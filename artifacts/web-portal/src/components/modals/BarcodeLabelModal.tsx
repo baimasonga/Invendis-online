@@ -113,9 +113,8 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
 
     return `
 <div class="label${thermal ? " label--thermal" : ""}" style="width:${sz.pageW};height:${sz.pageH}">
-  <div class="lbl-header" style="background:${hdr}">
+  <div class="lbl-header" style="background:${hdr};justify-content:center;">
     <span class="brand">${BRAND}</span>
-    ${item.category ? `<span class="cat">${item.category}</span>` : ""}
   </div>
   <div class="lbl-body${thermal ? " lbl-body--thermal" : ""}">
     <div class="left-col">
@@ -416,7 +415,7 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
             >
               {/* Header */}
               <div
-                className="flex items-center justify-between flex-shrink-0"
+                className="flex items-center justify-center flex-shrink-0"
                 style={{ background: hdr, padding: isThermal ? "6px 12px" : "4px 8px" }}
               >
                 <span
@@ -425,14 +424,6 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
                 >
                   {BRAND}
                 </span>
-                {item.category && (
-                  <span
-                    className="text-white/90 font-bold bg-white/20 rounded-full capitalize"
-                    style={{ fontSize: isThermal ? 11 : 9, padding: isThermal ? "2px 6px" : "1px 5px" }}
-                  >
-                    {item.category}
-                  </span>
-                )}
               </div>
 
               {/* Body — two columns */}
