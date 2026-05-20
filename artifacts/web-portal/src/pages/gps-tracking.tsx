@@ -302,8 +302,8 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle }: GpsMapProps) {
   }, [selectedId]);
 
   return (
-    <div className="relative rounded-xl overflow-hidden border">
-      <div ref={containerRef} style={{ height: 420, width: "100%" }} />
+    <div className="relative rounded-xl overflow-hidden border h-full">
+      <div ref={containerRef} className="h-full w-full" style={{ minHeight: 420 }} />
       {/* Legend */}
       <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-3 text-[10px] font-medium shadow border z-[1000]">
         {(["live","recent","stale","offline"] as const).map(tier => (
@@ -563,14 +563,27 @@ export default function GpsTracking() {
         title="GPS Tracking"
         subtitle="Real-time vehicle positions, destination monitoring, and hardware tracker management."
         badge={
-          liveCount > 0 ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+          vehicleList.length > 0 ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">
+                {vehicleList.length} vehicle{vehicleList.length !== 1 ? "s" : ""}
               </span>
-              {liveCount} live
-            </span>
+              {liveCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </span>
+                  {liveCount} live
+                </span>
+              )}
+              {arrivedCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-100 text-teal-700">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  {arrivedCount} arrived
+                </span>
+              )}
+            </div>
           ) : undefined
         }
         actions={
@@ -596,154 +609,103 @@ export default function GpsTracking() {
         </TabsContent>
 
         <TabsContent value="live">
-        <div className="space-y-5">
+        <div className="space-y-4">
 
-      {/* Summary strip */}
-      {!isLoading && vehicleList.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "In Transit",  value: vehicleList.length, cls: "text-blue-700",    bg: "bg-blue-50 dark:bg-blue-900/20"     },
-            { label: "Arrived",     value: arrivedCount,        cls: "text-teal-700",    bg: "bg-teal-50 dark:bg-teal-900/20"     },
-            { label: "Live Signal", value: liveCount,           cls: "text-emerald-700", bg: "bg-emerald-50 dark:bg-emerald-900/20" },
-          ].map(s => (
-            <Card key={s.label} className={`${s.bg} border-transparent`}>
-              <CardContent className="p-3 text-center">
-                <p className={`text-xl font-bold ${s.cls}`}>{s.value}</p>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Map — full width, always visible */}
-      {isLoading ? (
-        <Skeleton className="w-full rounded-xl" style={{ height: 420 }} />
-      ) : (
-        <GpsMap
-          vehicles={vehicleList}
-          selectedId={selectedVehicle}
-          onSelectVehicle={handleSelectVehicle}
-        />
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Vehicle list */}
-        <div className="lg:col-span-1 space-y-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Radio className="h-4 w-4 text-green-600" />
-            <h2 className="text-sm font-semibold">In-Transit Vehicles</h2>
+      {/* Map-first split: vehicle rail (left) + large map (right) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-260px)] min-h-[480px]">
+        {/* Vehicle rail */}
+        <div className="flex flex-col gap-2 min-h-0">
+          <div className="flex items-center gap-2 px-1">
+            <Radio className="h-3.5 w-3.5 text-emerald-600" />
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vehicles</h2>
             {!isLoading && (
-              <span className="ml-auto text-xs text-muted-foreground">{vehicleList.length} tracked</span>
+              <span className="ml-auto text-xs text-muted-foreground tabular-nums">{vehicleList.length}</span>
             )}
           </div>
 
-          {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full" /></CardContent></Card>
-            ))
-          ) : vehicleList.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
-                <Truck className="h-10 w-10 opacity-20" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">No vehicles in transit</p>
-                  <p className="text-xs mt-1 text-muted-foreground">GPS data appears here when vehicles are dispatched.</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : vehicleList.map((v: any) => {
-            const tier = getSignalTier(v.lastPing);
-            const isSelected = selectedVehicle === v.id;
-            return (
-              <Card
-                key={v.id}
-                className={`cursor-pointer transition-all hover:shadow-md ${isSelected ? "ring-2 ring-emerald-500 shadow-md" : "hover:border-emerald-200"}`}
-                onClick={() => handleSelectVehicle(v.id)}
-              >
-                <CardContent className="p-4 space-y-3">
-                  {/* Row 1: Vehicle identity + signal */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="relative shrink-0">
-                        <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                          <Truck className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-                        </div>
-                        {tier === "live" && (
-                          <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                          </span>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-sm leading-tight">{v.plateNumber ?? "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}{v.driverName ? ` · ${v.driverName}` : ""}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <SignalBadge lastPing={v.lastPing} />
-                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isSelected ? "rotate-90" : ""}`} />
-                    </div>
-                  </div>
-
-                  {/* Row 2: Position + ping */}
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t">
-                    <div>
-                      <p className="text-[10px] text-muted-foreground flex items-center gap-1 mb-0.5"><MapPin className="h-2.5 w-2.5" /> Current Position</p>
-                      {v.lastLatitude != null
-                        ? <span className="font-mono text-xs tabular-nums">{v.lastLatitude.toFixed(5)}, {v.lastLongitude.toFixed(5)}</span>
-                        : <span className="text-xs text-muted-foreground">No position</span>
-                      }
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-muted-foreground flex items-center gap-1 mb-0.5"><Clock className="h-2.5 w-2.5" /> Last ping</p>
-                      <p className="text-xs font-medium">{formatAgo(v.lastPing)}</p>
-                    </div>
-                  </div>
-
-                  {/* Row 3: Destination + arrival status */}
-                  <div className="pt-2 border-t space-y-1.5">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                        <Target className="h-2.5 w-2.5" /> Destination
-                      </p>
-                      <ArrivalBadge vehicle={v} />
-                    </div>
-                    {v.destinationLabel ? (
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <p className="text-xs font-medium truncate max-w-[140px]">{v.destinationLabel}</p>
-                        {v.distanceLabel && (
-                          <p className="text-xs text-muted-foreground tabular-nums">{v.distanceLabel} away</p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">No distribution site configured</p>
-                    )}
-                    {v.campaignName && (
-                      <p className="text-[10px] text-muted-foreground truncate">{v.campaignName}</p>
-                    )}
-                  </div>
+          <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-0">
+            {isLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}><CardContent className="p-3"><Skeleton className="h-16 w-full" /></CardContent></Card>
+              ))
+            ) : vehicleList.length === 0 ? (
+              <Card>
+                <CardContent className="p-6 flex flex-col items-center gap-2 text-muted-foreground">
+                  <Truck className="h-8 w-8 opacity-20" />
+                  <p className="text-xs text-center">No vehicles in transit.<br />GPS data appears here when vehicles are dispatched.</p>
                 </CardContent>
               </Card>
-            );
-          })}
+            ) : vehicleList.map((v: any) => {
+              const tier = getSignalTier(v.lastPing);
+              const isSelected = selectedVehicle === v.id;
+              return (
+                <Card
+                  key={v.id}
+                  className={`cursor-pointer transition-all ${isSelected ? "ring-2 ring-emerald-500 shadow-sm" : "hover:border-emerald-200 hover:shadow-sm"}`}
+                  onClick={() => handleSelectVehicle(v.id)}
+                >
+                  <CardContent className="p-3 space-y-2">
+                    {/* Identity row */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="relative shrink-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                            <Truck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
+                          </div>
+                          {tier === "live" && (
+                            <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                            </span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-xs leading-tight truncate">{v.plateNumber ?? "Unknown"}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}{v.driverName ? ` · ${v.driverName}` : ""}</p>
+                        </div>
+                      </div>
+                      <SignalBadge lastPing={v.lastPing} />
+                    </div>
+
+                    {/* Status line: arrival + destination/distance */}
+                    <div className="flex items-center justify-between gap-2 text-[10px]">
+                      <ArrivalBadge vehicle={v} />
+                      <span className="text-muted-foreground truncate">
+                        {v.destinationLabel
+                          ? (v.distanceLabel ? `${v.distanceLabel} → ${v.destinationLabel}` : v.destinationLabel)
+                          : "—"}
+                      </span>
+                    </div>
+
+                    {/* Footer: ping age + chevron */}
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatAgo(v.lastPing)}</span>
+                      <ChevronRight className={`h-3 w-3 transition-transform ${isSelected ? "rotate-90" : ""}`} />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Detail panel */}
-        <div className="lg:col-span-2">
-          {!selectedVehicle ? (
-            <Card className="h-full min-h-[200px]">
-              <CardContent className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-12">
-                <MapPin className="h-10 w-10 opacity-10" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">Select a vehicle</p>
-                  <p className="text-xs mt-1 text-muted-foreground">Click a vehicle card or map marker to see GPS track and destination details.</p>
-                </div>
-              </CardContent>
-            </Card>
+        {/* Map — fills remaining space */}
+        <div className="min-h-[420px]">
+          {isLoading ? (
+            <Skeleton className="w-full h-full rounded-xl" />
           ) : (
-            <div className="space-y-4">
+            <GpsMap
+              vehicles={vehicleList}
+              selectedId={selectedVehicle}
+              onSelectVehicle={handleSelectVehicle}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Selected vehicle detail — slides in below the split */}
+      {selectedVehicle && (
+        <div className="space-y-4">
               {/* Destination summary card */}
               {selectedData && (
                 <Card className={
@@ -892,10 +854,8 @@ export default function GpsTracking() {
                   )}
                 </CardContent>
               </Card>
-            </div>
-          )}
         </div>
-      </div>
+      )}
         </div>
         </TabsContent>
       </Tabs>
