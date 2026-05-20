@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireAnyAuth } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -148,7 +148,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   res.status(201).json(snakeToCamel(data));
 });
 
-router.post("/api/pod/:id/approve-exception", requireAuth, async (req, res) => {
+router.post("/api/pod/:id/approve-exception", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { notes } = req.body;
   const { data, error } = await supa.from("pod").update({ status: "Verified", approved_by: req.user!.userId, approved_at: new Date().toISOString(), notes }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -156,7 +156,7 @@ router.post("/api/pod/:id/approve-exception", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/pod/batch-approve", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { ids } = req.body as { ids: number[] };
   if (!Array.isArray(ids) || !ids.length) {
     res.status(400).json({ error: "ids array is required" });
@@ -203,7 +203,7 @@ router.post("/api/pod/batch-approve", requireAnyAuth, async (req, res) => {
   }
 });
 
-router.post("/api/pod/:id/approve", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const podId = Number(req.params.id);
   try {
     const userId = await resolveUserId(req);

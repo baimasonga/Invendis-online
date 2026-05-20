@@ -432,6 +432,95 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ── USERS (legacy — for mobile JWT auth) ─────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id            serial PRIMARY KEY,
+  username      text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  full_name     text NOT NULL,
+  email         text,
+  role          text NOT NULL DEFAULT 'FieldOfficer',
+  district_id   integer,
+  is_active     boolean NOT NULL DEFAULT true,
+  last_login    timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz
+);
+
+-- ── INCIDENTS ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS incidents (
+  id               serial PRIMARY KEY,
+  incident_code    text NOT NULL UNIQUE,
+  type             text,
+  title            text,
+  description      text,
+  dispatch_id      integer REFERENCES dispatches(id),
+  field_officer_id integer REFERENCES users(id),
+  reported_by      text,
+  latitude         double precision,
+  longitude        double precision,
+  photo_url        text,
+  status           text NOT NULL DEFAULT 'Open',
+  resolution_notes text,
+  resolved_by      integer REFERENCES users(id),
+  resolved_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS incidents_status_idx        ON incidents (status);
+CREATE INDEX IF NOT EXISTS incidents_field_officer_idx ON incidents (field_officer_id);
+
+-- ── OTP CODES ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id         serial PRIMARY KEY,
+  farmer_id  integer NOT NULL REFERENCES farmers(id),
+  code_hash  text NOT NULL,
+  channel    text NOT NULL DEFAULT 'none',
+  expires_at timestamptz NOT NULL,
+  attempts   integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS otp_codes_farmer_id_idx  ON otp_codes (farmer_id);
+CREATE INDEX IF NOT EXISTS otp_codes_expires_at_idx ON otp_codes (expires_at);
+
+-- ── SYSTEM SETTINGS ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS system_settings (
+  key         text PRIMARY KEY,
+  value       text,
+  description text,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO system_settings (key, value, description) VALUES
+  ('otp_enabled',            'true',    'Enable OTP verification for PoD confirmation'),
+  ('face_verify_enabled',    'true',    'Enable face verification for PoD confirmation'),
+  ('geofence_radius_m',      '500',     'Default geofence radius in metres for GPS verification'),
+  ('sms_sender_name',        'AgriPoD', 'Sender name shown on OTP SMS messages (max 11 chars)'),
+  ('otp_expiry_minutes',     '10',      'OTP code expiry time in minutes'),
+  ('otp_max_attempts',       '5',       'Maximum OTP verification attempts before lockout'),
+  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer')
+ON CONFLICT (key) DO NOTHING;
+
+-- ── PERFORMANCE INDEXES ───────────────────────────────────────
+CREATE INDEX IF NOT EXISTS farmers_status_idx        ON farmers (status);
+CREATE INDEX IF NOT EXISTS farmers_barcode_token_idx ON farmers (barcode_token);
+CREATE INDEX IF NOT EXISTS farmers_district_id_idx   ON farmers (district_id);
+
+CREATE INDEX IF NOT EXISTS pod_farmer_id_idx   ON pod (farmer_id);
+CREATE INDEX IF NOT EXISTS pod_dispatch_id_idx ON pod (dispatch_id);
+CREATE INDEX IF NOT EXISTS pod_status_idx      ON pod (status);
+CREATE INDEX IF NOT EXISTS pod_campaign_id_idx ON pod (campaign_id);
+
+CREATE INDEX IF NOT EXISTS gps_track_vehicle_id_idx  ON gps_track (vehicle_id);
+CREATE INDEX IF NOT EXISTS gps_track_recorded_at_idx ON gps_track (recorded_at DESC);
+
+CREATE INDEX IF NOT EXISTS allocations_campaign_id_idx ON allocations (campaign_id);
+CREATE INDEX IF NOT EXISTS allocations_farmer_id_idx   ON allocations (farmer_id);
+
+CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx           ON audit_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_entity_type_entity_id_idx ON audit_logs (entity_type, entity_id);
+
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────
 DO $$ DECLARE t text;
 BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP

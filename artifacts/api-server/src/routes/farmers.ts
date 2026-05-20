@@ -26,7 +26,7 @@ router.get("/api/farmers", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/farmers", requireAuth, async (req, res) => {
+router.post("/api/farmers", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
   const body = camelToSnake(req.body);
