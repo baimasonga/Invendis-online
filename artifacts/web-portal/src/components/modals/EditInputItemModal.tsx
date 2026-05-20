@@ -19,11 +19,19 @@ interface Props {
   item: any;
 }
 
-function generateBarcode(itemCode: string): string {
-  // Format: INV + itemCode stripped of non-alphanum + random suffix, max 20 chars
-  const base = ("INV" + (itemCode ?? "").replace(/[^A-Z0-9]/gi, "")).toUpperCase();
-  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return (base + suffix).slice(0, 20);
+const CATEGORY_PREFIX: Record<string, string> = {
+  seed:       "SEED",
+  fertilizer: "FERT",
+  chemical:   "CHEM",
+  tool:       "TOOL",
+  equipment:  "EQPT",
+  other:      "INP",
+};
+
+function generateBarcode(category: string): string {
+  const prefix = CATEGORY_PREFIX[(category ?? "").toLowerCase()] ?? "INP";
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `${prefix}-${suffix}`;
 }
 
 export function EditInputItemModal({ open, onClose, item }: Props) {
@@ -154,7 +162,7 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
                   size="icon"
                   className="h-9 w-9 shrink-0"
                   title="Generate barcode"
-                  onClick={() => setBarcode(generateBarcode(item?.itemCode ?? ""))}
+                  onClick={() => setBarcode(generateBarcode(category))}
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
