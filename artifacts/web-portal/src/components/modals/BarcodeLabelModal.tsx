@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
+import { QRCodeSVG } from "qrcode.react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -27,8 +28,8 @@ const LABEL_SIZES = [
 ] as const;
 type SizeId = (typeof LABEL_SIZES)[number]["id"];
 
-const PREVIEW_W: Record<SizeId, number> = { small: 216, medium: 288, large: 360 };
-const PREVIEW_H: Record<SizeId, number> = { small: 100, medium: 144, large: 180 };
+const PREVIEW_W: Record<SizeId, number> = { small: 270, medium: 324, large: 400 };
+const PREVIEW_H: Record<SizeId, number> = { small: 125, medium: 162, large: 200 };
 
 const CAT_COLORS: Record<string, string> = {
   seed:       "#14532d",
@@ -41,52 +42,73 @@ function catColor(cat?: string) {
   return CAT_COLORS[(cat ?? "").toLowerCase()] ?? "#1f2937";
 }
 
+const BRAND = "AVDP Farming Inputs";
+
 export function BarcodeLabelModal({ open, onClose, item }: Props) {
-  const canvasRef               = useRef<HTMLCanvasElement>(null);
+  const barcodeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const qrSourceRef      = useRef<HTMLDivElement>(null);
+
   const [qty, setQty]           = useState("1");
   const [size, setSize]         = useState<SizeId>("medium");
-  const [dataUrl, setDataUrl]   = useState<string>("");
+  const [bcDataUrl, setBcDataUrl] = useState<string>("");
   const [hasError, setHasError] = useState(false);
 
   const barcodeValue = item.barcode?.trim() || item.itemCode?.trim();
 
+  // Render CODE128 barcode → PNG data URL whenever value changes
   useEffect(() => {
     if (!open) return;
     setHasError(false);
-    if (!barcodeValue || !canvasRef.current) { setDataUrl(""); return; }
+    if (!barcodeValue || !barcodeCanvasRef.current) { setBcDataUrl(""); return; }
     try {
-      JsBarcode(canvasRef.current, barcodeValue, {
+      JsBarcode(barcodeCanvasRef.current, barcodeValue, {
         format:       "CODE128",
         width:        2.8,
-        height:       64,
+        height:       60,
         displayValue: false,
         margin:       0,
         background:   "#ffffff",
         lineColor:    "#111827",
       });
-      setDataUrl(canvasRef.current.toDataURL("image/png"));
+      setBcDataUrl(barcodeCanvasRef.current.toDataURL("image/png"));
     } catch {
       setHasError(true);
-      setDataUrl("");
+      setBcDataUrl("");
     }
   }, [open, barcodeValue]);
 
+  // Extract QR SVG from hidden source div, strip fixed pixel dimensions
+  function getQrSvgHtml(): string {
+    const raw = qrSourceRef.current?.querySelector("svg")?.outerHTML ?? "";
+    return raw
+      .replace(/\s+width="[^"]*"/, "")
+      .replace(/\s+height="[^"]*"/, "");
+  }
+
   function makeLabelHtml(sz: (typeof LABEL_SIZES)[number]) {
     const hdr = catColor(item.category);
-    const barcodeBlock = dataUrl
-      ? `<img src="${dataUrl}" class="bc-img" alt="barcode" />`
-      : `<div class="bc-empty">No barcode</div>`;
+    const barcodeImg = bcDataUrl
+      ? `<img src="${bcDataUrl}" class="bc-img" alt="barcode" />`
+      : `<div class="bc-empty">No code</div>`;
+    const qrSvg = getQrSvgHtml();
+
     return `
 <div class="label" style="width:${sz.pageW};height:${sz.pageH}">
   <div class="lbl-header" style="background:${hdr}">
-    <span class="brand">INVENDIS</span>
+    <span class="brand">${BRAND}</span>
     ${item.category ? `<span class="cat">${item.category}</span>` : ""}
   </div>
   <div class="lbl-body">
-    <p class="item-name">${item.name}</p>
-    <p class="item-meta">${item.itemCode}${item.unit ? ` &middot; ${item.unit}` : ""}</p>
-    <div class="bc-wrap">${barcodeBlock}</div>
-    <p class="bc-val">${barcodeValue}</p>
+    <div class="left-col">
+      <p class="item-name">${item.name}</p>
+      <p class="item-meta">${item.itemCode}${item.unit ? ` &middot; ${item.unit}` : ""}</p>
+      <div class="bc-wrap">${barcodeImg}</div>
+      <p class="bc-val">${barcodeValue}</p>
+    </div>
+    <div class="qr-col">
+      <div class="qr-box">${qrSvg || `<div class="qr-placeholder">QR</div>`}</div>
+      <p class="qr-label">Scan</p>
+    </div>
   </div>
 </div>`;
   }
@@ -101,7 +123,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Barcode Labels — ${item.name}</title>
+  <title>Labels — ${item.name}</title>
   <style>
     @page { size: ${sz.pageW} ${sz.pageH}; margin: 0; }
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -118,6 +140,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
       body { background: white; padding: 0; gap: 0; }
     }
 
+    /* ── Label shell ── */
     .label {
       display: flex;
       flex-direction: column;
@@ -131,6 +154,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
     }
     @media print { .label { box-shadow: none; } }
 
+    /* ── Header ── */
     .lbl-header {
       display: flex;
       align-items: center;
@@ -139,14 +163,14 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
       flex-shrink: 0;
     }
     .brand {
-      font-size: 2.8mm;
+      font-size: 2.6mm;
       font-weight: 800;
       color: white;
-      letter-spacing: .1em;
+      letter-spacing: .04em;
       text-transform: uppercase;
     }
     .cat {
-      font-size: 2.2mm;
+      font-size: 2mm;
       font-weight: 600;
       color: rgba(255,255,255,.85);
       background: rgba(255,255,255,.2);
@@ -155,39 +179,88 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
       text-transform: capitalize;
     }
 
+    /* ── Body — two-column ── */
     .lbl-body {
       flex: 1;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      padding: 1mm 1.5mm .8mm;
+      gap: 1.5mm;
+    }
+
+    /* Left: barcode column */
+    .left-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: .4mm;
+      min-width: 0;
+    }
+    .item-name {
+      font-size: 3.4mm;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .item-meta {
+      font-size: 2.2mm;
+      color: #6b7280;
+      font-family: 'Courier New', monospace;
+    }
+    .bc-wrap { width: 100%; }
+    .bc-img  { width: 100%; height: auto; image-rendering: pixelated; display: block; }
+    .bc-empty { font-size: 2.2mm; color: #9ca3af; font-style: italic; }
+    .bc-val {
+      font-family: 'Courier New', monospace;
+      font-size: 1.9mm;
+      color: #6b7280;
+      letter-spacing: .04em;
+    }
+
+    /* Right: QR column */
+    .qr-col {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 1mm 2mm .8mm;
       gap: .5mm;
+      flex-shrink: 0;
     }
-    .item-name {
-      font-size: 3.8mm;
-      font-weight: 700;
-      color: #111827;
-      text-align: center;
-      line-height: 1.2;
-      max-width: 100%;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .qr-box {
+      border: 0.3mm solid #e5e7eb;
+      border-radius: 1mm;
+      padding: 1mm;
+      background: white;
+      line-height: 0;
     }
-    .item-meta {
-      font-size: 2.5mm;
-      color: #6b7280;
-      font-family: 'Courier New', monospace;
+    /* Force QR SVG to a scannable physical size */
+    .qr-box svg {
+      width: 14mm !important;
+      height: 14mm !important;
+      display: block;
     }
-    .bc-wrap { width: 100%; display: flex; justify-content: center; }
-    .bc-img  { width: 88%; height: auto; image-rendering: pixelated; display: block; }
-    .bc-empty { font-size: 2.5mm; color: #9ca3af; font-style: italic; }
-    .bc-val {
-      font-family: 'Courier New', monospace;
-      font-size: 2mm;
-      color: #374151;
-      letter-spacing: .04em;
+    .qr-placeholder {
+      width: 14mm;
+      height: 14mm;
+      background: #f3f4f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3mm;
+      color: #9ca3af;
+    }
+    .qr-label {
+      font-size: 1.8mm;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: .05em;
     }
   </style>
 </head>
@@ -201,8 +274,8 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
 
   if (!item) return null;
 
-  const pw = PREVIEW_W[size];
-  const ph = PREVIEW_H[size];
+  const pw  = PREVIEW_W[size];
+  const ph  = PREVIEW_H[size];
   const hdr = catColor(item.category);
 
   return (
@@ -222,12 +295,12 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
               className="border border-border rounded overflow-hidden shadow-sm flex flex-col"
               style={{ width: pw, height: ph }}
             >
-              {/* Header strip */}
+              {/* Header */}
               <div
                 className="flex items-center justify-between flex-shrink-0"
                 style={{ background: hdr, padding: "4px 8px" }}
               >
-                <span className="text-white font-black text-[10px] tracking-widest uppercase">INVENDIS</span>
+                <span className="text-white font-black text-[10px] tracking-wide uppercase">{BRAND}</span>
                 {item.category && (
                   <span className="text-white/80 text-[9px] font-semibold bg-white/20 rounded-full px-1.5 py-0.5 capitalize">
                     {item.category}
@@ -235,27 +308,43 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
                 )}
               </div>
 
-              {/* Body */}
-              <div className="flex-1 flex flex-col items-center justify-center bg-white px-2 py-1 gap-0.5 overflow-hidden">
-                <p className="font-bold text-gray-900 text-center text-[11px] leading-tight truncate max-w-full">
-                  {item.name}
-                </p>
-                <p className="font-mono text-[9px] text-gray-500">
-                  {item.itemCode}{item.unit ? ` · ${item.unit}` : ""}
-                </p>
+              {/* Body — two columns */}
+              <div className="flex-1 flex flex-row items-stretch bg-white px-2 py-1 gap-2 overflow-hidden">
+                {/* Left: barcode info */}
+                <div className="flex-1 flex flex-col justify-center gap-0.5 min-w-0">
+                  <p className="font-bold text-gray-900 text-[11px] leading-tight truncate">
+                    {item.name}
+                  </p>
+                  <p className="font-mono text-[9px] text-gray-500">
+                    {item.itemCode}{item.unit ? ` · ${item.unit}` : ""}
+                  </p>
+                  {hasError ? (
+                    <div className="flex items-center gap-1 text-destructive text-[9px]">
+                      <AlertCircle className="h-3 w-3" /> Invalid value
+                    </div>
+                  ) : bcDataUrl ? (
+                    <img src={bcDataUrl} alt="barcode" className="w-full h-auto" style={{ imageRendering: "pixelated" }} />
+                  ) : (
+                    <div className="text-[9px] text-muted-foreground italic">No barcode set</div>
+                  )}
+                  {barcodeValue && !hasError && (
+                    <p className="font-mono text-[8px] text-gray-400 truncate">{barcodeValue}</p>
+                  )}
+                </div>
 
-                {hasError ? (
-                  <div className="flex items-center gap-1 text-destructive text-[9px]">
-                    <AlertCircle className="h-3 w-3" /> Invalid barcode value
-                  </div>
-                ) : dataUrl ? (
-                  <img src={dataUrl} alt="barcode" className="w-4/5 h-auto" style={{ imageRendering: "pixelated" }} />
-                ) : (
-                  <div className="text-[9px] text-muted-foreground italic">No barcode — using item code</div>
-                )}
-
+                {/* Right: QR code */}
                 {barcodeValue && !hasError && (
-                  <p className="font-mono text-[8px] text-gray-400 truncate max-w-full">{barcodeValue}</p>
+                  <div className="flex flex-col items-center justify-center gap-0.5 flex-shrink-0">
+                    <div className="border border-border rounded p-0.5 bg-white">
+                      <QRCodeSVG
+                        value={barcodeValue}
+                        size={size === "small" ? 48 : size === "medium" ? 56 : 70}
+                        level="H"
+                        includeMargin={false}
+                      />
+                    </div>
+                    <span className="text-[7px] text-gray-400 uppercase tracking-wider">Scan</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -266,9 +355,7 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
             <div className="space-y-1.5">
               <Label className="text-xs">Label size</Label>
               <Select value={size} onValueChange={(v) => setSize(v as SizeId)}>
-                <SelectTrigger className="text-xs h-8">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {LABEL_SIZES.map(s => (
                     <SelectItem key={s.id} value={s.id} className="text-xs">{s.label}</SelectItem>
@@ -276,13 +363,10 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-1.5">
               <Label className="text-xs">Quantity</Label>
               <Select value={qty} onValueChange={setQty}>
-                <SelectTrigger className="text-xs h-8">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {[1, 5, 10, 20, 50, 100].map(n => (
                     <SelectItem key={n} value={String(n)} className="text-xs">
@@ -313,8 +397,15 @@ ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
           </div>
         </div>
 
-        {/* Hidden canvas — JsBarcode renders here so we can toDataURL() for print */}
-        <canvas ref={canvasRef} className="hidden" />
+        {/* Hidden CODE128 canvas — toDataURL() source for print */}
+        <canvas ref={barcodeCanvasRef} className="hidden" />
+
+        {/* Hidden QR source — SVG outerHTML extracted for print template */}
+        <div ref={qrSourceRef} className="hidden" aria-hidden>
+          {barcodeValue && (
+            <QRCodeSVG value={barcodeValue} size={300} level="H" includeMargin={false} />
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
