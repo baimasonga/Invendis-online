@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS } from "@/lib/db";
+import {
+  getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, KEYS,
+} from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera } from "lucide-react";
+import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -32,8 +35,11 @@ export default function FarmerDetail() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const can = usePermissions();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [rejectOpen, setRejectOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const { data: farmer, isLoading } = useQuery({
     queryKey: KEYS.farmer(id),
@@ -78,6 +84,29 @@ export default function FarmerDetail() {
     } catch (err: any) {
       toast({ title: "Rejection failed", description: err.message, variant: "destructive" });
     } finally { setActionLoading(false); setRejectOpen(false); }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !farmer) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please select an image file.", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadUrl, key } = await getFaceUploadUrl((farmer as any).id, "reference");
+      await uploadBlobToS3(uploadUrl, file);
+      await saveFaceReference((farmer as any).id, key);
+      await qc.invalidateQueries({ queryKey: KEYS.farmer(id) });
+      await qc.invalidateQueries({ queryKey: ["face-view-url", key] });
+      toast({ title: "Photo updated", description: "Reference photo saved successfully." });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   if (isLoading) {
@@ -166,31 +195,31 @@ export default function FarmerDetail() {
         <div className="space-y-5">
           {/* Biometric photo */}
           <Card className="overflow-hidden">
-            <div className="relative h-32 bg-gradient-to-br from-emerald-700 via-emerald-800 to-emerald-950">
+            <div className="relative h-28 bg-gradient-to-br from-emerald-700 via-emerald-800 to-emerald-950">
               <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_80%_40%,white,transparent)]" />
-              <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/20 to-transparent" />
             </div>
             <CardContent className="px-4 pb-5 pt-0">
-              <div className="flex flex-col items-center -mt-16 gap-3">
+              <div className="flex flex-col items-center -mt-14 gap-3">
                 {photoLoading ? (
-                  <Skeleton className="h-32 w-32 rounded-full ring-4 ring-background" />
+                  <Skeleton className="h-28 w-28 rounded-full ring-4 ring-background" />
                 ) : photoSrc ? (
                   <div className="relative">
                     <img
                       src={photoSrc}
                       alt={`${f.firstName} ${f.lastName}`}
-                      className="h-32 w-32 rounded-full object-cover ring-4 ring-background shadow-xl border-2 border-emerald-200"
+                      className="h-28 w-28 rounded-full object-cover ring-4 ring-background shadow-xl border-2 border-emerald-200"
                     />
                     <span className="absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-background">
                       <Camera className="h-2.5 w-2.5 text-white" />
                     </span>
                   </div>
                 ) : (
-                  <div className="h-32 w-32 rounded-full bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-center gap-1.5 ring-4 ring-background shadow-md border-2 border-dashed border-slate-200 dark:border-slate-700 text-muted-foreground">
+                  <div className="h-28 w-28 rounded-full bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-center gap-1.5 ring-4 ring-background shadow-md border-2 border-dashed border-slate-200 dark:border-slate-700 text-muted-foreground">
                     <Camera className="h-8 w-8 opacity-25" />
                     <span className="text-[10px] text-center px-2 leading-tight">No photo</span>
                   </div>
                 )}
+
                 <div className="text-center space-y-1.5">
                   <p className="text-base font-bold leading-tight">{f.firstName} {f.lastName}</p>
                   <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
@@ -203,6 +232,27 @@ export default function FarmerDetail() {
                     )}
                   </div>
                 </div>
+
+                {/* Manual photo upload */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs w-full"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading
+                    ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Uploading…</>
+                    : <><Upload className="h-3 w-3 mr-1.5" /> {photoSrc ? "Replace Photo" : "Upload Photo"}</>
+                  }
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -228,6 +278,7 @@ export default function FarmerDetail() {
                   status:         f.status,
                   phone:          f.phone,
                 }}
+                photoUrl={photoSrc ?? null}
               />
             </CardContent>
           </Card>
