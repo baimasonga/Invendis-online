@@ -776,9 +776,10 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
-  const [farmerMap, campaignMap] = await Promise.all([
+  const [farmerMap, campaignMap, inputItemMap] = await Promise.all([
     lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code"),
     lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
+    lookupMap("input_items", [...new Set(rows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,category,unit"),
   ]);
   return {
     data: rows.map((r: any) => ({
@@ -786,6 +787,8 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
       farmerName: farmerMap[r.farmer_id] ? `${farmerMap[r.farmer_id].first_name} ${farmerMap[r.farmer_id].last_name}` : null,
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
+      inputItemName: inputItemMap[r.input_item_id]?.name ?? null,
+      inputItemCategory: inputItemMap[r.input_item_id]?.category ?? null,
     })),
     total: count ?? 0,
   };

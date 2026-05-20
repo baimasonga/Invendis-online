@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireRoles } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -30,8 +30,8 @@ router.patch("/api/inventory/input-items/:id", requireAuth, requireRoles("Admin"
   res.json(snakeToCamel(data));
 });
 
-// Lookup item by barcode
-router.get("/api/inventory/input-items/by-barcode/:code", requireAuth, async (req, res) => {
+// Lookup item by barcode — mobile JWT allowed
+router.get("/api/inventory/input-items/by-barcode/:code", requireAnyAuth, async (req, res) => {
   const code = decodeURIComponent(String(req.params.code)).trim();
   const { data, error } = await supa.from("input_items").select("*").eq("barcode", code).eq("is_active", 1).limit(1).single();
   if (error || !data) { res.status(404).json({ error: "No item found for this barcode" }); return; }

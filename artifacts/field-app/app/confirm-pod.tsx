@@ -29,10 +29,22 @@ import {
   uploadPhotoToS3,
   getOtpStatus,
   bypassOtp,
+  inputByBarcode,
   type OtpSendResult,
   type FaceCompareResult,
   type PoD,
+  type InputItem,
 } from "@/lib/api";
+
+let CameraView: React.ComponentType<{
+  style?: any;
+  onBarcodeScanned?: (data: { data: string }) => void;
+  barcodeScannerSettings?: { barcodeTypes: string[] };
+}> | null = null;
+try {
+  const cam = require("expo-camera");
+  CameraView = cam.CameraView;
+} catch (_) {}
 
 interface GPSCoords {
   latitude: number;
@@ -86,7 +98,7 @@ async function takeCameraPhoto(): Promise<string | null> {
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
 
-type Step = "details" | "otp" | "face" | "result";
+type Step = "details" | "scan" | "otp" | "face" | "result";
 
 export default function ConfirmPodScreen() {
   const { farmerId, farmerName, farmerCode, dispatchId } = useLocalSearchParams<{
@@ -127,6 +139,13 @@ export default function ConfirmPodScreen() {
   const [faceResult, setFaceResult] = useState<FaceCompareResult | null>(null);
   const [faceLoading, setFaceLoading] = useState(false);
   const [faceError, setFaceError] = useState<string | null>(null);
+
+  // Input scan
+  const [scannedBarcode, setScannedBarcode] = useState("");
+  const [scannedItem, setScannedItem] = useState<InputItem | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // Submit
   const [submitting, setSubmitting] = useState(false);
@@ -347,6 +366,33 @@ export default function ConfirmPodScreen() {
     );
   };
 
+  const handleVerifyBarcode = async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setScanLoading(true);
+    setScanError(null);
+    setScannedItem(null);
+    try {
+      const item = await inputByBarcode(token!, trimmed);
+      setScannedItem(item);
+      setScannedBarcode(trimmed);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      setScanError("No matching input item found for this barcode.");
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const handleSkipScan = () => {
+    setScannedBarcode("");
+    setScannedItem(null);
+    setScanError(null);
+    if (otpEnabled) handleSendOtp();
+    else handleSkipOtp();
+  };
+
   const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => ({
     farmerId: Number(farmerId),
     ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
@@ -354,6 +400,8 @@ export default function ConfirmPodScreen() {
     otpStatus,
     faceStatus,
     ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
+    ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
+    ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     notes: notes || "Mobile field issuance",
   });
 
@@ -391,8 +439,9 @@ export default function ConfirmPodScreen() {
   const StepIndicator = () => {
     const steps = [
       { key: "details", label: "Details", icon: "clipboard" as const },
-      { key: "otp", label: "OTP", icon: "shield" as const },
-      { key: "face", label: "Face ID", icon: "camera" as const },
+      { key: "scan",    label: "Input",   icon: "package" as const },
+      { key: "otp",     label: "OTP",     icon: "shield" as const },
+      { key: "face",    label: "Face ID", icon: "camera" as const },
     ];
     const currentIdx = steps.findIndex((s) => s.key === step);
     return (
@@ -478,6 +527,7 @@ export default function ConfirmPodScreen() {
         {/* Verification summary */}
         <View style={[resultStyles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius, width: "100%" }]}>
           {[
+            { icon: "package" as const,  label: "Input",      val: scannedItem?.name ?? (scannedBarcode || "Not scanned"), ok: !!scannedItem },
             { icon: "shield" as const,   label: "OTP",        val: submittedPod.otpStatus ?? "—",  ok: submittedPod.otpStatus === "Verified" },
             { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
             { icon: "map-pin" as const,  label: "GPS",        val: gpsStatus ?? "Pending",          ok: gpsStatus === "Verified" },
@@ -630,17 +680,13 @@ export default function ConfirmPodScreen() {
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, opacity: sendingOtp ? 0.7 : 1 }]}
-              onPress={handleSendOtp}
-              disabled={sendingOtp || submitting}
+              style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
+              onPress={() => setStep("scan")}
+              disabled={submitting}
               activeOpacity={0.85}
             >
-              {sendingOtp ? <ActivityIndicator color="#fff" /> : (
-                <>
-                  <Feather name="shield" size={18} color="#fff" />
-                  <Text style={styles.submitBtnText}>Verify Farmer</Text>
-                </>
-              )}
+              <Feather name="package" size={18} color="#fff" />
+              <Text style={styles.submitBtnText}>Next: Scan Input</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -649,7 +695,225 @@ export default function ConfirmPodScreen() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // STEP 2 — OTP
+  // STEP 2 — Input Barcode Scan
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (step === "scan") {
+    const proceedToOtp = () => {
+      if (otpEnabled) handleSendOtp();
+      else handleSkipOtp();
+    };
+
+    if (cameraOpen && Platform.OS !== "web" && CameraView) {
+      return (
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <CameraView
+            style={{ flex: 1 }}
+            onBarcodeScanned={({ data }) => {
+              setCameraOpen(false);
+              setScannedBarcode(data);
+              handleVerifyBarcode(data);
+            }}
+            barcodeScannerSettings={{ barcodeTypes: ["code128", "qr", "code39", "ean13", "code93"] }}
+          />
+          <TouchableOpacity
+            onPress={() => setCameraOpen(false)}
+            style={{ position: "absolute", top: insets.top + 16, right: 16, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 22, padding: 10 }}
+          >
+            <Feather name="x" size={22} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ position: "absolute", bottom: bottomPad + 48, left: 20, right: 20, alignItems: "center" }}>
+            <View style={{ backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10 }}>
+              <Text style={{ color: "#fff", fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "center" }}>
+                Point at the input item barcode label
+              </Text>
+            </View>
+          </View>
+          {/* Scan finder frame */}
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+            <View style={{ width: 260, height: 100, borderWidth: 2, borderColor: "rgba(255,255,255,0.7)", borderRadius: 8 }} />
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          style={[styles.root, { backgroundColor: colors.background }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <StepIndicator />
+
+          <TouchableOpacity
+            style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+            onPress={() => setStep("details")}
+          >
+            <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
+          </TouchableOpacity>
+
+          {/* Instruction */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
+                <Feather name="package" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }]}>Scan Input Barcode</Text>
+                <Text style={[{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }]}>
+                  Scan or enter the barcode from the input item label to confirm what is being delivered.
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Barcode entry */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Input Barcode</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                style={[{
+                  flex: 1, height: 46, borderWidth: 1, borderColor: colors.border,
+                  borderRadius: colors.radius, paddingHorizontal: 12,
+                  fontSize: 14, fontFamily: "Inter_400Regular", color: colors.foreground,
+                  backgroundColor: colors.muted,
+                }]}
+                value={scannedBarcode}
+                onChangeText={(v) => { setScannedBarcode(v); setScanError(null); setScannedItem(null); }}
+                placeholder="e.g. SEED-A3X7K2"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              {Platform.OS !== "web" && CameraView && (
+                <TouchableOpacity
+                  style={[{
+                    width: 46, height: 46, borderWidth: 1, borderColor: colors.border,
+                    borderRadius: colors.radius, alignItems: "center", justifyContent: "center",
+                    backgroundColor: colors.muted,
+                  }]}
+                  onPress={async () => {
+                    try {
+                      const cam = require("expo-camera");
+                      const { status } = await cam.Camera.requestCameraPermissionsAsync();
+                      if (status === "granted") setCameraOpen(true);
+                      else Alert.alert("Permission Required", "Camera access is needed to scan barcodes.");
+                    } catch {
+                      Alert.alert("Camera unavailable", "Use manual entry instead.");
+                    }
+                  }}
+                >
+                  <Feather name="camera" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Verify button */}
+            <TouchableOpacity
+              style={[styles.submitBtn, {
+                backgroundColor: !scannedBarcode.trim() || scanLoading ? colors.muted : colors.primary,
+                borderRadius: colors.radius, marginTop: 4,
+              }]}
+              onPress={() => handleVerifyBarcode(scannedBarcode)}
+              disabled={!scannedBarcode.trim() || scanLoading}
+              activeOpacity={0.85}
+            >
+              {scanLoading
+                ? <ActivityIndicator color={colors.primary} />
+                : <>
+                    <Feather name="check-circle" size={17} color={!scannedBarcode.trim() ? colors.mutedForeground : "#fff"} />
+                    <Text style={[styles.submitBtnText, { color: !scannedBarcode.trim() ? colors.mutedForeground : "#fff" }]}>
+                      Verify Input
+                    </Text>
+                  </>
+              }
+            </TouchableOpacity>
+          </View>
+
+          {/* Verified result card */}
+          {scannedItem && (
+            <View style={[styles.section, { backgroundColor: colors.success + "12", borderColor: colors.success + "50", borderRadius: colors.radius }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Feather name="check-circle" size={22} color={colors.success} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.success }}>{scannedItem.name}</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                    {[scannedItem.category, scannedItem.unit].filter(Boolean).join(" · ")}
+                    {" · "}<Text style={{ fontFamily: "Inter_500Medium" }}>{scannedBarcode}</Text>
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, marginTop: 4 }]}
+                onPress={proceedToOtp}
+                disabled={sendingOtp}
+                activeOpacity={0.85}
+              >
+                {sendingOtp
+                  ? <ActivityIndicator color="#fff" />
+                  : <>
+                      <Feather name="shield" size={17} color="#fff" />
+                      <Text style={styles.submitBtnText}>Continue to Verification</Text>
+                    </>
+                }
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Not found warning */}
+          {scanError && !scannedItem && (
+            <View style={[styles.section, { backgroundColor: colors.warning + "12", borderColor: colors.warning + "50", borderRadius: colors.radius }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Feather name="alert-triangle" size={18} color={colors.warning} />
+                <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.warning }}>Item Not Found</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, lineHeight: 18 }}>
+                No input item matched <Text style={{ fontFamily: "Inter_600SemiBold" }}>{scannedBarcode}</Text>. You can continue without input verification — the record will note the barcode was not matched.
+              </Text>
+              <TouchableOpacity
+                style={[styles.submitBtn, { backgroundColor: colors.warning, borderRadius: colors.radius, marginTop: 4 }]}
+                onPress={proceedToOtp}
+                disabled={sendingOtp}
+                activeOpacity={0.85}
+              >
+                {sendingOtp
+                  ? <ActivityIndicator color="#fff" />
+                  : <>
+                      <Feather name="arrow-right" size={17} color="#fff" />
+                      <Text style={styles.submitBtnText}>Continue Anyway</Text>
+                    </>
+                }
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Skip link */}
+          {!scannedItem && !scanError && (
+            <TouchableOpacity
+              style={{ alignItems: "center", paddingVertical: 12 }}
+              onPress={handleSkipScan}
+              disabled={sendingOtp}
+            >
+              <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
+                Skip scan — proceed without input verification
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {dispatchId && (
+            <View style={[styles.dispatchBadge, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+              <Feather name="truck" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.dispatchText, { color: colors.mutedForeground }]}>Dispatch #{dispatchId}</Text>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 3 — OTP
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "otp") {
     return (
@@ -662,7 +926,7 @@ export default function ConfirmPodScreen() {
           <StepIndicator />
           <TouchableOpacity
             style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-            onPress={() => { setStep("details"); setOtpError(null); }}
+            onPress={() => { setStep("scan"); setOtpError(null); }}
           >
             <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
             <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>

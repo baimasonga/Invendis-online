@@ -12,7 +12,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
-  ListChecks, Flag, BadgeCheck,
+  ListChecks, Flag, BadgeCheck, Package,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -319,6 +319,16 @@ function ReviewQueue() {
                 <div><p className="text-xs text-muted-foreground mb-0.5">Farmer</p><p className="font-medium">{selectedPod.farmerName ?? "—"}</p><p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p></div>
                 <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{selectedPod.campaignName ?? "—"}</p></div>
               </div>
+              {(selectedPod.inputItemName || selectedPod.inputBarcode) && (
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2.5">
+                  <Package className="h-4 w-4 text-emerald-700 shrink-0" />
+                  <div>
+                    <p className="text-xs text-emerald-700 font-semibold">{selectedPod.inputItemName ?? "Input Scanned"}</p>
+                    {selectedPod.inputBarcode && <p className="text-xs text-emerald-600 font-mono">{selectedPod.inputBarcode}</p>}
+                    {selectedPod.inputItemCategory && <p className="text-xs text-emerald-600">{selectedPod.inputItemCategory}</p>}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{selectedPod.quantityDelivered ?? "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={selectedPod.otpStatus} /></div>

@@ -58,6 +58,18 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
   const body = camelToSnake(req.body) as Record<string, any>;
 
+  // Resolve input item from scanned barcode if not already supplied
+  if (!body.input_item_id && body.input_barcode) {
+    const { data: item } = await supa
+      .from("input_items")
+      .select("id")
+      .eq("barcode", String(body.input_barcode).trim())
+      .eq("is_active", 1)
+      .limit(1)
+      .single();
+    if (item) body.input_item_id = (item as any).id;
+  }
+
   let campaignId: number | null = body.campaign_id ?? null;
 
   if (!campaignId && body.dispatch_id) {

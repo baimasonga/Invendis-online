@@ -78,6 +78,15 @@ export interface PodStats {
   exceptions: number;
 }
 
+export interface InputItem {
+  id: number;
+  itemCode: string;
+  name: string;
+  category: string | null;
+  unit: string | null;
+  barcode: string | null;
+}
+
 export interface PoD {
   id: number;
   podCode: string;
@@ -91,6 +100,8 @@ export interface PoD {
   gpsStatus: string | null;
   farmerLatitude: number | null;
   farmerLongitude: number | null;
+  inputItemId: number | null;
+  inputBarcode: string | null;
   notes: string | null;
   submittedAt: string | null;
 }
@@ -130,6 +141,9 @@ export const searchFarmers = (token: string, search: string) =>
 
 export const submitPoD = (token: string, payload: Record<string, unknown>) =>
   apiFetch<PoD>("/pod/submit", token, { method: "POST", body: JSON.stringify(payload) });
+
+export const inputByBarcode = (token: string, barcode: string) =>
+  apiFetch<InputItem>(`/inventory/input-items/by-barcode/${encodeURIComponent(barcode)}`, token);
 
 export interface GpsPingResult {
   success: boolean;
