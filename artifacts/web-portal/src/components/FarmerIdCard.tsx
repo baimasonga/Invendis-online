@@ -26,42 +26,53 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   function handlePrint() {
     const card = cardRef.current;
     if (!card) return;
-    const win = window.open("", "_blank", "width=400,height=680");
+    const win = window.open("", "_blank", "width=500,height=820");
     if (!win) return;
+    const photoBlock = photoUrl
+      ? `<img src="${photoUrl}" class="farmer-photo" crossorigin="anonymous" />`
+      : `<div class="farmer-photo placeholder">
+           <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+             <circle cx="12" cy="8" r="4"/>
+             <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+           </svg>
+         </div>`;
     win.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8" />
-        <title>Farmer ID — ${farmer.farmerCode}</title>
+        <title>AVDP Farmer ID — ${farmer.farmerCode}</title>
         <style>
+          @page { size: 100mm 160mm; margin: 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: system-ui, sans-serif; background: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-          .card { width: 340px; border: 2px solid #16a34a; border-radius: 12px; overflow: hidden; background: white; }
-          .card-header { background: #15803d; padding: 16px; color: white; }
-          .card-header h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.05em; }
-          .card-header p { font-size: 10px; opacity: 0.8; margin-top: 2px; }
-          .card-body { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-          .farmer-photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #16a34a; }
-          .farmer-name { font-size: 18px; font-weight: 700; color: #111; text-align: center; }
-          .farmer-code { font-family: monospace; font-size: 12px; color: #6b7280; margin-top: 2px; }
-          .qr-wrap { padding: 10px; border: 1.5px solid #e5e7eb; border-radius: 8px; }
-          .info-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-          .info-item label { font-size: 9px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
-          .info-item p { font-size: 11px; font-weight: 600; color: #374151; margin-top: 1px; }
-          .card-footer { background: #f0fdf4; padding: 8px 16px; text-align: center; }
-          .card-footer p { font-size: 9px; color: #6b7280; }
-          @media print { body { margin: 0; } }
+          html, body { background: white; }
+          body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 8mm; }
+          .card { width: 100mm; height: 160mm; border: 2px solid #16a34a; border-radius: 6mm; overflow: hidden; background: white; display: flex; flex-direction: column; }
+          .card-header { background: #15803d; padding: 6mm 6mm 5mm; color: white; text-align: center; }
+          .card-header h1 { font-size: 28pt; font-weight: 800; letter-spacing: 0.02em; line-height: 1; }
+          .card-header p { font-size: 9pt; opacity: 0.85; margin-top: 2mm; letter-spacing: 0.05em; text-transform: uppercase; }
+          .card-body { padding: 5mm 6mm; display: flex; flex-direction: column; align-items: center; gap: 3mm; flex: 1; }
+          .farmer-photo { width: 28mm; height: 28mm; border-radius: 50%; object-fit: cover; border: 3px solid #16a34a; background: #f1f5f9; display: flex; align-items: center; justify-content: center; }
+          .farmer-photo.placeholder { background: #f1f5f9; }
+          .farmer-name { font-size: 16pt; font-weight: 700; color: #111; text-align: center; line-height: 1.1; }
+          .farmer-code { font-family: monospace; font-size: 10pt; color: #6b7280; margin-top: 1mm; }
+          .qr-wrap { padding: 2mm; border: 1.5px solid #e5e7eb; border-radius: 2mm; }
+          .qr-wrap svg { display: block; width: 32mm; height: 32mm; }
+          .info-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 4mm; border-top: 1px solid #e5e7eb; padding-top: 3mm; margin-top: 1mm; }
+          .info-item label { font-size: 7pt; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; }
+          .info-item p { font-size: 9pt; font-weight: 600; color: #374151; margin-top: 0.5mm; }
+          .card-footer { background: #f0fdf4; padding: 3mm 6mm; text-align: center; border-top: 1px solid #bbf7d0; }
+          .card-footer p { font-size: 7.5pt; color: #6b7280; }
         </style>
       </head>
       <body>
         <div class="card">
           <div class="card-header">
-            <h1>INVENDIS — AGRI-POD</h1>
-            <p>Farmer Identification Card</p>
+            <h1>AVDP Farmer</h1>
+            <p>Identification Card</p>
           </div>
           <div class="card-body">
-            ${photoUrl ? `<img src="${photoUrl}" class="farmer-photo" crossorigin="anonymous" />` : ""}
+            ${photoBlock}
             <div style="text-align:center">
               <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
               <div class="farmer-code">${farmer.farmerCode}</div>
@@ -101,7 +112,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
     ];
     const infoRows = Math.ceil(fields.length / 2);
     const hasPhoto = !!photoUrl;
-    const H = 60 + (hasPhoto ? 120 : 0) + 60 + 160 + 12 + infoRows * 38 + 50;
+    const H = 60 + 115 + 60 + 160 + 12 + infoRows * 38 + 50;
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d")!;
@@ -117,31 +128,48 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
     ctx.lineTo(0, 60); ctx.lineTo(0, 12);
     ctx.quadraticCurveTo(0, 0, 12, 0); ctx.fill();
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 14px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText("INVENDIS — AGRI-POD", 16, 30);
-    ctx.font = "10px sans-serif"; ctx.globalAlpha = 0.8;
-    ctx.fillText("Farmer Identification Card", 16, 47);
+    ctx.font = "bold 22px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("AVDP Farmer", W / 2, 32);
+    ctx.font = "9px sans-serif"; ctx.globalAlpha = 0.85;
+    ctx.fillText("IDENTIFICATION CARD", W / 2, 49);
     ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
 
     let y = 70;
 
-    // Photo circle
-    if (hasPhoto && photoUrl) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); img.src = photoUrl; });
-      if (img.naturalWidth > 0) {
-        const cx = W / 2, cy = y + 50, r = 48;
-        ctx.save();
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
-        const aspect = img.naturalWidth / img.naturalHeight;
-        const dw = aspect > 1 ? r * 2 * aspect : r * 2;
-        const dh = aspect > 1 ? r * 2 : r * 2 / aspect;
-        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
-        ctx.restore();
-        ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    // Photo circle (with silhouette placeholder when no photo)
+    {
+      const cx = W / 2, cy = y + 50, r = 48;
+      // Background fill
+      ctx.fillStyle = "#f1f5f9";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+      let drewPhoto = false;
+      if (hasPhoto && photoUrl) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); img.src = photoUrl; });
+        if (img.naturalWidth > 0) {
+          ctx.save();
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+          const aspect = img.naturalWidth / img.naturalHeight;
+          const dw = aspect > 1 ? r * 2 * aspect : r * 2;
+          const dh = aspect > 1 ? r * 2 : r * 2 / aspect;
+          ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+          ctx.restore();
+          drewPhoto = true;
+        }
       }
+      if (!drewPhoto) {
+        // Silhouette: head + shoulders
+        ctx.fillStyle = "#94a3b8";
+        ctx.beginPath(); ctx.arc(cx, cy - 12, 14, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy + 30, 26, Math.PI, 0, true);
+        ctx.fill();
+      }
+      ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
       y += 115;
     }
 
@@ -224,18 +252,23 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
       {/* Visual preview */}
       <div className="border rounded-lg overflow-hidden shadow-sm">
         {/* Header */}
-        <div className="bg-green-700 px-4 py-3 text-white">
-          <p className="text-xs font-bold tracking-wider uppercase">Invendis — Agri-PoD</p>
-          <p className="text-[10px] opacity-70 mt-0.5">Farmer Identification Card</p>
+        <div className="bg-green-700 px-4 py-3 text-white text-center">
+          <p className="text-lg font-extrabold tracking-tight leading-none">AVDP Farmer</p>
+          <p className="text-[10px] opacity-80 mt-1 tracking-wider uppercase">Identification Card</p>
         </div>
 
         {/* Body */}
         <div className="bg-white p-4 flex flex-col items-center gap-3">
-          {photoUrl && (
-            <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-300 bg-gray-100 shrink-0">
+          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-300 bg-slate-100 shrink-0 flex items-center justify-center">
+            {photoUrl ? (
               <img src={photoUrl} alt={`${farmer.firstName} ${farmer.lastName}`} className="w-full h-full object-cover" />
-            </div>
-          )}
+            ) : (
+              <svg viewBox="0 0 24 24" className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+              </svg>
+            )}
+          </div>
           <div className="text-center">
             <p className="font-bold text-base leading-tight">{farmer.firstName} {farmer.lastName}</p>
             <p className="font-mono text-xs text-muted-foreground mt-0.5">{farmer.farmerCode}</p>
