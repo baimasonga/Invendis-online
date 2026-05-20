@@ -70,7 +70,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
       JsBarcode(canvas, barcodeValue, {
         format:       "CODE128",
         width:        isThermal ? 3.5 * BC_SCALE : 2.8,
-        height:       isThermal ? 110 * BC_SCALE : 60,
+        height:       isThermal ? 190 * BC_SCALE : 60,
         displayValue: false,
         margin:       0,
         background:   "#ffffff",
@@ -112,7 +112,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
     const thermal = sz.id === "thermal4x5";
 
     return `
-<div class="label" style="width:${sz.pageW};height:${sz.pageH}">
+<div class="label${thermal ? " label--thermal" : ""}" style="width:${sz.pageW};height:${sz.pageH}">
   <div class="lbl-header" style="background:${hdr}">
     <span class="brand">${BRAND}</span>
     ${item.category ? `<span class="cat">${item.category}</span>` : ""}
@@ -337,6 +337,49 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
       text-transform: uppercase;
       letter-spacing: .08em;
       font-weight: 600;
+    }
+
+    /* ── Thermal 6×8 overrides — scale everything up ── */
+    .label--thermal .lbl-header {
+      padding: 4mm 6mm;
+    }
+    .label--thermal .brand {
+      font-size: 7mm;
+    }
+    .label--thermal .cat {
+      font-size: 5mm;
+      padding: 1mm 3mm;
+    }
+    .label--thermal .lbl-body {
+      padding: 7mm 8mm;
+      gap: 8mm;
+    }
+    .label--thermal .left-col {
+      gap: 4mm;
+    }
+    .label--thermal .item-name {
+      font-size: 10mm;
+    }
+    .label--thermal .item-meta {
+      font-size: 5mm;
+    }
+    .label--thermal .bc-val {
+      font-size: 4.5mm;
+    }
+    .label--thermal .invendis-tag {
+      font-size: 3.5mm;
+      margin-top: 2mm;
+    }
+    .label--thermal .qr-box svg {
+      width: 58mm !important;
+      height: 58mm !important;
+    }
+    .label--thermal .qr-placeholder {
+      width: 58mm;
+      height: 58mm;
+    }
+    .label--thermal .qr-label {
+      font-size: 3.5mm;
     }
   </style>
 </head>
