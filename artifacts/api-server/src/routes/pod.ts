@@ -82,12 +82,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   }
 
   if (!campaignId) {
-    const { data: first } = await supa.from("campaigns").select("id").order("id").limit(1).single();
-    campaignId = (first as any)?.id ?? null;
-  }
-
-  if (!campaignId) {
-    res.status(400).json({ error: "campaign_id is required and could not be resolved" });
+    res.status(400).json({ error: "campaign_id is required — provide campaign_id directly or a valid dispatch_id" });
     return;
   }
 

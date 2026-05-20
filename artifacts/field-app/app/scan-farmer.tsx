@@ -41,6 +41,7 @@ export default function ScanFarmerScreen() {
   const [mode, setMode] = useState<"camera" | "manual">("camera");
   const [input, setInput] = useState("");
   const [farmer, setFarmer] = useState<Farmer | null>(null);
+  const [searchResults, setSearchResults] = useState<Farmer[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
@@ -52,17 +53,21 @@ export default function ScanFarmerScreen() {
     if (!token || loading) return;
     setLoading(true);
     setFarmer(null);
+    setSearchResults([]);
     try {
       const result = await farmerByBarcode(token, code);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       const results = await searchFarmers(token, code).catch(() => ({ data: [] as Farmer[] }));
-      if (results.data.length > 0) {
+      if (results.data.length === 1) {
         setFarmer(results.data[0]);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (results.data.length > 1) {
+        setSearchResults(results.data);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        Alert.alert("Not Found", "No farmer found with this code.");
+        Alert.alert("Not Found", "No farmer found with this code or name.");
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } finally {
@@ -168,6 +173,32 @@ export default function ScanFarmerScreen() {
         </View>
       )}
 
+      {searchResults.length > 1 && (
+        <View style={[styles.farmerPanel, { borderTopColor: colors.border, paddingBottom: bottomPad + 16, backgroundColor: colors.background }]}>
+          <Text style={[styles.resultsHeader, { color: colors.mutedForeground }]}>
+            {searchResults.length} farmers found — tap to select
+          </Text>
+          {searchResults.map((r) => (
+            <TouchableOpacity
+              key={r.id}
+              style={[styles.farmerCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}
+              onPress={() => { setFarmer(r); setSearchResults([]); }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.avatar, { backgroundColor: colors.primary + "18" }]}>
+                <Feather name="user" size={22} color={colors.primary} />
+              </View>
+              <View style={styles.farmerDetails}>
+                <Text style={[styles.farmerName, { color: colors.foreground }]}>{r.firstName} {r.lastName}</Text>
+                <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{r.farmerCode}</Text>
+                {r.phone && <Text style={[styles.farmerPhone, { color: colors.mutedForeground }]}>{r.phone}</Text>}
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {farmer && (
         <View style={[styles.farmerPanel, { borderTopColor: colors.border, paddingBottom: bottomPad + 16, backgroundColor: colors.background }]}>
           <View style={[styles.farmerCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
@@ -218,6 +249,7 @@ const styles = StyleSheet.create({
   farmerCard: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12, borderWidth: 1.5 },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   farmerDetails: { flex: 1, gap: 3 },
+  resultsHeader: { fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 4 },
   farmerName: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   farmerCode: { fontSize: 12, fontFamily: "Inter_400Regular" },
   farmerPhone: { fontSize: 12, fontFamily: "Inter_400Regular" },

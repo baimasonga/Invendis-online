@@ -124,7 +124,7 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   }
 
   const code    = Math.floor(100000 + Math.random() * 900000).toString();
-  const isDev   = process.env.NODE_ENV !== "production";
+  const isDev   = process.env.NODE_ENV === "development";
   const message = `Agri-PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
 
   let channel = "none";

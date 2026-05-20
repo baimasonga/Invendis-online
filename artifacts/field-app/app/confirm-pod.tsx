@@ -402,7 +402,7 @@ export default function ConfirmPodScreen() {
     ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
     ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
-    notes: notes || "Mobile field issuance",
+    ...(notes.trim() ? { notes: notes.trim() } : {}),
   });
 
   const doSubmit = async (otpStatus: string, faceStatus: string, offline = false) => {

@@ -2,7 +2,14 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "changeme-secret";
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET environment variable must be set in production");
+  }
+  // eslint-disable-next-line no-console
+  console.warn("[auth] SESSION_SECRET not set — using insecure dev default. Set this in production.");
+}
+const JWT_SECRET = process.env.SESSION_SECRET ?? "changeme-secret-dev-only";
 
 export interface JwtPayload {
   userId: number;

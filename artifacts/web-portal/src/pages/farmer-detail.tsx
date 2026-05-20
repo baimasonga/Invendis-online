@@ -37,6 +37,7 @@ export default function FarmerDetail() {
   const can = usePermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -58,7 +59,7 @@ export default function FarmerDetail() {
   const approveMutation = useMutation({ mutationFn: () => approveFarmer(id) });
   const rejectMutation  = useMutation({ mutationFn: () => rejectFarmer(id) });
 
-  async function handleApprove() {
+  async function handleApproveConfirm() {
     setActionLoading(true);
     try {
       await approveMutation.mutateAsync();
@@ -69,7 +70,7 @@ export default function FarmerDetail() {
       toast({ title: "Farmer approved" });
     } catch (err: any) {
       toast({ title: "Approval failed", description: err.message, variant: "destructive" });
-    } finally { setActionLoading(false); }
+    } finally { setActionLoading(false); setApproveOpen(false); }
   }
 
   async function handleRejectConfirm() {
@@ -155,7 +156,7 @@ export default function FarmerDetail() {
               <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
-              <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" disabled={actionLoading} onClick={handleApprove}>
+              <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" disabled={actionLoading} onClick={() => setApproveOpen(true)}>
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
               </Button>
             </>
@@ -284,6 +285,21 @@ export default function FarmerDetail() {
           </Card>
         </div>
       </div>
+
+      <AlertDialog open={approveOpen} onOpenChange={setApproveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve Farmer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark <strong>{f.firstName} {f.lastName}</strong> as approved and grant them access to distribution campaigns.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-green-700 hover:bg-green-800" onClick={handleApproveConfirm}>Approve</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <AlertDialogContent>

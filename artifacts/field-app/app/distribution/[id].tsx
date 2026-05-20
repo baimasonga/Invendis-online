@@ -81,6 +81,7 @@ export default function DistributionDetailScreen() {
 
   const hasArrivedRef = useRef(false);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [gpsUnavailable, setGpsUnavailable] = React.useState(false);
 
   const dispatchQ = useQuery({
     queryKey: ["dispatch", dispatchId],
@@ -103,13 +104,22 @@ export default function DistributionDetailScreen() {
     const statusOk = dispatch?.status === "In Transit" || dispatch?.status === "InTransit";
     if (!token || !dispatch?.vehicleId || !statusOk || hasArrivedRef.current) return;
     const location = await getCurrentLocation();
-    if (!location) return;
+    if (!location) {
+      setGpsUnavailable(true);
+      return;
+    }
+    setGpsUnavailable(false);
     try {
       const result = await pingGps(token, dispatch.vehicleId, location.latitude, location.longitude, {
         dispatchId: dispatch.id,
       });
       if (result.arrivalStatus === "arrived" && !hasArrivedRef.current) {
         hasArrivedRef.current = true;
+        // Stop pinging immediately — no need to keep the interval alive
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert(
           "Arrived at Destination! 🎯",
@@ -215,15 +225,29 @@ export default function DistributionDetailScreen() {
 
       {/* Active GPS tracking banner */}
       {isInTransit && !isArrived && dispatch.vehicleId && (
-        <View style={[styles.gpsBanner, { backgroundColor: colors.info + "14", borderColor: colors.info + "30" }]}>
-          <View style={[styles.gpsIconWrap, { backgroundColor: colors.info + "20" }]}>
-            <Feather name="navigation" size={16} color={colors.info} />
+        <View style={[
+          styles.gpsBanner,
+          gpsUnavailable
+            ? { backgroundColor: colors.warning + "14", borderColor: colors.warning + "30" }
+            : { backgroundColor: colors.info + "14", borderColor: colors.info + "30" },
+        ]}>
+          <View style={[styles.gpsIconWrap, { backgroundColor: (gpsUnavailable ? colors.warning : colors.info) + "20" }]}>
+            <Feather name={gpsUnavailable ? "alert-triangle" : "navigation"} size={16} color={gpsUnavailable ? colors.warning : colors.info} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.gpsBannerTitle, { color: colors.info }]}>GPS Tracking Active</Text>
-            <Text style={[styles.gpsBannerSub, { color: colors.info }]}>Pinging every 2 min · Arrival auto-detected</Text>
+            {gpsUnavailable ? (
+              <>
+                <Text style={[styles.gpsBannerTitle, { color: colors.warning }]}>Location Access Unavailable</Text>
+                <Text style={[styles.gpsBannerSub, { color: colors.warning }]}>Enable location permissions for arrival detection</Text>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.gpsBannerTitle, { color: colors.info }]}>GPS Tracking Active</Text>
+                <Text style={[styles.gpsBannerSub, { color: colors.info }]}>Pinging every 2 min · Arrival auto-detected</Text>
+              </>
+            )}
           </View>
-          <View style={[styles.gpsDot, { backgroundColor: colors.info }]} />
+          <View style={[styles.gpsDot, { backgroundColor: gpsUnavailable ? colors.warning : colors.info }]} />
         </View>
       )}
 
