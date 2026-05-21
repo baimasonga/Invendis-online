@@ -17,6 +17,7 @@ export interface Permissions {
   // Campaigns & allocations
   createCampaign:    boolean;
   editCampaign:      boolean;
+  deleteCampaign:    boolean;
   manageAllocations: boolean;
 
   // Fleet
@@ -54,6 +55,7 @@ export function usePermissions(): Permissions {
 
     createCampaign:    isAdmin || isPM,
     editCampaign:      isAdmin || isPM,
+    deleteCampaign:    isAdmin || isPM,
     manageAllocations: isAdmin || isPM || isDC,
 
     manageFleet:      isAdmin || isPM || isWM,

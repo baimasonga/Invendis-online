@@ -1,17 +1,22 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listCampaigns, KEYS } from "@/lib/db";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listCampaigns, deleteCampaign, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays, Pencil } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Flag, CalendarDays, Pencil, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { CreateCampaignModal } from "@/components/modals/CreateCampaignModal";
 import { EditCampaignModal } from "@/components/modals/EditCampaignModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 function formatDateRange(start: string, end: string) {
   const fmt = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -33,9 +38,12 @@ function ProgressBar({ value, total }: { value: number; total: number }) {
 
 export default function Campaigns() {
   const can = usePermissions();
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editCampaign, setEditCampaign] = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const limit = 20;
 
   const { data: campaignsData, isLoading } = useQuery({
@@ -44,6 +52,20 @@ export default function Campaigns() {
   });
   const total = campaignsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const deleteMutation = useMutation({ mutationFn: (id: number) => deleteCampaign(id) });
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.campaigns() });
+      toast({ title: "Campaign deleted", description: `${deleteTarget.name} has been removed.` });
+      setDeleteTarget(null);
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -73,7 +95,7 @@ export default function Campaigns() {
                 <TableHead className="hidden lg:table-cell">Dates</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden sm:table-cell">Progress</TableHead>
-                <TableHead className="pr-4 text-right w-[120px]">Actions</TableHead>
+                <TableHead className="pr-4 text-right w-[140px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -119,6 +141,16 @@ export default function Campaigns() {
                           <Link href={`/campaigns/${campaign.id}`}>
                             <span className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline cursor-pointer">View</span>
                           </Link>
+                          {can.deleteCampaign && campaign.status === "Draft" && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => setDeleteTarget(campaign)}
+                              title="Delete campaign"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -163,6 +195,27 @@ export default function Campaigns() {
       {can.editCampaign && (
         <EditCampaignModal open={!!editCampaign} campaign={editCampaign} onClose={() => setEditCampaign(null)} />
       )}
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deleteTarget?.name}</strong> ({deleteTarget?.campaignCode}) will be permanently deleted along with its input items. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

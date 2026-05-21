@@ -378,6 +378,19 @@ export async function updateCampaign(id: number, payload: any) {
   return cc(data);
 }
 
+export async function deleteCampaign(id: number) {
+  const { data: existing, error: fetchErr } = await supabase
+    .from("campaigns").select("status,campaign_code").eq("id", id).single();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if ((existing as any).status !== "Draft") {
+    throw new Error("Only Draft campaigns can be deleted.");
+  }
+  await supabase.from("campaign_items").delete().eq("campaign_id", id);
+  const { error } = await supabase.from("campaigns").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "campaigns", `Deleted campaign ${(existing as any).campaign_code}`, "campaign", id);
+}
+
 export async function submitCampaign(id: number) {
   const { data, error } = await supabase.from("campaigns")
     .update({ status: "Submitted" }).eq("id", id).select().single();
