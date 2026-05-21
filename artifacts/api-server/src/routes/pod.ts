@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
+import { supa, snakeToCamel, camelToSnake, pool } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
@@ -153,18 +153,32 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }
   }
 
-  const { data, error } = await supa.from("pod").insert({
+  // Use direct pg to bypass PostgREST schema cache (same pattern as dispatch insert)
+  const insertFields: Record<string, unknown> = {
     ...body,
-    campaign_id: campaignId,
-    pod_code: podCode,
-    status: "Pending",
-    gps_status: gpsStatus,
-    submitted_at: new Date().toISOString(),
+    campaign_id:      campaignId,
+    pod_code:         podCode,
+    status:           "Pending",
+    gps_status:       gpsStatus,
+    submitted_at:     new Date().toISOString(),
     field_officer_id: req.user!.userId,
-  }).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", (data as any).id);
-  res.status(201).json(snakeToCamel(data));
+  };
+  // Remove undefined values; keep null (explicit nulls are fine for pg)
+  const cols = Object.keys(insertFields).filter(k => insertFields[k] !== undefined);
+  const vals = cols.map(k => insertFields[k]);
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(", ");
+  const sql = `INSERT INTO pod (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`;
+
+  let podRow: Record<string, unknown>;
+  try {
+    const result = await pool.query(sql, vals);
+    podRow = result.rows[0];
+  } catch (pgErr: any) {
+    res.status(500).json({ error: pgErr.message }); return;
+  }
+
+  await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);
+  res.status(201).json(snakeToCamel(podRow));
 });
 
 router.post("/api/pod/:id/approve-exception", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
