@@ -200,7 +200,7 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
 
     const { data: pods, error: podsErr } = await supa
       .from("pod")
-      .select("id, farmer_id, campaign_id")
+      .select("id, farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered")
       .in("id", ids);
     if (podsErr) throw new Error(podsErr.message);
 
@@ -229,6 +229,35 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
       await supa.from("campaigns").update({ delivered_count: count ?? 0 }).eq("id", cid);
     }
 
+    // Update dispatch_items.quantity_delivered and dispatches.delivered_packages per dispatch
+    const dispatchIds = [...new Set((pods ?? []).map((p: any) => p.dispatch_id).filter(Boolean))];
+    for (const did of dispatchIds) {
+      const dispPods = (pods ?? []).filter((p: any) => p.dispatch_id === did && p.input_item_id && p.quantity_delivered);
+      for (const p of dispPods as any[]) {
+        const qty = Number(p.quantity_delivered);
+        const { data: dispItem } = await supa
+          .from("dispatch_items")
+          .select("id, quantity_delivered")
+          .eq("dispatch_id", did)
+          .eq("input_item_id", p.input_item_id)
+          .single();
+        if (dispItem) {
+          const newQty = ((dispItem as any).quantity_delivered ?? 0) + qty;
+          await supa.from("dispatch_items")
+            .update({ quantity_delivered: newQty })
+            .eq("id", (dispItem as any).id);
+        }
+      }
+      const { data: allItems } = await supa
+        .from("dispatch_items")
+        .select("quantity_delivered")
+        .eq("dispatch_id", did);
+      const totalDelivered = (allItems ?? []).reduce((s: number, i: any) => s + Number(i.quantity_delivered ?? 0), 0);
+      await supa.from("dispatches")
+        .update({ delivered_packages: Math.round(totalDelivered), updated_at: new Date().toISOString() })
+        .eq("id", did);
+    }
+
     await logAudit(req, "APPROVE", "PoD", `Batch approved ${ids.length} PoD(s)`, "pod", ids[0]);
     res.json({ approved: ids.length });
   } catch (err: any) {
@@ -243,11 +272,11 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
 
     const { data: pod, error: podErr } = await supa
       .from("pod")
-      .select("farmer_id, campaign_id")
+      .select("farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered")
       .eq("id", podId)
       .single();
     if (podErr || !pod) { res.status(404).json({ error: "PoD not found" }); return; }
-    const { farmer_id, campaign_id } = pod as any;
+    const { farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered } = pod as any;
 
     const { error: updateErr } = await supa
       .from("pod")
@@ -268,6 +297,32 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
       .eq("campaign_id", campaign_id)
       .eq("status", "Delivered");
     await supa.from("campaigns").update({ delivered_count: count ?? 0 }).eq("id", campaign_id);
+
+    // Update dispatch_items.quantity_delivered and dispatches.delivered_packages
+    if (dispatch_id && input_item_id && quantity_delivered) {
+      const qty = Number(quantity_delivered);
+      const { data: dispItem } = await supa
+        .from("dispatch_items")
+        .select("id, quantity_delivered")
+        .eq("dispatch_id", dispatch_id)
+        .eq("input_item_id", input_item_id)
+        .single();
+      if (dispItem) {
+        const newQty = ((dispItem as any).quantity_delivered ?? 0) + qty;
+        await supa.from("dispatch_items")
+          .update({ quantity_delivered: newQty })
+          .eq("id", (dispItem as any).id);
+      }
+      // Recalculate dispatches.delivered_packages
+      const { data: allItems } = await supa
+        .from("dispatch_items")
+        .select("quantity_delivered")
+        .eq("dispatch_id", dispatch_id);
+      const totalDelivered = (allItems ?? []).reduce((s: number, i: any) => s + Number(i.quantity_delivered ?? 0), 0);
+      await supa.from("dispatches")
+        .update({ delivered_packages: Math.round(totalDelivered), updated_at: new Date().toISOString() })
+        .eq("id", dispatch_id);
+    }
 
     await logAudit(req, "APPROVE", "PoD", `Approved PoD ID ${podId}`, "pod", podId);
     res.json({ id: podId, status: "Verified" });

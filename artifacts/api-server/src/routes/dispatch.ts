@@ -244,9 +244,37 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
 
   if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
   const row = data as any;
+
   if (row.vehicle_id) {
     await supa.from("vehicles").update({ status: "InTransit" }).eq("id", row.vehicle_id);
   }
+
+  // Deduct loaded quantities from stock_balance.available, add to stock_balance.loaded
+  const { data: items } = await supa
+    .from("dispatch_items")
+    .select("input_item_id, quantity_loaded")
+    .eq("dispatch_id", id);
+
+  if (items && items.length > 0 && row.warehouse_id) {
+    for (const item of items as any[]) {
+      const qty = Number(item.quantity_loaded ?? 0);
+      if (!qty) continue;
+      const { data: bal } = await supa
+        .from("stock_balance")
+        .select("id, available, loaded")
+        .eq("warehouse_id", row.warehouse_id)
+        .eq("input_item_id", item.input_item_id)
+        .single();
+      if (bal) {
+        await supa.from("stock_balance").update({
+          available: Math.max(0, ((bal as any).available ?? 0) - qty),
+          loaded:    ((bal as any).loaded ?? 0) + qty,
+          updated_at: new Date().toISOString(),
+        }).eq("id", (bal as any).id);
+      }
+    }
+  }
+
   await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
   res.json(snakeToCamel(row));
 });

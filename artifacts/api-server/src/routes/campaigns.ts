@@ -106,6 +106,12 @@ router.post("/api/allocations", requireAuth, requireRoles("Admin", "ProjectManag
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("allocations").insert({ ...body, allocated_by: req.user!.userId }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  // Update campaign allocated_farmers count
+  const cid = req.body.campaignId;
+  if (cid) {
+    const { count } = await supa.from("allocations").select("*", { count: "exact", head: true }).eq("campaign_id", Number(cid));
+    await supa.from("campaigns").update({ allocated_farmers: count ?? 0, updated_at: new Date().toISOString() }).eq("id", Number(cid));
+  }
   await logAudit(req, "CREATE", "Allocations", `Allocated farmer ${req.body.farmerId} to campaign ${req.body.campaignId}`, "allocation", (data as any).id);
   res.status(201).json(snakeToCamel(data));
 });
