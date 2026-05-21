@@ -66,7 +66,7 @@ async function lookupMap(table: string, ids: (number | string)[], cols: string):
 export const KEYS = {
   dashboard:     () => ["dashboard"],
   alertCounts:   () => ["alert-counts"],
-  farmers:       (page?: number, search?: string, status?: string, districtId?: number) => ["farmers", page, search, status, districtId],
+  farmers:       (page?: number, search?: string, status?: string, districtId?: number, beneficiaryType?: string) => ["farmers", page, search, status, districtId, beneficiaryType],
   farmer:        (id: number) => ["farmer", id],
   campaigns:     (page?: number) => ["campaigns", page],
   campaign:      (id: number) => ["campaign", id],
@@ -181,7 +181,7 @@ export async function getDashboardData() {
 }
 
 // ── FARMERS ───────────────────────────────────────────────────────────────────
-export async function listFarmers(page = 1, limit = 20, search?: string, status?: string, districtId?: number) {
+export async function listFarmers(page = 1, limit = 20, search?: string, status?: string, districtId?: number, beneficiaryType?: string) {
   let q = supabase
     .from("farmers")
     .select("*", { count: "exact" })
@@ -190,6 +190,7 @@ export async function listFarmers(page = 1, limit = 20, search?: string, status?
   if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`);
   if (status) q = q.eq("status", status);
   if (districtId) q = q.eq("district_id", districtId);
+  if (beneficiaryType) q = q.eq("beneficiary_type", beneficiaryType);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];

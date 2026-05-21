@@ -38,6 +38,12 @@ const STATUS_CHIPS = [
   { label: "Rejected", value: "rejected" },
 ];
 
+const TYPE_CHIPS = [
+  { label: "All Types",   value: "" },
+  { label: "Individual",  value: "individual" },
+  { label: "Group",       value: "group" },
+];
+
 export default function Farmers() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -47,6 +53,7 @@ export default function Farmers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
@@ -56,8 +63,8 @@ export default function Farmers() {
   const districtId = districtFilter && districtFilter !== "all" ? parseInt(districtFilter) : undefined;
 
   const { data: farmersData, isLoading } = useQuery({
-    queryKey: KEYS.farmers(page, search, statusFilter || undefined, districtId),
-    queryFn: () => listFarmers(page, limit, search || undefined, statusFilter || undefined, districtId),
+    queryKey: KEYS.farmers(page, search, statusFilter || undefined, districtId, typeFilter || undefined),
+    queryFn: () => listFarmers(page, limit, search || undefined, statusFilter || undefined, districtId, typeFilter || undefined),
   });
 
   const { data: districts } = useQuery({
@@ -97,10 +104,10 @@ export default function Farmers() {
   }
 
   function resetFilters() {
-    setSearch(""); setStatusFilter(""); setDistrictFilter(""); setPage(1);
+    setSearch(""); setStatusFilter(""); setDistrictFilter(""); setTypeFilter(""); setPage(1);
   }
 
-  const hasFilters = !!(search || statusFilter || districtFilter);
+  const hasFilters = !!(search || statusFilter || districtFilter || typeFilter);
 
   return (
     <div className="space-y-5">
@@ -159,6 +166,20 @@ export default function Farmers() {
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   statusFilter === value
                     ? "bg-green-700 text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="mx-1 text-muted-foreground/40 text-xs select-none">|</span>
+            {TYPE_CHIPS.map(({ label, value }) => (
+              <button
+                key={value}
+                onClick={() => { setTypeFilter(value); setPage(1); }}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  typeFilter === value
+                    ? "bg-blue-600 text-white"
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
               >
