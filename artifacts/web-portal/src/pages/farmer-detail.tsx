@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, User, Users, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -146,7 +146,18 @@ export default function FarmerDetail() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{f.firstName} {f.lastName}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold truncate">
+              {f.beneficiaryType === "group"
+                ? (f.farmerGroup || `${f.firstName} ${f.lastName}`)
+                : `${f.firstName} ${f.lastName}`}
+            </h1>
+            {f.beneficiaryType === "group" && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-xs font-medium">
+                <Users className="h-3 w-3" /> Group
+              </span>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
@@ -168,13 +179,43 @@ export default function FarmerDetail() {
         <div className="md:col-span-2 space-y-5">
           <Card>
             <CardHeader className="pb-3 pt-4">
-              <CardTitle className="text-sm font-semibold">Personal Information</CardTitle>
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                {f.beneficiaryType === "group" ? (
+                  <>
+                    <Users className="h-3.5 w-3.5 text-blue-600" />
+                    Group Information
+                    <span className="ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] font-medium">
+                      Group Beneficiary
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <User className="h-3.5 w-3.5" />
+                    Personal Information
+                    <span className="ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[10px] font-medium">
+                      Individual
+                    </span>
+                  </>
+                )}
+              </CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              <Field label="Gender"      value={f.gender}    icon={User} />
-              <Field label="Phone"       value={f.phone}     icon={Phone} />
-              <Field label="National ID" value={f.nationalId} icon={IdCard} />
-              <Field label="Date of Birth" value={f.dateOfBirth ? new Date(f.dateOfBirth).toLocaleDateString("en-GB") : undefined} />
+              {f.beneficiaryType === "group" ? (
+                <>
+                  <Field label="Group / Cooperative Name" value={f.farmerGroup} icon={Users} />
+                  <Field label="Number of Members"        value={f.groupSize ? String(f.groupSize) : undefined} />
+                  <Field label="Contact Person"           value={(f.firstName && f.firstName !== "—") ? `${f.firstName} ${f.lastName}` : undefined} icon={User} />
+                  <Field label="Contact Phone"            value={f.phone} icon={Phone} />
+                </>
+              ) : (
+                <>
+                  <Field label="Gender"      value={f.gender}     icon={User} />
+                  <Field label="Phone"       value={f.phone}      icon={Phone} />
+                  <Field label="National ID" value={f.nationalId} icon={IdCard} />
+                  <Field label="Date of Birth" value={f.dateOfBirth ? new Date(f.dateOfBirth).toLocaleDateString("en-GB") : undefined} />
+                  {f.farmerGroup && <Field label="Farmer Group / Cooperative" value={f.farmerGroup} />}
+                </>
+              )}
             </CardContent>
           </Card>
 

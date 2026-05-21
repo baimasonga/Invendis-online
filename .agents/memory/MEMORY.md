@@ -2,3 +2,4 @@
 - [Stock lifecycle](stock-lifecycle.md) — stock_balance tracks available/loaded/delivered; deductions happen at dispatch "In Transit" transition, not at create time.
 - [PoD approval chain](pod-approval-chain.md) — approving a PoD must update allocations, campaigns.delivered_count, dispatch_items.quantity_delivered, and dispatches.delivered_packages.
 - [Allocation counter](allocation-counter.md) — campaigns.allocated_farmers must be recounted after every allocation insert/bulk-insert.
+- [Beneficiary types](beneficiary-types.md) — farmers table supports individual/group via beneficiary_type + group_size; group name stored in farmer_group column.

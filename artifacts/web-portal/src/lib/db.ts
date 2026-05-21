@@ -187,7 +187,7 @@ export async function listFarmers(page = 1, limit = 20, search?: string, status?
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
-  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`);
+  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`);
   if (status) q = q.eq("status", status);
   if (districtId) q = q.eq("district_id", districtId);
   const { data, error, count } = await q;
@@ -246,15 +246,18 @@ export async function createFarmer(payload: any) {
   const nextId = ((maxRow as any)?.id ?? 0) + 1;
   const { data, error } = await supabase.from("farmers").insert({
     id: nextId,
+    beneficiary_type: payload.beneficiaryType ?? "individual",
     first_name: payload.firstName,
     last_name: payload.lastName,
-    gender: payload.gender ?? "Male",
+    gender: payload.beneficiaryType === "group" ? "N/A" : (payload.gender ?? "Male"),
     phone: payload.phone ?? null,
     national_id: payload.nationalId ?? null,
     district_id: payload.districtId ?? null,
     chiefdom_id: payload.chiefdomId ?? null,
     value_chain_id: payload.valueChainId ?? null,
     farm_size: payload.farmSize ?? null,
+    farmer_group: payload.farmerGroup ?? null,
+    group_size: payload.groupSize ?? null,
     registered_by: userId,
     farmer_code: farmerCode,
     barcode_token: barcodeToken,
@@ -266,15 +269,18 @@ export async function createFarmer(payload: any) {
 
 export async function updateFarmer(id: number, payload: any) {
   const { data, error } = await supabase.from("farmers").update({
+    beneficiary_type: payload.beneficiaryType ?? "individual",
     first_name: payload.firstName,
     last_name: payload.lastName,
-    gender: payload.gender ?? null,
+    gender: payload.beneficiaryType === "group" ? "N/A" : (payload.gender ?? null),
     phone: payload.phone ?? null,
     national_id: payload.nationalId ?? null,
     district_id: payload.districtId ?? null,
     chiefdom_id: payload.chiefdomId ?? null,
     value_chain_id: payload.valueChainId ?? null,
     farm_size: payload.farmSize ?? null,
+    farmer_group: payload.farmerGroup ?? null,
+    group_size: payload.groupSize ?? null,
   }).eq("id", id).select().single();
   if (error) throw new Error(error.message);
   await logAudit("UPDATE", "farmers", `Updated farmer #${id}`, "farmer", id);

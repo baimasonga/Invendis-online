@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, User } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -198,8 +198,24 @@ export default function Farmers() {
                       <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{farmer.farmerCode}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Avatar name={`${farmer.firstName} ${farmer.lastName}`} />
-                          <span className="font-medium text-sm">{farmer.firstName} {farmer.lastName}</span>
+                          <Avatar name={(farmer as any).beneficiaryType === "group" ? ((farmer as any).farmerGroup || `${farmer.firstName} ${farmer.lastName}`) : `${farmer.firstName} ${farmer.lastName}`} />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-sm">
+                                {(farmer as any).beneficiaryType === "group"
+                                  ? ((farmer as any).farmerGroup || `${farmer.firstName} ${farmer.lastName}`)
+                                  : `${farmer.firstName} ${farmer.lastName}`}
+                              </span>
+                              {(farmer as any).beneficiaryType === "group" && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] font-medium shrink-0">
+                                  <Users className="h-2.5 w-2.5" /> Group
+                                </span>
+                              )}
+                            </div>
+                            {(farmer as any).beneficiaryType === "group" && (farmer.firstName && farmer.firstName !== "—") && (
+                              <p className="text-xs text-muted-foreground">Contact: {farmer.firstName} {farmer.lastName}</p>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
