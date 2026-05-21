@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -130,6 +130,7 @@ export default function ConfirmPodScreen() {
   const { token } = useAuth();
   const { enqueue } = useOfflineQueue();
   const router = useRouter();
+  const navigation = useNavigation();
 
   const [step, setStep] = useState<Step>("details");
 
@@ -202,6 +203,24 @@ export default function ConfirmPodScreen() {
     });
     return () => sub.remove();
   }, [step]);
+
+  // iOS swipe-back guard — mirrors the Android BackHandler behaviour
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    if (step === "result" || step === "details") return;
+    const unsubscribe = navigation.addListener("beforeRemove" as any, (e: any) => {
+      e.preventDefault();
+      Alert.alert(
+        "Discard Delivery?",
+        "Going back will discard this PoD. Are you sure?",
+        [
+          { text: "Stay", style: "cancel" },
+          { text: "Discard", style: "destructive", onPress: () => navigation.dispatch(e.data.action) },
+        ]
+      );
+    });
+    return unsubscribe;
+  }, [navigation, step]);
   useEffect(() => {
     if (resendTimer <= 0) return;
     const t = setTimeout(() => setResendTimer((s) => s - 1), 1000);
