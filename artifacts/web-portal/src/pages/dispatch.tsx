@@ -44,6 +44,7 @@ export default function Dispatch() {
   const can = usePermissions();
   const [page, setPage] = useState(1);
   const [officerFilter, setOfficerFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -53,8 +54,8 @@ export default function Dispatch() {
   const limit = 20;
   const officerIdNum = officerFilter !== "all" ? Number(officerFilter) : undefined;
   const { data: dispatchData, isLoading } = useQuery({
-    queryKey: KEYS.dispatches(page, officerIdNum),
-    queryFn: () => listDispatches(page, limit, officerIdNum),
+    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter),
+    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter),
   });
 
   const { data: officersList = [] } = useQuery({
@@ -142,7 +143,25 @@ export default function Dispatch() {
         <CardHeader className="pb-0 pt-4 px-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             {!isLoading && <p className="text-xs text-muted-foreground">{total.toLocaleString()} manifests</p>}
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Status</span>
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
+              >
+                <SelectTrigger className="h-8 w-36 text-xs">
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="Draft">Draft</SelectItem>
+                  <SelectItem value="Approved">Approved</SelectItem>
+                  <SelectItem value="Dispatched">Dispatched</SelectItem>
+                  <SelectItem value="In Transit">In Transit</SelectItem>
+                  <SelectItem value="Arrived">Arrived</SelectItem>
+                  <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
               <span className="text-xs text-muted-foreground whitespace-nowrap">Field Officer</span>
               <Select
                 value={officerFilter}
