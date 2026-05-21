@@ -183,19 +183,22 @@ export default function DistributionDetailScreen() {
         </View>
         <Text style={styles.manifestCode}>{dispatch.manifestCode}</Text>
         {dispatch.destinationDistrict ? (
-          <View style={styles.destinationRow}>
-            <Feather name="map-pin" size={13} color="rgba(255,255,255,0.75)" />
-            <Text style={styles.destination}>
-              {dispatch.destinationDistrict}
-            </Text>
+          <View style={styles.districtBadgeRow}>
+            <Feather name="map-pin" size={11} color="rgba(255,255,255,0.85)" />
+            <View style={styles.districtBadge}>
+              <Text style={styles.districtBadgeText} numberOfLines={1}>
+                {dispatch.destinationDistrict}
+              </Text>
+            </View>
           </View>
         ) : null}
         {dispatch.destinationCommunity ? (
-          <Text style={styles.destinationSub}>
-            {dispatch.destinationCommunity}
-          </Text>
-        ) : !dispatch.destinationDistrict ? (
-          <Text style={styles.destination}>—</Text>
+          <View style={styles.communityRow}>
+            <Feather name="home" size={10} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.communityText} numberOfLines={1}>
+              {dispatch.destinationCommunity}
+            </Text>
+          </View>
         ) : null}
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
@@ -339,9 +342,11 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   manifestLabel: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", letterSpacing: 1, textTransform: "uppercase" },
   manifestCode: { fontSize: 22, fontFamily: "Inter_700Bold", color: "#ffffff" },
-  destinationRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  destination: { fontSize: 15, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.9)" },
-  destinationSub: { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", marginLeft: 18, marginTop: 1 },
+  districtBadgeRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  districtBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.35)" },
+  districtBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#ffffff" },
+  communityRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, marginLeft: 16 },
+  communityText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)" },
   metaRow: { flexDirection: "row", gap: 16, marginTop: 6, flexWrap: "wrap" },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   metaText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)" },
