@@ -76,7 +76,7 @@ export const KEYS = {
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
   drivers:       () => ["drivers"],
-  dispatches:    (page?: number, fieldOfficerId?: number, status?: string) => ["dispatches", page, fieldOfficerId, status],
+  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string) => ["dispatches", page, fieldOfficerId, status, manifestCode],
   dispatch:      (id: number) => ["dispatch", id],
   pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
   podStats:      () => ["pod-stats"],
@@ -660,11 +660,12 @@ async function dispatchToken(): Promise<string> {
   return session.access_token;
 }
 
-export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number, status?: string) {
+export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number, status?: string, manifestCode?: string) {
   const token = await dispatchToken();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (fieldOfficerId) params.set("fieldOfficerId", String(fieldOfficerId));
   if (status && status !== "all") params.set("status", status);
+  if (manifestCode && manifestCode.trim()) params.set("manifestCode", manifestCode.trim());
   const resp = await fetch(`/api/dispatch?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -45,17 +46,27 @@ export default function Dispatch() {
   const [page, setPage] = useState(1);
   const [officerFilter, setOfficerFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [manifestSearch, setManifestSearch] = useState("");
+  const [debouncedManifestSearch, setDebouncedManifestSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
   const [cancelReason, setCancelReason] = useState("");
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedManifestSearch(manifestSearch);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [manifestSearch]);
+
   const limit = 20;
   const officerIdNum = officerFilter !== "all" ? Number(officerFilter) : undefined;
   const { data: dispatchData, isLoading } = useQuery({
-    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter),
-    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter),
+    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter, debouncedManifestSearch),
+    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter, debouncedManifestSearch),
   });
 
   const { data: officersList = [] } = useQuery({
@@ -141,9 +152,29 @@ export default function Dispatch() {
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            {!isLoading && <p className="text-xs text-muted-foreground">{total.toLocaleString()} manifests</p>}
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  className="h-8 pl-8 pr-7 text-xs"
+                  placeholder="Search manifest code…"
+                  value={manifestSearch}
+                  onChange={(e) => setManifestSearch(e.target.value)}
+                />
+                {manifestSearch && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setManifestSearch("")}
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {!isLoading && <p className="text-xs text-muted-foreground ml-1">{total.toLocaleString()} manifests</p>}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground whitespace-nowrap">Status</span>
               <Select
                 value={statusFilter}
