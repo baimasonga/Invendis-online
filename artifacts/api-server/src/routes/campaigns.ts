@@ -125,6 +125,9 @@ router.post("/api/allocations/bulk", requireAuth, requireRoles("Admin", "Project
   const values = farmerIds.map((farmerId: number) => ({ campaign_id: campaignId, farmer_id: farmerId, allocated_by: req.user!.userId }));
   const { data, error } = await supa.from("allocations").insert(values).select();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  // Update campaign allocated_farmers count
+  const { count } = await supa.from("allocations").select("*", { count: "exact", head: true }).eq("campaign_id", campaignId);
+  await supa.from("campaigns").update({ allocated_farmers: count ?? 0, updated_at: new Date().toISOString() }).eq("id", campaignId);
   await logAudit(req, "BULK_ALLOCATE", "Allocations", `Bulk allocated ${farmerIds.length} farmers to campaign ${campaignId}`, "allocation", campaignId);
   res.status(201).json(snakeToCamel(data));
 });
