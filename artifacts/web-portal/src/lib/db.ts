@@ -76,7 +76,7 @@ export const KEYS = {
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
   drivers:       () => ["drivers"],
-  dispatches:    (page?: number) => ["dispatches", page],
+  dispatches:    (page?: number, fieldOfficerId?: number) => ["dispatches", page, fieldOfficerId],
   dispatch:      (id: number) => ["dispatch", id],
   pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
   podStats:      () => ["pod-stats"],
@@ -660,9 +660,11 @@ async function dispatchToken(): Promise<string> {
   return session.access_token;
 }
 
-export async function listDispatches(page = 1, limit = 20) {
+export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch?page=${page}&limit=${limit}`, {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (fieldOfficerId) params.set("fieldOfficerId", String(fieldOfficerId));
+  const resp = await fetch(`/api/dispatch?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to list dispatches: ${resp.statusText}`);

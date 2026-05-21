@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
@@ -42,6 +43,7 @@ export default function Dispatch() {
   const { toast } = useToast();
   const can = usePermissions();
   const [page, setPage] = useState(1);
+  const [officerFilter, setOfficerFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -49,9 +51,15 @@ export default function Dispatch() {
   const [cancelReason, setCancelReason] = useState("");
 
   const limit = 20;
+  const officerIdNum = officerFilter !== "all" ? Number(officerFilter) : undefined;
   const { data: dispatchData, isLoading } = useQuery({
-    queryKey: KEYS.dispatches(page),
-    queryFn: () => listDispatches(page, limit),
+    queryKey: KEYS.dispatches(page, officerIdNum),
+    queryFn: () => listDispatches(page, limit, officerIdNum),
+  });
+
+  const { data: officersList = [] } = useQuery({
+    queryKey: KEYS.fieldOfficers(),
+    queryFn: listFieldOfficers,
   });
   const total = dispatchData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -66,7 +74,7 @@ export default function Dispatch() {
     setLoadingId(id);
     try {
       await approveMutation.mutateAsync(id);
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
       toast({ title: "Manifest approved" });
     } catch (err: any) {
       toast({ title: "Failed to approve", description: err.message, variant: "destructive" });
@@ -77,7 +85,7 @@ export default function Dispatch() {
     setLoadingId(id);
     try {
       await dispatchMutation.mutateAsync(id);
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
       toast({ title: "Vehicle dispatched", description: "Manifest marked as Dispatched." });
     } catch (err: any) {
       toast({ title: "Failed to dispatch", description: err.message, variant: "destructive" });
@@ -88,7 +96,7 @@ export default function Dispatch() {
     setLoadingId(id);
     try {
       await arriveMutation.mutateAsync(id);
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
       toast({ title: "Arrival confirmed", description: "Manifest marked as Arrived." });
     } catch (err: any) {
       toast({ title: "Failed to mark arrival", description: err.message, variant: "destructive" });
@@ -99,7 +107,7 @@ export default function Dispatch() {
     if (!deleteTarget) return;
     try {
       await deleteMutation.mutateAsync(deleteTarget.id);
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
       toast({ title: "Manifest deleted" });
     } catch (err: any) {
       toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
@@ -110,7 +118,7 @@ export default function Dispatch() {
     if (!cancelTarget) return;
     try {
       await cancelMutation.mutateAsync({ id: cancelTarget.id, reason: cancelReason });
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
       toast({ title: "Manifest cancelled", description: cancelTarget.manifestCode });
     } catch (err: any) {
       toast({ title: "Failed to cancel", description: err.message, variant: "destructive" });
@@ -132,7 +140,26 @@ export default function Dispatch() {
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">
-          {!isLoading && <p className="text-xs text-muted-foreground">{total.toLocaleString()} manifests</p>}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            {!isLoading && <p className="text-xs text-muted-foreground">{total.toLocaleString()} manifests</p>}
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Field Officer</span>
+              <Select
+                value={officerFilter}
+                onValueChange={(v) => { setOfficerFilter(v); setPage(1); }}
+              >
+                <SelectTrigger className="h-8 w-48 text-xs">
+                  <SelectValue placeholder="All officers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All officers</SelectItem>
+                  {(officersList as any[]).map((o: any) => (
+                    <SelectItem key={o.id} value={String(o.id)}>{o.fullName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0 mt-2">
           <Table>

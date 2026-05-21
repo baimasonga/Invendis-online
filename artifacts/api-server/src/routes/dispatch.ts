@@ -47,7 +47,7 @@ async function fetchLookups(
 }
 
 router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
-  const { campaignId, status, manifestCode, page = "1", limit = "20" } = req.query as Record<string, string>;
+  const { campaignId, status, manifestCode, fieldOfficerId, page = "1", limit = "20" } = req.query as Record<string, string>;
   const pageN  = Math.max(1, Number(page));
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
@@ -58,9 +58,10 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
     .order("created_at", { ascending: false })
     .range(offset, offset + limitN - 1);
 
-  if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
-  if (status)       q = q.eq("status", status) as typeof q;
-  if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
+  if (campaignId)     q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+  if (status)         q = q.eq("status", status) as typeof q;
+  if (manifestCode)   q = q.ilike("manifest_code", manifestCode) as typeof q;
+  if (fieldOfficerId) q = q.eq("field_officer_id", Number(fieldOfficerId)) as typeof q;
 
   // Field officers only see dispatches assigned to them
   if (req.user?.role === "FieldOfficer" && req.user?.userId) {
