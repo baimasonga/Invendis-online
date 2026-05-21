@@ -57,7 +57,25 @@ router.get("/api/pod/:id", requireAuth, async (req, res) => {
 
 router.post("/api/pod/submit", requireAuth, async (req, res) => {
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
-  const body = camelToSnake(req.body) as Record<string, any>;
+  // Whitelist allowed fields — never spread req.body directly to prevent mass-assignment attacks
+  const raw = req.body as Record<string, any>;
+  const body: Record<string, any> = {
+    dispatch_id:       raw.dispatchId      != null ? Number(raw.dispatchId)      : null,
+    campaign_id:       raw.campaignId      != null ? Number(raw.campaignId)      : null,
+    farmer_id:         raw.farmerId        != null ? Number(raw.farmerId)        : null,
+    input_item_id:     raw.inputItemId     != null ? Number(raw.inputItemId)     : null,
+    input_barcode:     raw.inputBarcode    ?? null,
+    quantity_delivered: raw.quantityDelivered != null ? Number(raw.quantityDelivered) : null,
+    farmer_latitude:   raw.farmerLatitude  != null ? Number(raw.farmerLatitude)  : null,
+    farmer_longitude:  raw.farmerLongitude != null ? Number(raw.farmerLongitude) : null,
+    face_status:       raw.faceStatus      ?? null,
+    face_similarity:   raw.faceSimilarity  != null ? Number(raw.faceSimilarity)  : null,
+    face_photo_key:    raw.facePhotoKey    ?? null,
+    photo_keys:        Array.isArray(raw.photoKeys) ? raw.photoKeys : null,
+    notes:             raw.notes           ?? null,
+    override_reason:   raw.overrideReason  ?? null,
+    otp_verified:      raw.otpVerified     === true,
+  };
 
   // Resolve input item from scanned barcode if not already supplied
   if (!body.input_item_id && body.input_barcode) {

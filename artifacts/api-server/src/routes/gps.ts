@@ -23,18 +23,30 @@ function formatDistance(meters: number): string {
 
 router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
   const { vehicleId, dispatchId, latitude, longitude, speed, heading, accuracy } = req.body;
+  if (!vehicleId || latitude == null || longitude == null) {
+    res.status(400).json({ error: "vehicleId, latitude, and longitude are required" }); return;
+  }
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    res.status(400).json({ error: "Invalid latitude or longitude" }); return;
+  }
 
-  await Promise.all([
-    supa.from("gps_track").insert({
-      vehicle_id: vehicleId, dispatch_id: dispatchId ?? null,
-      latitude, longitude,
-      speed: speed ?? null, heading: heading ?? null, accuracy: accuracy ?? null,
-      recorded_at: new Date().toISOString(),
-    }),
-    supa.from("vehicles").update({
-      last_latitude: latitude, last_longitude: longitude, last_ping: new Date().toISOString(),
-    }).eq("id", vehicleId),
-  ]);
+  try {
+    await Promise.all([
+      supa.from("gps_track").insert({
+        vehicle_id: vehicleId, dispatch_id: dispatchId ?? null,
+        latitude: lat, longitude: lng,
+        speed: speed ?? null, heading: heading ?? null, accuracy: accuracy ?? null,
+        recorded_at: new Date().toISOString(),
+      }),
+      supa.from("vehicles").update({
+        last_latitude: lat, last_longitude: lng, last_ping: new Date().toISOString(),
+      }).eq("id", vehicleId),
+    ]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Failed to save GPS ping" }); return;
+  }
 
   let arrivalStatus: string | null = null;
 

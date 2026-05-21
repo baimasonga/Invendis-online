@@ -50,6 +50,8 @@ router.get("/api/inventory/stock-balance", requireAuth, async (req, res) => {
 
 router.post("/api/inventory/receive-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { warehouseId, inputItemId, quantity, reference, notes } = req.body;
+  if (!warehouseId || !inputItemId) { res.status(400).json({ error: "warehouseId and inputItemId are required" }); return; }
+  if (!quantity || Number(quantity) <= 0) { res.status(400).json({ error: "quantity must be a positive number" }); return; }
   const { data: bal } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", warehouseId).eq("input_item_id", inputItemId).single();
   if (bal) {
     await supa.from("stock_balance").update({ available: ((bal as any).available ?? 0) + quantity, updated_at: new Date().toISOString() }).eq("id", (bal as any).id);
@@ -63,6 +65,9 @@ router.post("/api/inventory/receive-stock", requireAuth, requireRoles("Admin", "
 
 router.post("/api/inventory/transfer-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { fromWarehouseId, toWarehouseId, inputItemId, quantity, notes } = req.body;
+  if (!fromWarehouseId || !toWarehouseId || !inputItemId) { res.status(400).json({ error: "fromWarehouseId, toWarehouseId, and inputItemId are required" }); return; }
+  if (!quantity || Number(quantity) <= 0) { res.status(400).json({ error: "quantity must be a positive number" }); return; }
+  if (Number(fromWarehouseId) === Number(toWarehouseId)) { res.status(400).json({ error: "Source and destination warehouses must be different" }); return; }
   const { data: src } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", fromWarehouseId).eq("input_item_id", inputItemId).single();
   if (src) await supa.from("stock_balance").update({ available: ((src as any).available ?? 0) - quantity, updated_at: new Date().toISOString() }).eq("id", (src as any).id);
   const { data: dest } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", toWarehouseId).eq("input_item_id", inputItemId).single();

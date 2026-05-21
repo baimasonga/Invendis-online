@@ -55,9 +55,16 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
       status: "pending",
       retryCount: 0,
     };
-    // Use functional update to avoid stale closure if enqueue is called rapidly
-    const updated = [...queue, item];
-    setQueue(updated);
+    // Use functional updater to avoid stale closure when enqueue is called rapidly
+    let persisted: QueuedPoD[] = [];
+    setQueue((prev) => {
+      persisted = [...prev, item];
+      return persisted;
+    });
+    // Persist after state settles — read directly from AsyncStorage to avoid race
+    const stored = await AsyncStorage.getItem(QUEUE_KEY);
+    const current: QueuedPoD[] = stored ? JSON.parse(stored) : [];
+    const updated = [...current, item];
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(updated));
   };
 
