@@ -28,19 +28,36 @@ router.post("/api/auth/login", async (req, res) => {
       return;
     }
 
-    // 2. Get profile for role, is_active, district (source of truth for permissions)
-    const { data: profile, error: profileErr } = await supa
+    // 2. Get profile for role, is_active, district (source of truth for permissions).
+    //    Auto-provision on first login from Supabase user_metadata so existing
+    //    auth users don't need manual profile setup.
+    const { data: existingProfile } = await supa
       .from("profiles")
       .select("id,full_name,role,is_active,district_id,email")
       .eq("id", authData.user.id)
       .single();
 
-    if (profileErr || !profile) {
-      req.log.warn({ profileErr, userId: authData.user.id }, "Profile not found or error fetching profile");
-      res.status(401).json({ error: "Unauthorized", message: "Account profile not found" });
-      return;
+    let profile = existingProfile as any;
+
+    if (!profile) {
+      const meta = (authData.user.user_metadata ?? {}) as Record<string, unknown>;
+      const autoRole  = String(meta.role  ?? "FieldOfficer");
+      const autoName  = String(meta.full_name ?? email);
+      req.log.info({ userId: authData.user.id, autoRole }, "Auto-provisioning profile from user_metadata");
+      const { data: newProfile, error: profileCreateErr } = await supa
+        .from("profiles")
+        .insert({ id: authData.user.id, email, full_name: autoName, role: autoRole, is_active: true })
+        .select("id,full_name,role,is_active,district_id,email")
+        .single();
+      if (profileCreateErr || !newProfile) {
+        req.log.error({ profileCreateErr }, "Failed to auto-provision profile");
+        res.status(401).json({ error: "Unauthorized", message: "Account profile not found" });
+        return;
+      }
+      profile = newProfile;
     }
-    if (profile.is_active === false) {
+
+    if ((profile as any).is_active === false) {
       res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
       return;
     }

@@ -256,9 +256,12 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
     .eq("dispatch_id", id);
 
   if (items && items.length > 0 && row.warehouse_id) {
+    const createdBy = req.user?.userId ?? null;
     for (const item of items as any[]) {
       const qty = Number(item.quantity_loaded ?? 0);
       if (!qty) continue;
+
+      // Deduct from stock_balance.available, add to stock_balance.loaded
       const { data: bal } = await supa
         .from("stock_balance")
         .select("id, available, loaded")
@@ -272,6 +275,17 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
           updated_at: new Date().toISOString(),
         }).eq("id", (bal as any).id);
       }
+
+      // Log to stock_ledger so stock movement reports include dispatch events
+      await supa.from("stock_ledger").insert({
+        warehouse_id:  row.warehouse_id,
+        input_item_id: item.input_item_id,
+        txn_type:      "DISPATCH",
+        quantity:      -qty,
+        reference:     row.manifest_code ?? null,
+        notes:         `Dispatched on manifest ${row.manifest_code ?? id}`,
+        created_by:    createdBy,
+      });
     }
   }
 
