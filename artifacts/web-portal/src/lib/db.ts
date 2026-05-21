@@ -1,6 +1,18 @@
 import { supabase } from "./supabase";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+function farmerDisplayName(farmer: any): string {
+  if (!farmer) return "—";
+  if (farmer.beneficiary_type === "group" || farmer.beneficiaryType === "group") {
+    return farmer.farmer_group || farmer.farmerGroup || "—";
+  }
+  const first = farmer.first_name ?? farmer.firstName ?? "";
+  const last  = farmer.last_name  ?? farmer.lastName  ?? "";
+  const name  = `${first} ${last}`.trim();
+  return name || "—";
+}
+
 function cc<T = any>(obj: any): T {
   if (Array.isArray(obj)) return obj.map(cc) as any;
   if (obj && typeof obj === "object") {
@@ -427,13 +439,13 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [farmerMap, campaignMap] = await Promise.all([
-    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code"),
+    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group"),
     lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
   ]);
   return {
     data: rows.map((r: any) => ({
       ...cc(r),
-      farmerName: farmerMap[r.farmer_id] ? `${farmerMap[r.farmer_id].first_name} ${farmerMap[r.farmer_id].last_name}` : null,
+      farmerName: farmerDisplayName(farmerMap[r.farmer_id]) || null,
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
     })),
@@ -896,14 +908,14 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [farmerMap, campaignMap, inputItemMap] = await Promise.all([
-    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code"),
+    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group"),
     lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
     lookupMap("input_items", [...new Set(rows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,category,unit"),
   ]);
   return {
     data: rows.map((r: any) => ({
       ...cc(r),
-      farmerName: farmerMap[r.farmer_id] ? `${farmerMap[r.farmer_id].first_name} ${farmerMap[r.farmer_id].last_name}` : null,
+      farmerName: farmerDisplayName(farmerMap[r.farmer_id]) || null,
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
       inputItemName: inputItemMap[r.input_item_id]?.name ?? null,
@@ -1215,7 +1227,7 @@ export async function getConsolidatedDistributionReport(opts: {
       ? lookupMap("input_items", inputItemIds, "id,name,unit")
       : Promise.resolve<Record<number, any>>({}),
     farmerIds.length
-      ? lookupMap("farmers", farmerIds, "id,farmer_code,first_name,last_name,gender,phone")
+      ? lookupMap("farmers", farmerIds, "id,farmer_code,first_name,last_name,gender,phone,beneficiary_type,farmer_group")
       : Promise.resolve<Record<number, any>>({}),
   ]);
 
@@ -1247,7 +1259,7 @@ export async function getConsolidatedDistributionReport(opts: {
       return {
         id: p.id,
         podCode: p.pod_code,
-        farmerName: farmer ? `${farmer.first_name} ${farmer.last_name}` : "—",
+        farmerName: farmerDisplayName(farmer),
         farmerCode: farmer?.farmer_code ?? "—",
         gender: farmer?.gender ?? "—",
         phone:  farmer?.phone  ?? "—",
