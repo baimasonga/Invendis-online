@@ -445,6 +445,12 @@ export async function createAllocation(payload: any) {
   return cc(data);
 }
 
+export async function removeAllocation(id: number) {
+  const { error } = await supabase.from("allocations").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "allocations", `Removed allocation #${id}`, "allocation", id);
+}
+
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
 export async function getStockBalance() {
   const { data, error } = await supabase

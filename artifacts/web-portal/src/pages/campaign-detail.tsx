@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getCampaign, submitCampaign, approveCampaign, listAllocations, KEYS } from "@/lib/db";
+import { getCampaign, submitCampaign, approveCampaign, listAllocations, removeAllocation, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck, TrendingUp } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck, TrendingUp, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { AddAllocationModal } from "@/components/modals/AddAllocationModal";
 
 function DeliveryProgress({ delivered, allocated }: { delivered: number; allocated: number }) {
@@ -48,8 +50,25 @@ export default function CampaignDetail() {
   const id = parseInt(params.id || "0");
   const qc = useQueryClient();
   const { toast } = useToast();
+  const can = usePermissions();
   const [allocationOpen, setAllocationOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<any>(null);
+
+  const removeMutation = useMutation({
+    mutationFn: (allocationId: number) => removeAllocation(allocationId),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: KEYS.allocations(undefined, id) }),
+        qc.invalidateQueries({ queryKey: KEYS.campaign(id) }),
+      ]);
+      toast({ title: "Farmer removed", description: `${removeTarget?.farmerName ?? "Farmer"} has been removed from this campaign.` });
+      setRemoveTarget(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Remove failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const { data: campaign, isLoading } = useQuery({
     queryKey: KEYS.campaign(id),
@@ -107,6 +126,8 @@ export default function CampaignDetail() {
   const c = campaign as any;
   const status = (c.status ?? "").toLowerCase();
   const allocationList = (allocations as any)?.data ?? [];
+  // Allow removing farmers only while the campaign hasn't been fully approved/closed
+  const canRemoveFarmer = can.manageAllocations && !["approved", "closed", "completed"].includes(status);
 
   return (
     <div className="space-y-5">
@@ -220,18 +241,38 @@ export default function CampaignDetail() {
                       <TableHead className="pl-4 w-[120px]">Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead className="hidden md:table-cell">District</TableHead>
-                      <TableHead className="pr-4 text-right hidden md:table-cell">Allocated</TableHead>
+                      <TableHead className="text-right hidden md:table-cell">Allocated</TableHead>
+                      {canRemoveFarmer && <TableHead className="w-[48px] pr-3" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {allocationList.map((a: any) => (
                       <TableRow key={a.id} className="hover:bg-muted/40">
                         <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{a.farmerCode ?? "—"}</TableCell>
-                        <TableCell className="text-sm font-medium">{a.farmerName || "—"}</TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {a.farmerId ? (
+                            <Link href={`/farmers/${a.farmerId}`} className="hover:underline text-foreground">
+                              {a.farmerName || "—"}
+                            </Link>
+                          ) : (a.farmerName || "—")}
+                        </TableCell>
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{a.districtName ?? "—"}</TableCell>
-                        <TableCell className="pr-4 text-right text-xs text-muted-foreground hidden md:table-cell">
+                        <TableCell className="text-right text-xs text-muted-foreground hidden md:table-cell">
                           {a.createdAt ? new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—"}
                         </TableCell>
+                        {canRemoveFarmer && (
+                          <TableCell className="pr-3 text-right">
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                              title="Remove from campaign"
+                              disabled={removeMutation.isPending}
+                              onClick={() => setRemoveTarget(a)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -243,6 +284,27 @@ export default function CampaignDetail() {
       </Tabs>
 
       <AddAllocationModal open={allocationOpen} onClose={() => setAllocationOpen(false)} campaignId={id} />
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(v) => { if (!v) setRemoveTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove farmer from campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{removeTarget?.farmerName}</strong> will be removed from this campaign. Any PoDs already submitted for this farmer will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={removeMutation.isPending}
+              onClick={() => removeTarget && removeMutation.mutate(removeTarget.id)}
+            >
+              {removeMutation.isPending ? "Removing…" : "Remove farmer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
