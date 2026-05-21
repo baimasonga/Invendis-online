@@ -182,9 +182,21 @@ export default function DistributionDetailScreen() {
           <StatusBadge status={dispatch.status} />
         </View>
         <Text style={styles.manifestCode}>{dispatch.manifestCode}</Text>
-        <Text style={styles.destination}>
-          {dispatch.destinationCommunity ?? dispatch.destinationDistrict ?? "—"}
-        </Text>
+        {dispatch.destinationDistrict ? (
+          <View style={styles.destinationRow}>
+            <Feather name="map-pin" size={13} color="rgba(255,255,255,0.75)" />
+            <Text style={styles.destination}>
+              {dispatch.destinationDistrict}
+            </Text>
+          </View>
+        ) : null}
+        {dispatch.destinationCommunity ? (
+          <Text style={styles.destinationSub}>
+            {dispatch.destinationCommunity}
+          </Text>
+        ) : !dispatch.destinationDistrict ? (
+          <Text style={styles.destination}>—</Text>
+        ) : null}
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Feather name="package" size={13} color="rgba(255,255,255,0.7)" />
@@ -327,7 +339,9 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   manifestLabel: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", letterSpacing: 1, textTransform: "uppercase" },
   manifestCode: { fontSize: 22, fontFamily: "Inter_700Bold", color: "#ffffff" },
-  destination: { fontSize: 15, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.85)" },
+  destinationRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  destination: { fontSize: 15, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.9)" },
+  destinationSub: { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", marginLeft: 18, marginTop: 1 },
   metaRow: { flexDirection: "row", gap: 16, marginTop: 6, flexWrap: "wrap" },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   metaText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)" },

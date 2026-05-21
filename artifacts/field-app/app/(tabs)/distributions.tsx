@@ -22,6 +22,10 @@ import { listDispatches, type Dispatch } from "@/lib/api";
 
 function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }) {
   const colors = useColors();
+
+  const districtLabel = item.destinationDistrict ?? item.campaignName ?? null;
+  const communityLabel = item.destinationCommunity ?? null;
+
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius, borderColor: colors.border }]}
@@ -29,11 +33,21 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
       activeOpacity={0.8}
     >
       <View style={styles.cardTop}>
-        <View>
+        <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={[styles.manifest, { color: colors.primary }]}>{item.manifestCode}</Text>
-          <Text style={[styles.dest, { color: colors.foreground }]}>
-            {item.destinationCommunity ?? item.destinationDistrict ?? "—"}
-          </Text>
+          {districtLabel ? (
+            <View style={styles.destRow}>
+              <Feather name="map-pin" size={11} color={colors.mutedForeground} />
+              <Text style={[styles.district, { color: colors.foreground }]} numberOfLines={1}>
+                {districtLabel}
+              </Text>
+            </View>
+          ) : null}
+          {communityLabel ? (
+            <Text style={[styles.community, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {communityLabel}
+            </Text>
+          ) : null}
         </View>
         <StatusBadge status={item.status} />
       </View>
@@ -166,7 +180,9 @@ const styles = StyleSheet.create({
   card: { padding: 14, borderWidth: 1, marginBottom: 8 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 },
   manifest: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  dest: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
+  destRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  district: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  community: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1, marginLeft: 15 },
   divider: { height: 1, marginBottom: 10 },
   cardBottom: { flexDirection: "row", alignItems: "center", gap: 14 },
   meta: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1 },
