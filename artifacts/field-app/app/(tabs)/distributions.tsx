@@ -23,8 +23,9 @@ import { listDispatches, type Dispatch } from "@/lib/api";
 function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }) {
   const colors = useColors();
 
-  const districtLabel = item.destinationDistrict ?? item.campaignName ?? null;
-  const communityLabel = item.destinationCommunity ?? null;
+  const district = item.destinationDistrict ?? null;
+  const community = item.destinationCommunity ?? null;
+  const fallbackLabel = !district ? (item.campaignName ?? null) : null;
 
   return (
     <TouchableOpacity
@@ -35,18 +36,30 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
       <View style={styles.cardTop}>
         <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={[styles.manifest, { color: colors.primary }]}>{item.manifestCode}</Text>
-          {districtLabel ? (
+          {district ? (
+            <View style={styles.districtBadgeRow}>
+              <Feather name="map-pin" size={11} color={colors.primary} />
+              <View style={[styles.districtBadge, { backgroundColor: colors.primary + "18", borderColor: colors.primary + "40" }]}>
+                <Text style={[styles.districtBadgeText, { color: colors.primary }]} numberOfLines={1}>
+                  {district}
+                </Text>
+              </View>
+            </View>
+          ) : fallbackLabel ? (
             <View style={styles.destRow}>
               <Feather name="map-pin" size={11} color={colors.mutedForeground} />
               <Text style={[styles.district, { color: colors.foreground }]} numberOfLines={1}>
-                {districtLabel}
+                {fallbackLabel}
               </Text>
             </View>
           ) : null}
-          {communityLabel ? (
-            <Text style={[styles.community, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {communityLabel}
-            </Text>
+          {community ? (
+            <View style={styles.communityRow}>
+              <Feather name="home" size={10} color={colors.mutedForeground} />
+              <Text style={[styles.community, { color: colors.mutedForeground }]} numberOfLines={1}>
+                {community}
+              </Text>
+            </View>
           ) : null}
         </View>
         <StatusBadge status={item.status} />
@@ -180,9 +193,13 @@ const styles = StyleSheet.create({
   card: { padding: 14, borderWidth: 1, marginBottom: 8 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 },
   manifest: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  districtBadgeRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
+  districtBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  districtBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   destRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
   district: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
-  community: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1, marginLeft: 15 },
+  communityRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  community: { fontSize: 12, fontFamily: "Inter_400Regular" },
   divider: { height: 1, marginBottom: 10 },
   cardBottom: { flexDirection: "row", alignItems: "center", gap: 14 },
   meta: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1 },
