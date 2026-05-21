@@ -80,20 +80,27 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
     createdBy = (u as any)?.id ?? null;
   }
 
+  const isHired = vehicleType === "hired";
+  const insertRow: Record<string, unknown> = {
+    manifest_code: manifestCode,
+    campaign_id:   b.campaignId  ? Number(b.campaignId)  : null,
+    warehouse_id:  b.warehouseId ? Number(b.warehouseId) : null,
+    vehicle_type:  vehicleType,
+    notes:         b.notes ?? null,
+    created_by:    createdBy,
+  };
+
+  if (isHired) {
+    if (b.hiredPlate)      insertRow.hired_plate       = String(b.hiredPlate).toUpperCase();
+    if (b.hiredDriverName) insertRow.hired_driver_name = String(b.hiredDriverName);
+  } else {
+    if (b.vehicleId) insertRow.vehicle_id = Number(b.vehicleId);
+    if (b.driverId)  insertRow.driver_id  = Number(b.driverId);
+  }
+
   const { data, error } = await supa
     .from("dispatches")
-    .insert({
-      manifest_code:      manifestCode,
-      campaign_id:        b.campaignId  ? Number(b.campaignId)  : null,
-      warehouse_id:       b.warehouseId ? Number(b.warehouseId) : null,
-      vehicle_type:       vehicleType,
-      vehicle_id:         vehicleType === "office" && b.vehicleId ? Number(b.vehicleId) : null,
-      driver_id:          vehicleType === "office" && b.driverId  ? Number(b.driverId)  : null,
-      hired_plate:        vehicleType === "hired"  ? (b.hiredPlate      ?? null) : null,
-      hired_driver_name:  vehicleType === "hired"  ? (b.hiredDriverName ?? null) : null,
-      notes:      b.notes ?? null,
-      created_by: createdBy,
-    })
+    .insert(insertRow)
     .select()
     .single();
 
