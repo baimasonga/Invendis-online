@@ -41,7 +41,12 @@ export default function LoginScreen() {
       router.replace("/(tabs)" as any);
     } catch (e: unknown) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError(e instanceof Error ? e.message : "Login failed");
+      const raw = e instanceof Error ? e.message : "";
+      if (raw.toLowerCase().includes("inactive")) {
+        setError("Your account has been deactivated. Please contact your supervisor.");
+      } else {
+        setError("Login failed");
+      }
     } finally {
       setLoading(false);
     }
