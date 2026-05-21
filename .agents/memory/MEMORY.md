@@ -1,0 +1,1 @@
+- [EAS Android APK build from pnpm monorepo](eas-apk-monorepo.md) — standalone workarounds needed to build field-app outside the workspace context
