@@ -742,6 +742,15 @@ export async function deleteDispatch(id: number) {
   await logAudit("DELETE", "dispatch", `Deleted manifest #${id}`, "dispatch", id);
 }
 
+export async function cancelDispatch(id: number, reason?: string) {
+  const { data, error } = await supabase.from("dispatches")
+    .update({ status: "Cancelled", updated_at: new Date().toISOString() })
+    .eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "dispatch", `Cancelled manifest #${id}${reason ? ` — ${reason}` : ""}`, "dispatch", id);
+  return cc(data);
+}
+
 export async function removeDispatchItem(dispatchId: number, itemId: number) {
   const { error } = await supabase.from("dispatch_items").delete().eq("id", itemId).eq("dispatch_id", dispatchId);
   if (error) throw new Error(error.message);

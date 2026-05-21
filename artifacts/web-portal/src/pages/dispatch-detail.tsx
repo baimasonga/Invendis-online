@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, cancelDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2, XCircle,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,9 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/use-permissions";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -52,6 +55,8 @@ export default function DispatchDetail() {
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [deleteItemTarget, setDeleteItemTarget] = useState<any>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -64,10 +69,12 @@ export default function DispatchDetail() {
     enabled: !!id,
   });
 
+  const can = usePermissions();
   const approveMutation    = useMutation({ mutationFn: () => approveDispatch(id) });
   const dispatchMutation   = useMutation({ mutationFn: () => dispatchManifest(id) });
   const arriveMutation     = useMutation({ mutationFn: () => arriveDispatch(id) });
   const removeItemMutation = useMutation({ mutationFn: (itemId: number) => removeDispatchItem(id, itemId) });
+  const cancelMutation     = useMutation({ mutationFn: (reason: string) => cancelDispatch(id, reason) });
 
   async function invalidate() {
     await Promise.all([
@@ -118,6 +125,18 @@ export default function DispatchDetail() {
     } catch (err: any) {
       toast({ title: "Failed to remove item", description: err.message, variant: "destructive" });
     } finally { setDeleteItemTarget(null); }
+  }
+
+  async function handleCancel() {
+    try {
+      await cancelMutation.mutateAsync(cancelReason);
+      await invalidate();
+      toast({ title: "Manifest cancelled" });
+      setCancelOpen(false);
+      setCancelReason("");
+    } catch (err: any) {
+      toast({ title: "Failed to cancel", description: err.message, variant: "destructive" });
+    }
   }
 
   if (isLoading) {
@@ -182,6 +201,16 @@ export default function DispatchDetail() {
           {canRecordDelivery && (
             <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
               <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Record Delivery
+            </Button>
+          )}
+          {(status === "approved" || status === "dispatched" || status === "intransit") && can.manageDispatch && (
+            <Button
+              size="sm" variant="outline"
+              className="h-7 text-xs text-orange-700 border-orange-300 hover:bg-orange-50"
+              disabled={actionLoading || cancelMutation.isPending}
+              onClick={() => { setCancelReason(""); setCancelOpen(true); }}
+            >
+              <XCircle className="h-3.5 w-3.5 mr-1" /> Cancel
             </Button>
           )}
         </div>
@@ -431,6 +460,36 @@ export default function DispatchDetail() {
 
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
       <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />
+
+      <Dialog open={cancelOpen} onOpenChange={(v) => { if (!v) { setCancelOpen(false); setCancelReason(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel manifest {d?.manifestCode}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              This will set the manifest status to <span className="font-semibold text-orange-700">Cancelled</span>.
+              Field officers will no longer be able to record deliveries against it.
+            </p>
+            <Textarea
+              placeholder="Reason for cancellation (optional)…"
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCancelOpen(false); setCancelReason(""); }}>Back</Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              disabled={cancelMutation.isPending}
+              onClick={handleCancel}
+            >
+              {cancelMutation.isPending ? "Cancelling…" : "Cancel Manifest"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteItemTarget} onOpenChange={(v) => { if (!v) setDeleteItemTarget(null); }}>
         <AlertDialogContent>
