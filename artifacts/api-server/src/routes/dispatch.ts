@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supa, snakeToCamel } from "../lib/supabase.js";
+import { supa, snakeToCamel, pool } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
@@ -81,32 +81,45 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
   }
 
   const isHired = vehicleType === "hired";
-  const insertRow: Record<string, unknown> = {
-    manifest_code: manifestCode,
-    campaign_id:   b.campaignId  ? Number(b.campaignId)  : null,
-    warehouse_id:  b.warehouseId ? Number(b.warehouseId) : null,
-    vehicle_type:  vehicleType,
-    notes:         b.notes ?? null,
-    created_by:    createdBy,
-  };
+
+  // Use direct pg connection to bypass PostgREST schema cache
+  const cols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
+  const vals: unknown[] = [
+    manifestCode,
+    b.campaignId  ? Number(b.campaignId)  : null,
+    b.warehouseId ? Number(b.warehouseId) : null,
+    vehicleType,
+    b.notes ?? null,
+    createdBy,
+  ];
 
   if (isHired) {
-    if (b.hiredPlate)      insertRow.hired_plate       = String(b.hiredPlate).toUpperCase();
-    if (b.hiredDriverName) insertRow.hired_driver_name = String(b.hiredDriverName);
+    cols.push("hired_plate", "hired_driver_name");
+    vals.push(
+      b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
+      b.hiredDriverName ? String(b.hiredDriverName)          : null,
+    );
   } else {
-    if (b.vehicleId) insertRow.vehicle_id = Number(b.vehicleId);
-    if (b.driverId)  insertRow.driver_id  = Number(b.driverId);
+    cols.push("vehicle_id", "driver_id");
+    vals.push(
+      b.vehicleId ? Number(b.vehicleId) : null,
+      b.driverId  ? Number(b.driverId)  : null,
+    );
   }
 
-  const { data, error } = await supa
-    .from("dispatches")
-    .insert(insertRow)
-    .select()
-    .single();
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
+  const sql = `INSERT INTO dispatches (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`;
 
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", (data as any).id);
-  res.status(201).json(snakeToCamel(data));
+  let row: Record<string, unknown>;
+  try {
+    const result = await pool.query(sql, vals);
+    row = result.rows[0];
+  } catch (pgErr: any) {
+    res.status(500).json({ error: pgErr.message }); return;
+  }
+
+  await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", row.id as number);
+  res.status(201).json(snakeToCamel(row));
 });
 
 router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {

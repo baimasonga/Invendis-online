@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import pg from "pg";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -54,3 +55,7 @@ export async function supaCount(table: string, filters: Record<string, unknown> 
   if (error) throw new Error(error.message);
   return count ?? 0;
 }
+
+// Direct pg pool — bypasses PostgREST schema cache entirely
+const { Pool } = pg;
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
