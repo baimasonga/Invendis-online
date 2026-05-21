@@ -57,5 +57,9 @@ export async function supaCount(table: string, filters: Record<string, unknown> 
 }
 
 // Direct pg pool — bypasses PostgREST schema cache entirely
+// Supabase requires SSL; rejectUnauthorized:false allows self-signed certs
 const { Pool } = pg;
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
