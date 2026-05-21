@@ -25,6 +25,7 @@ import {
   verifyOtp,
   submitPoD,
   getFaceUploadUrl,
+  getPodPhotoUploadUrl,
   compareFace,
   saveFaceReference,
   uploadPhotoToS3,
@@ -99,7 +100,23 @@ async function takeCameraPhoto(): Promise<string | null> {
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
 
-type Step = "details" | "scan" | "otp" | "face" | "result";
+type Step = "details" | "scan" | "otp" | "photos" | "face" | "result";
+
+interface DeliveryPhoto {
+  label: string;
+  uri: string | null;
+  key: string | null;
+  uploading: boolean;
+  error: string | null;
+}
+
+const PHOTO_SLOTS = [
+  "Inputs Only",
+  "Inputs + Beneficiary",
+  "Farmer Receiving",
+  "Community / Group",
+  "Additional Evidence",
+];
 
 export default function ConfirmPodScreen() {
   const { farmerId, farmerName, farmerCode, dispatchId } = useLocalSearchParams<{
@@ -134,6 +151,11 @@ export default function ConfirmPodScreen() {
   const [resendTimer, setResendTimer] = useState(0);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [otpBypassed, setOtpBypassed] = useState(false);
+
+  // Delivery photos
+  const [deliveryPhotos, setDeliveryPhotos] = useState<DeliveryPhoto[]>(
+    PHOTO_SLOTS.map(label => ({ label, uri: null, key: null, uploading: false, error: null }))
+  );
 
   // Face
   const [facePhotoUri, setFacePhotoUri] = useState<string | null>(null);
@@ -260,7 +282,7 @@ export default function ConfirmPodScreen() {
             setFacePhotoUri(null);
             setFaceResult(null);
             setFaceError(null);
-            setStep("face");
+            setStep("photos");
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             if (auditFailed) {
               Alert.alert(
@@ -301,7 +323,7 @@ export default function ConfirmPodScreen() {
         setFacePhotoUri(null);
         setFaceResult(null);
         setFaceError(null);
-        setStep("face");
+        setStep("photos");
       } else {
         setOtpError(result.error ?? "Invalid code. Please try again.");
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -412,6 +434,27 @@ export default function ConfirmPodScreen() {
     else handleSkipOtp();
   };
 
+  const handleTakeDeliveryPhoto = async (index: number) => {
+    const uri = await takeCameraPhoto();
+    if (!uri) return;
+    setDeliveryPhotos(prev => prev.map((p, i) =>
+      i === index ? { ...p, uri, key: null, uploading: true, error: null } : p
+    ));
+    try {
+      const uploadInfo = await getPodPhotoUploadUrl(token!, Number(farmerId), index);
+      await uploadPhotoToS3(uploadInfo.uploadUrl, uri);
+      setDeliveryPhotos(prev => prev.map((p, i) =>
+        i === index ? { ...p, key: uploadInfo.key, uploading: false } : p
+      ));
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      setDeliveryPhotos(prev => prev.map((p, i) =>
+        i === index ? { ...p, uploading: false, error: e instanceof Error ? e.message : "Upload failed" } : p
+      ));
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
   const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => ({
     farmerId: Number(farmerId),
     ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
@@ -422,6 +465,7 @@ export default function ConfirmPodScreen() {
     ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
+    photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
   });
 
   const doSubmit = async (otpStatus: string, faceStatus: string, offline = false) => {
@@ -460,6 +504,7 @@ export default function ConfirmPodScreen() {
       { key: "details", label: "Details", icon: "clipboard" as const },
       { key: "scan",    label: "Input",   icon: "package" as const },
       { key: "otp",     label: "OTP",     icon: "shield" as const },
+      { key: "photos",  label: "Photos",  icon: "image" as const },
       { key: "face",    label: "Face ID", icon: "camera" as const },
     ];
     const currentIdx = steps.findIndex((s) => s.key === step);
@@ -548,6 +593,7 @@ export default function ConfirmPodScreen() {
           {[
             { icon: "package" as const,  label: "Input",      val: scannedItem?.name ?? (scannedBarcode || "Not scanned"), ok: !!scannedItem },
             { icon: "shield" as const,   label: "OTP",        val: submittedPod.otpStatus ?? "—",  ok: submittedPod.otpStatus === "Verified" },
+            { icon: "image" as const,    label: "Photos",     val: `${((submittedPod as any).photoKeys?.length ?? 0)} captured`, ok: ((submittedPod as any).photoKeys?.length ?? 0) >= 5 },
             { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
             { icon: "map-pin" as const,  label: "GPS",        val: gpsStatus ?? "Pending",          ok: gpsStatus === "Verified" },
           ].map(({ icon, label, val, ok }) => (
@@ -1088,6 +1134,206 @@ export default function ConfirmPodScreen() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // STEP "photos" — Delivery Photo Capture
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (step === "photos") {
+    const uploadedCount = deliveryPhotos.filter(p => p.key).length;
+    const allUploaded = uploadedCount === PHOTO_SLOTS.length;
+    const anyUploading = deliveryPhotos.some(p => p.uploading);
+
+    return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          style={[styles.root, { backgroundColor: colors.background }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <StepIndicator />
+
+          <TouchableOpacity
+            style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+            onPress={() => setStep("otp")}
+          >
+            <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
+            <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
+          </TouchableOpacity>
+
+          {/* Header card */}
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
+                <Feather name="image" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Delivery Photos</Text>
+                <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                  Capture all 5 photos documenting this delivery — inputs, beneficiaries, and community setting.
+                </Text>
+              </View>
+            </View>
+            {/* Progress bar */}
+            <View style={{ marginTop: 12, gap: 6 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
+                  {uploadedCount} of {PHOTO_SLOTS.length} photos captured
+                </Text>
+                {allUploaded && (
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.success }}>✓ Complete</Text>
+                )}
+              </View>
+              <View style={{ height: 5, borderRadius: 3, backgroundColor: colors.border, overflow: "hidden" }}>
+                <View style={{
+                  width: `${(uploadedCount / PHOTO_SLOTS.length) * 100}%` as any,
+                  height: "100%",
+                  backgroundColor: allUploaded ? colors.success : colors.primary,
+                  borderRadius: 3,
+                }} />
+              </View>
+            </View>
+          </View>
+
+          {/* GPS status */}
+          {gps ? (
+            <View style={[styles.summaryCard, { backgroundColor: colors.success + "10", borderRadius: colors.radius, borderWidth: 1, borderColor: colors.success + "40" }]}>
+              <View style={styles.summaryRow}>
+                <Feather name="map-pin" size={14} color={colors.success} />
+                <Text style={[styles.summaryText, { color: colors.success }]}>
+                  GPS captured: {gps.latitude.toFixed(5)}, {gps.longitude.toFixed(5)}
+                  {gps.accuracy != null ? `  ±${Math.round(gps.accuracy)}m` : ""}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.summaryCard, { backgroundColor: colors.warning + "12", borderRadius: colors.radius, borderWidth: 1, borderColor: colors.warning + "40" }]}>
+              <View style={styles.summaryRow}>
+                <Feather name="wifi-off" size={14} color={colors.warning} />
+                <Text style={[styles.summaryText, { color: colors.warning }]}>No GPS signal — delivery will be recorded without coordinates</Text>
+                <TouchableOpacity onPress={captureGPS} disabled={gpsLoading}>
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.primary }}>
+                    {gpsLoading ? "…" : "Retry"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* 2-column photo grid */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            {deliveryPhotos.map((photo, index) => (
+              <View
+                key={index}
+                style={{
+                  width: "47.5%",
+                  borderRadius: colors.radius,
+                  borderWidth: 1.5,
+                  borderColor: photo.key ? colors.success + "80" : photo.error ? colors.destructive + "60" : colors.border,
+                  backgroundColor: colors.card,
+                  overflow: "hidden",
+                }}
+              >
+                {/* Thumbnail or placeholder */}
+                {photo.uri ? (
+                  <View style={{ position: "relative" }}>
+                    <Image source={{ uri: photo.uri }} style={{ width: "100%", height: 120 }} resizeMode="cover" />
+                    {photo.key && (
+                      <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: colors.success, borderRadius: 12, padding: 4 }}>
+                        <Feather name="check" size={12} color="#fff" />
+                      </View>
+                    )}
+                    {photo.uploading && (
+                      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" }}>
+                        <ActivityIndicator color="#fff" size="small" />
+                        <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 4 }}>Uploading…</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={{ height: 120, alignItems: "center", justifyContent: "center", backgroundColor: colors.muted }}>
+                    <Feather name="image" size={28} color={colors.mutedForeground} />
+                  </View>
+                )}
+
+                {/* Label + button */}
+                <View style={{ padding: 8, gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.foreground }} numberOfLines={1}>
+                    {index + 1}. {photo.label}
+                  </Text>
+                  {photo.error && (
+                    <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.destructive }} numberOfLines={2}>
+                      {photo.error}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      paddingVertical: 7,
+                      borderRadius: colors.radius,
+                      backgroundColor: photo.key ? colors.success + "14" : colors.primary + "14",
+                      borderWidth: 1,
+                      borderColor: photo.key ? colors.success + "80" : colors.primary + "80",
+                    }}
+                    onPress={() => handleTakeDeliveryPhoto(index)}
+                    disabled={photo.uploading}
+                    activeOpacity={0.8}
+                  >
+                    <Feather name="camera" size={13} color={photo.key ? colors.success : colors.primary} />
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: photo.key ? colors.success : colors.primary }}>
+                      {photo.key ? "Retake" : photo.error ? "Retry" : "Take Photo"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {/* Summary */}
+          <View style={[styles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+            <View style={styles.summaryRow}>
+              <Feather name="user" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{farmerName} · {farmerCode}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Feather name="package" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{quantity} unit{Number(quantity) !== 1 ? "s" : ""} to be issued</Text>
+            </View>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", "Bypassed", true)}
+              disabled={anyUploading || submitting}
+              activeOpacity={0.8}
+            >
+              <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
+              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.submitBtn, {
+                backgroundColor: allUploaded ? colors.primary : colors.muted,
+                borderRadius: colors.radius,
+                opacity: (anyUploading || submitting) ? 0.7 : 1,
+              }]}
+              onPress={() => { setFacePhotoUri(null); setFaceResult(null); setFaceError(null); setStep("face"); }}
+              disabled={!allUploaded || anyUploading}
+              activeOpacity={0.85}
+            >
+              <Feather name="camera" size={18} color={allUploaded ? "#fff" : colors.mutedForeground} />
+              <Text style={[styles.submitBtnText, { color: allUploaded ? "#fff" : colors.mutedForeground }]}>
+                Next: Face ID
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // STEP 3 — Face Verification
   // ═══════════════════════════════════════════════════════════════════════════
   const faceVerified = faceResult?.faceStatus === "Verified";
@@ -1104,7 +1350,7 @@ export default function ConfirmPodScreen() {
         <StepIndicator />
         <TouchableOpacity
           style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-          onPress={() => { setStep("otp"); setFacePhotoUri(null); setFaceResult(null); setFaceError(null); }}
+          onPress={() => { setStep("photos"); setFacePhotoUri(null); setFaceResult(null); setFaceError(null); }}
         >
           <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
           <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
@@ -1291,7 +1537,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 16, gap: 12 },
   stepBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8 },
-  stepItem: { alignItems: "center", gap: 4, width: 64 },
+  stepItem: { alignItems: "center", gap: 4, width: 52 },
   stepCircle: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
   stepLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
   stepLine: { flex: 1, height: 1.5, marginBottom: 14 },

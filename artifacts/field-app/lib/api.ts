@@ -231,6 +231,18 @@ export const saveFaceReference = (token: string, farmerId: number, key: string) 
     body: JSON.stringify({ farmerId, key }),
   });
 
+export interface PodPhotoUploadResult {
+  uploadUrl: string;
+  key: string;
+  bucket: string;
+}
+
+export const getPodPhotoUploadUrl = (token: string, farmerId: number, photoIndex: number) =>
+  apiFetch<PodPhotoUploadResult>("/pod/photo-upload-url", token, {
+    method: "POST",
+    body: JSON.stringify({ farmerId, photoIndex }),
+  });
+
 export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
   const response = await fetch(photoUri);
   const blob = await response.blob();

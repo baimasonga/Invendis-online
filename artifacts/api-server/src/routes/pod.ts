@@ -3,6 +3,7 @@ import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
+import { getPresignedUploadUrl, bucket } from "../lib/aws.js";
 
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
@@ -240,6 +241,20 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
     res.json({ id: podId, status: "Verified" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/pod/photo-upload-url", requireAnyAuth, async (req, res) => {
+  const { farmerId, photoIndex } = req.body as { farmerId?: number; photoIndex?: number };
+  if (!farmerId) { res.status(400).json({ error: "farmerId is required" }); return; }
+  const idx = Number.isFinite(Number(photoIndex)) ? Number(photoIndex) : 0;
+  const key = `pods/${farmerId}/${Date.now()}-photo-${idx}.jpg`;
+  try {
+    const url = await getPresignedUploadUrl(key, "image/jpeg");
+    res.json({ uploadUrl: url, key, bucket });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
   }
 });
 
