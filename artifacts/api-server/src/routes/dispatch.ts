@@ -52,21 +52,68 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
 
+  // Determine the effective field_officer_id filter.
+  // PostgREST schema cache does not expose field_officer_id, so any query that
+  // filters on it must use pool (raw SQL) instead of the Supabase client.
+  const officerFilter: number | null =
+    req.user?.role === "FieldOfficer" && req.user?.userId
+      ? req.user.userId
+      : fieldOfficerId ? Number(fieldOfficerId) : null;
+
+  if (officerFilter !== null) {
+    // Use raw SQL to avoid the PostgREST schema-cache limitation on field_officer_id
+    const conditions: string[] = ["field_officer_id = $1"];
+    const params: unknown[] = [officerFilter];
+    let idx = 2;
+
+    if (campaignId)   { conditions.push(`campaign_id = $${idx++}`);                 params.push(Number(campaignId)); }
+    if (status)       { conditions.push(`status = $${idx++}`);                      params.push(status); }
+    if (manifestCode) { conditions.push(`manifest_code ILIKE $${idx++}`);           params.push(manifestCode); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countRes  = await pool.query(`SELECT COUNT(*) FROM dispatches ${where}`, params);
+    const dataRes   = await pool.query(
+      `SELECT * FROM dispatches ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limitN, offset],
+    );
+
+    const total = Number(countRes.rows[0].count);
+    const rows  = dataRes.rows as Record<string, unknown>[];
+
+    const { campMap, wareMap, vehMap, drivMap, officerMap } = await fetchLookups(
+      [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))],
+      [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))],
+      [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))],
+      [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))],
+      [...new Set(rows.map((r: any) => r.field_officer_id).filter(Boolean))],
+    );
+
+    const result = rows.map((r: any) => ({
+      ...snakeToCamel(r),
+      campaignName:        campMap[r.campaign_id]?.name          ?? null,
+      destinationDistrict: campMap[r.campaign_id]?.districtName  ?? null,
+      warehouseName:       wareMap[r.warehouse_id]?.name         ?? null,
+      plateNumber:         r.vehicle_type === "hired" ? r.hired_plate       : (vehMap[r.vehicle_id]?.plate_number ?? null),
+      driverName:          r.vehicle_type === "hired" ? r.hired_driver_name : (drivMap[r.driver_id]?.full_name    ?? null),
+      isHired:             r.vehicle_type === "hired",
+      fieldOfficerName:    officerMap[r.field_officer_id]?.full_name ?? null,
+    }));
+
+    res.json({ data: result, total, page: pageN, limit: limitN });
+    return;
+  }
+
+  // No field_officer_id filter — use Supabase client as before
   let q = supa
     .from("dispatches")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limitN - 1);
 
-  if (campaignId)     q = q.eq("campaign_id", Number(campaignId)) as typeof q;
-  if (status)         q = q.eq("status", status) as typeof q;
-  if (manifestCode)   q = q.ilike("manifest_code", manifestCode) as typeof q;
-  if (fieldOfficerId) q = q.eq("field_officer_id", Number(fieldOfficerId)) as typeof q;
-
-  // Field officers only see dispatches assigned to them
-  if (req.user?.role === "FieldOfficer" && req.user?.userId) {
-    q = q.eq("field_officer_id", req.user.userId) as typeof q;
-  }
+  if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+  if (status)       q = q.eq("status", status) as typeof q;
+  if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
 
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -230,16 +277,20 @@ router.patch("/api/dispatch/:id/assign", requireAnyAuth, requireRoleIfJwt("Admin
   const id = Number(req.params.id);
   const { fieldOfficerId } = req.body as { fieldOfficerId: number | null };
 
-  const { data, error } = await supa
-    .from("dispatches")
-    .update({ field_officer_id: fieldOfficerId ?? null, updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select()
-    .single();
+  // Use pool (raw SQL) because PostgREST schema cache does not expose field_officer_id
+  let pgResult: import("pg").QueryResult;
+  try {
+    pgResult = await pool.query(
+      `UPDATE dispatches SET field_officer_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [fieldOfficerId ?? null, id],
+    );
+  } catch (pgErr: any) {
+    res.status(500).json({ error: pgErr.message }); return;
+  }
 
-  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  if (!pgResult.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
   await logAudit(req, "ASSIGN", "Dispatch", `Assigned field officer ${fieldOfficerId ?? "none"} to dispatch ID ${id}`, "dispatch", id);
-  res.json(snakeToCamel(data));
+  res.json(snakeToCamel(pgResult.rows[0]));
 });
 
 router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
