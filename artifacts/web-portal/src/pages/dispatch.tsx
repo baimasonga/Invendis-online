@@ -2,16 +2,22 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, KEYS } from "@/lib/db";
+import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, deleteDispatch, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function DeliveryProgress({ delivered, total }: { delivered: number; total: number }) {
   if (!total) return <span className="text-xs text-muted-foreground">—</span>;
@@ -32,9 +38,11 @@ function DeliveryProgress({ delivered, total }: { delivered: number; total: numb
 export default function Dispatch() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const can = usePermissions();
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const limit = 20;
   const { data: dispatchData, isLoading } = useQuery({
@@ -47,6 +55,7 @@ export default function Dispatch() {
   const approveMutation  = useMutation({ mutationFn: (id: number) => approveDispatch(id) });
   const dispatchMutation = useMutation({ mutationFn: (id: number) => dispatchManifest(id) });
   const arriveMutation   = useMutation({ mutationFn: (id: number) => arriveDispatch(id) });
+  const deleteMutation   = useMutation({ mutationFn: (id: number) => deleteDispatch(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
@@ -79,6 +88,17 @@ export default function Dispatch() {
     } catch (err: any) {
       toast({ title: "Failed to mark arrival", description: err.message, variant: "destructive" });
     } finally { setLoadingId(null); }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
+      toast({ title: "Manifest deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setDeleteTarget(null); }
   }
 
   return (
@@ -128,6 +148,7 @@ export default function Dispatch() {
                 ? dispatchData.data.map((d: any) => {
                     const status = d.status?.toLowerCase().replace(/\s+/g, "");
                     const busy = loadingId === d.id;
+                    const isDraft = status === "draft" || status === "pending";
                     return (
                       <TableRow key={d.id} className="hover:bg-muted/40">
                         <TableCell className="pl-4">
@@ -159,7 +180,7 @@ export default function Dispatch() {
                         </TableCell>
                         <TableCell className="pr-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {(status === "draft" || status === "pending") && (
+                            {isDraft && (
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy} onClick={() => handleApprove(d.id)}>
                                 Approve
                               </Button>
@@ -181,6 +202,16 @@ export default function Dispatch() {
                                 View
                               </span>
                             </Link>
+                            {isDraft && can.manageDispatch && (
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-7 px-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                disabled={busy}
+                                onClick={() => setDeleteTarget(d)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -219,6 +250,28 @@ export default function Dispatch() {
       </Card>
 
       <CreateManifestModal open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete manifest?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete manifest{" "}
+              <span className="font-mono font-medium">{deleteTarget?.manifestCode}</span>. All items associated with this manifest will also be removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

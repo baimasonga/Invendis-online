@@ -28,8 +28,9 @@ export interface Permissions {
   manageProcurement: boolean;
 
   // Distribution
-  manageDispatch: boolean;
-  submitPod:      boolean;
+  manageDispatch:      boolean;
+  manageReconciliation: boolean;
+  submitPod:           boolean;
 
   // Administration
   manageUsers:    boolean;
@@ -62,8 +63,9 @@ export function usePermissions(): Permissions {
     manageInventory:  isAdmin || isPM || isWM,
     manageProcurement: isAdmin || isPM || isWM,
 
-    manageDispatch: isAdmin || isPM || isWM,
-    submitPod:      isAdmin || isPM || isDC || isField,
+    manageDispatch:      isAdmin || isPM || isWM,
+    manageReconciliation: isAdmin || isPM || isWM,
+    submitPod:           isAdmin || isPM || isDC || isField,
 
     manageUsers:    isAdmin,
     manageSettings: isAdmin || isPM,

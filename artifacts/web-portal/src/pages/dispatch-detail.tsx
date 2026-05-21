@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,13 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 import { StatusBadge } from "@/components/StatusBadge";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -46,6 +51,7 @@ export default function DispatchDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [deleteItemTarget, setDeleteItemTarget] = useState<any>(null);
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -58,9 +64,10 @@ export default function DispatchDetail() {
     enabled: !!id,
   });
 
-  const approveMutation  = useMutation({ mutationFn: () => approveDispatch(id) });
-  const dispatchMutation = useMutation({ mutationFn: () => dispatchManifest(id) });
-  const arriveMutation   = useMutation({ mutationFn: () => arriveDispatch(id) });
+  const approveMutation    = useMutation({ mutationFn: () => approveDispatch(id) });
+  const dispatchMutation   = useMutation({ mutationFn: () => dispatchManifest(id) });
+  const arriveMutation     = useMutation({ mutationFn: () => arriveDispatch(id) });
+  const removeItemMutation = useMutation({ mutationFn: (itemId: number) => removeDispatchItem(id, itemId) });
 
   async function invalidate() {
     await Promise.all([
@@ -100,6 +107,17 @@ export default function DispatchDetail() {
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
     } finally { setActionLoading(false); }
+  }
+
+  async function handleRemoveItem() {
+    if (!deleteItemTarget) return;
+    try {
+      await removeItemMutation.mutateAsync(deleteItemTarget.id);
+      await invalidate();
+      toast({ title: "Item removed from manifest" });
+    } catch (err: any) {
+      toast({ title: "Failed to remove item", description: err.message, variant: "destructive" });
+    } finally { setDeleteItemTarget(null); }
   }
 
   if (isLoading) {
@@ -313,13 +331,14 @@ export default function DispatchDetail() {
                     <TableHead className="text-right">Loaded</TableHead>
                     <TableHead className="text-right hidden md:table-cell">Delivered</TableHead>
                     <TableHead className="text-right hidden lg:table-cell">Returned</TableHead>
-                    <TableHead className="text-right pr-4 hidden md:table-cell">Unit</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Unit</TableHead>
+                    {canAddItems && <TableHead className="pr-4 w-[40px]" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-28 text-center">
+                      <TableCell colSpan={canAddItems ? 6 : 5} className="h-28 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Package2 className="h-7 w-7 opacity-30" />
                           <span className="text-sm">No items added yet</span>
@@ -337,7 +356,18 @@ export default function DispatchDetail() {
                       <TableCell className="text-right text-sm font-semibold tabular-nums">{item.quantityLoaded?.toLocaleString()}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden md:table-cell text-emerald-700">{item.quantityDelivered ?? 0}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden lg:table-cell text-muted-foreground">{item.quantityReturned ?? 0}</TableCell>
-                      <TableCell className="text-right pr-4 text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? "—"}</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? "—"}</TableCell>
+                      {canAddItems && (
+                        <TableCell className="pr-4 text-right">
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteItemTarget(item)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -401,6 +431,29 @@ export default function DispatchDetail() {
 
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
       <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />
+
+      <AlertDialog open={!!deleteItemTarget} onOpenChange={(v) => { if (!v) setDeleteItemTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove{" "}
+              <span className="font-medium">{deleteItemTarget?.itemName ?? deleteItemTarget?.inputItemName ?? "this item"}</span>{" "}
+              from the manifest. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleRemoveItem}
+              disabled={removeItemMutation.isPending}
+            >
+              {removeItemMutation.isPending ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

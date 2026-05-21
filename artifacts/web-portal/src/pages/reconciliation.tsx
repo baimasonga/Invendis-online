@@ -1,15 +1,21 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listReconciliations, approveReconciliation, rejectReconciliation, KEYS } from "@/lib/db";
+import { listReconciliations, approveReconciliation, rejectReconciliation, deleteReconciliation, KEYS } from "@/lib/db";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, RefreshCcw, TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, RefreshCcw, TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateReconciliationModal } from "@/components/modals/CreateReconciliationModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function Variance({ value }: { value: number }) {
   if (value === 0) {
@@ -24,8 +30,10 @@ function Variance({ value }: { value: number }) {
 export default function Reconciliation() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const can = usePermissions();
   const [createOpen, setCreateOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const { data: records = [], isLoading } = useQuery({
     queryKey: KEYS.reconciliations(),
@@ -34,6 +42,7 @@ export default function Reconciliation() {
 
   const approveMutation = useMutation({ mutationFn: (id: number) => approveReconciliation(id) });
   const rejectMutation  = useMutation({ mutationFn: (id: number) => rejectReconciliation(id) });
+  const deleteMutation  = useMutation({ mutationFn: (id: number) => deleteReconciliation(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
@@ -55,6 +64,17 @@ export default function Reconciliation() {
     } catch (err: any) {
       toast({ title: "Failed to reject", description: err.message, variant: "destructive" });
     } finally { setLoadingId(null); }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.reconciliations() });
+      toast({ title: "Reconciliation deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setDeleteTarget(null); }
   }
 
   return (
@@ -102,6 +122,7 @@ export default function Reconciliation() {
                 ? (records as any[]).map((r: any) => {
                     const status = r.status?.toLowerCase();
                     const busy = loadingId === r.id;
+                    const isDraft = status === "draft" || status === "pending";
                     return (
                       <TableRow key={r.id} className="hover:bg-muted/40">
                         <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{r.reconciliationCode}</TableCell>
@@ -113,7 +134,7 @@ export default function Reconciliation() {
                         <TableCell><StatusBadge status={r.status} /></TableCell>
                         <TableCell className="pr-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {(status === "draft" || status === "pending") && (
+                            {isDraft && (
                               <>
                                 <Button
                                   size="sm"
@@ -132,6 +153,16 @@ export default function Reconciliation() {
                                 >
                                   <XCircle className="h-3 w-3 mr-1" /> Reject
                                 </Button>
+                                {can.manageReconciliation && (
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    className="h-7 px-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    disabled={busy}
+                                    onClick={() => setDeleteTarget(r)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                               </>
                             )}
                           </div>
@@ -158,6 +189,28 @@ export default function Reconciliation() {
       </Card>
 
       <CreateReconciliationModal open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete reconciliation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete reconciliation{" "}
+              <span className="font-mono font-medium">{deleteTarget?.reconciliationCode}</span>. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

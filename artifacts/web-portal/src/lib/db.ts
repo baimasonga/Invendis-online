@@ -451,6 +451,16 @@ export async function removeAllocation(id: number) {
   await logAudit("DELETE", "allocations", `Removed allocation #${id}`, "allocation", id);
 }
 
+export async function updateAllocation(id: number, payload: { notes?: string; status?: string }) {
+  const update: Record<string, any> = {};
+  if (payload.notes !== undefined) update.notes = payload.notes;
+  if (payload.status !== undefined) update.status = payload.status;
+  const { data, error } = await supabase.from("allocations").update(update).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "allocations", `Updated allocation #${id}`, "allocation", id);
+  return cc(data);
+}
+
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
 export async function getStockBalance() {
   const { data, error } = await supabase
@@ -537,6 +547,26 @@ export async function createProcurementOrder(payload: any) {
   return cc(data);
 }
 
+export async function updateProcurementOrder(id: number, payload: any) {
+  const { data, error } = await supabase.from("procurement_orders").update({
+    supplier_name: payload.supplierName,
+    warehouse_id: payload.warehouseId ? Number(payload.warehouseId) : null,
+    order_date: payload.orderDate ? new Date(payload.orderDate).toISOString() : null,
+    expected_delivery: payload.expectedDelivery ? new Date(payload.expectedDelivery).toISOString() : null,
+    notes: payload.notes ?? null,
+    status: payload.status,
+  }).eq("id", id).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "procurement", `Updated PO #${id}`, "procurement", id);
+  return cc(data);
+}
+
+export async function deleteProcurementOrder(id: number) {
+  const { error } = await supabase.from("procurement_orders").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "procurement", `Deleted PO #${id}`, "procurement", id);
+}
+
 // ── VEHICLES ──────────────────────────────────────────────────────────────────
 export async function listVehicles(page = 1, limit = 50) {
   const { data, error, count } = await supabase
@@ -576,6 +606,12 @@ export async function updateVehicle(id: number, payload: any) {
   return cc(data);
 }
 
+export async function deleteVehicle(id: number) {
+  const { error } = await supabase.from("vehicles").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted vehicle #${id}`, "vehicle", id);
+}
+
 export async function listDrivers(page = 1, limit = 50) {
   const { data, error, count } = await supabase
     .from("drivers").select("*", { count: "exact" })
@@ -608,6 +644,12 @@ export async function createDriver(payload: any) {
   }).select().single();
   if (error) throw new Error(error.message);
   return cc(data);
+}
+
+export async function deleteDriver(id: number) {
+  const { error } = await supabase.from("drivers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "vehicles", `Deleted driver #${id}`, "driver", id);
 }
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
@@ -692,6 +734,18 @@ export async function arriveDispatch(id: number) {
     throw new Error((err as any).error ?? "Failed to mark arrival");
   }
   return resp.json();
+}
+
+export async function deleteDispatch(id: number) {
+  const { error } = await supabase.from("dispatches").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "dispatch", `Deleted manifest #${id}`, "dispatch", id);
+}
+
+export async function removeDispatchItem(dispatchId: number, itemId: number) {
+  const { error } = await supabase.from("dispatch_items").delete().eq("id", itemId).eq("dispatch_id", dispatchId);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "dispatch", `Removed item #${itemId} from manifest #${dispatchId}`, "dispatch", dispatchId);
 }
 
 export async function addDispatchItem(payload: any) {
@@ -939,6 +993,12 @@ export async function rejectReconciliation(id: number) {
     .eq("id", id).select().single();
   if (error) throw new Error(error.message);
   return cc(data);
+}
+
+export async function deleteReconciliation(id: number) {
+  const { error } = await supabase.from("reconciliations").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "reconciliations", `Deleted reconciliation #${id}`, "reconciliation", id);
 }
 
 // ── REPORTS ───────────────────────────────────────────────────────────────────
