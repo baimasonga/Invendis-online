@@ -89,6 +89,7 @@ export const KEYS = {
   consolidation:      (opts?: Record<string, any>) => ["consolidation-report", opts],
   allCampaigns:       () => ["all-campaigns"],
   users:         () => ["users"],
+  fieldOfficers: () => ["field-officers"],
   districts:         () => ["districts"],
   chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
   valueChains:       () => ["value-chains"],
@@ -740,6 +741,31 @@ export async function deleteDispatch(id: number) {
   const { error } = await supabase.from("dispatches").delete().eq("id", id);
   if (error) throw new Error(error.message);
   await logAudit("DELETE", "dispatch", `Deleted manifest #${id}`, "dispatch", id);
+}
+
+export async function listFieldOfficers() {
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, full_name, email, district_id")
+    .eq("role", "FieldOfficer")
+    .eq("is_active", true)
+    .order("full_name");
+  if (error) throw new Error(error.message);
+  return cc(data ?? []);
+}
+
+export async function assignDispatchOfficer(id: number, fieldOfficerId: number | null) {
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/assign`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fieldOfficerId }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to assign officer");
+  }
+  return cc(await resp.json());
 }
 
 export async function cancelDispatch(id: number, reason?: string) {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, cancelDispatch, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, cancelDispatch, assignDispatchOfficer, listFieldOfficers, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2, XCircle,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2, XCircle, UserCheck,
 } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
@@ -57,6 +60,8 @@ export default function DispatchDetail() {
   const [deleteItemTarget, setDeleteItemTarget] = useState<any>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignOfficerId, setAssignOfficerId] = useState("");
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -75,6 +80,10 @@ export default function DispatchDetail() {
   const arriveMutation     = useMutation({ mutationFn: () => arriveDispatch(id) });
   const removeItemMutation = useMutation({ mutationFn: (itemId: number) => removeDispatchItem(id, itemId) });
   const cancelMutation     = useMutation({ mutationFn: (reason: string) => cancelDispatch(id, reason) });
+  const assignMutation     = useMutation({ mutationFn: (officerId: number | null) => assignDispatchOfficer(id, officerId) });
+
+  const { data: officersList } = useQuery({ queryKey: KEYS.fieldOfficers(), queryFn: listFieldOfficers, enabled: assignOpen });
+  const officers: any[] = Array.isArray(officersList) ? officersList : [];
 
   async function invalidate() {
     await Promise.all([
@@ -252,6 +261,21 @@ export default function DispatchDetail() {
                     </div>
                   </div>
                   <Field label="Driver"     value={d.driverName}     icon={User} />
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><UserCheck className="h-3 w-3" /> Field Officer</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium">{d.fieldOfficerName ?? "Unassigned"}</p>
+                      {can.manageDispatch && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-green-700 hover:underline"
+                          onClick={() => { setAssignOfficerId(d.fieldOfficerId ? String(d.fieldOfficerId) : "none"); setAssignOpen(true); }}
+                        >
+                          {d.fieldOfficerName ? "Change" : "Assign"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <Field label="Scheduled"  value={d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} icon={CalendarDays} />
                   <Field label="Departed"   value={d.departedAt ? new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} />
                   <Field label="Arrived"    value={d.arrivedAt ? new Date(d.arrivedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} icon={MapPin} />
@@ -457,6 +481,44 @@ export default function DispatchDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={assignOpen} onOpenChange={(v) => { if (!v) { setAssignOpen(false); setAssignOfficerId(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Assign Field Officer</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Select value={assignOfficerId} onValueChange={setAssignOfficerId}>
+              <SelectTrigger><SelectValue placeholder="Select officer…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Unassigned —</SelectItem>
+                {officers.map((o: any) => (
+                  <SelectItem key={o.id} value={String(o.id)}>{o.fullName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAssignOpen(false); setAssignOfficerId(""); }}>Cancel</Button>
+            <Button
+              className="bg-green-700 hover:bg-green-800 text-white"
+              disabled={assignMutation.isPending}
+              onClick={async () => {
+                try {
+                  await assignMutation.mutateAsync(assignOfficerId && assignOfficerId !== "none" ? Number(assignOfficerId) : null);
+                  await invalidate();
+                  toast({ title: "Field officer assigned" });
+                  setAssignOpen(false); setAssignOfficerId("");
+                } catch (err: any) {
+                  toast({ title: "Failed", description: err.message, variant: "destructive" });
+                }
+              }}
+            >
+              {assignMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
       <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />

@@ -31,10 +31,16 @@ export interface Dispatch {
   vehicleId: number | null;
   driverId: number | null;
   warehouseId: number | null;
+  warehouseName: string | null;
+  plateNumber: string | null;
+  driverName: string | null;
   destinationDistrict: string | null;
   destinationCommunity: string | null;
+  fieldOfficerId: number | null;
+  fieldOfficerName: string | null;
   status: string;
   totalPackages: number | null;
+  deliveredPackages: number | null;
   departedAt: string | null;
   arrivedAt: string | null;
   notes: string | null;

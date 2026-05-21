@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createDispatch, listCampaigns, listVehicles, listDrivers, listWarehouses, KEYS } from "@/lib/db";
+import { createDispatch, listCampaigns, listVehicles, listDrivers, listWarehouses, listFieldOfficers, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -42,22 +42,25 @@ export function CreateManifestModal({ open, onClose }: Props) {
   const [hiredPhone, setHiredPhone]       = useState("");
 
   const [notes, setNotes]                 = useState("");
+  const [fieldOfficerId, setFieldOfficerId] = useState("");
 
-  const { data: campaignsData } = useQuery({ queryKey: KEYS.campaigns(),  queryFn: () => listCampaigns(1, 100) });
-  const { data: vehiclesData }  = useQuery({ queryKey: KEYS.vehicles(),   queryFn: () => listVehicles(1, 200) });
-  const { data: driversData }   = useQuery({ queryKey: KEYS.drivers(),    queryFn: () => listDrivers(1, 200) });
-  const { data: warehouses }    = useQuery({ queryKey: KEYS.warehouses(), queryFn: listWarehouses });
+  const { data: campaignsData }  = useQuery({ queryKey: KEYS.campaigns(),     queryFn: () => listCampaigns(1, 100) });
+  const { data: vehiclesData }   = useQuery({ queryKey: KEYS.vehicles(),      queryFn: () => listVehicles(1, 200) });
+  const { data: driversData }    = useQuery({ queryKey: KEYS.drivers(),       queryFn: () => listDrivers(1, 200) });
+  const { data: warehouses }     = useQuery({ queryKey: KEYS.warehouses(),    queryFn: listWarehouses });
+  const { data: officersList }   = useQuery({ queryKey: KEYS.fieldOfficers(), queryFn: listFieldOfficers });
 
   const campaigns:     any[] = (campaignsData as any)?.data ?? [];
   const vehicleList:   any[] = (vehiclesData as any)?.data  ?? [];
   const driverList:    any[] = (driversData as any)?.data   ?? [];
   const warehouseList: any[] = Array.isArray(warehouses) ? warehouses : [];
+  const officers:      any[] = Array.isArray(officersList) ? officersList : [];
 
   function resetForm() {
     setCampaignId(""); setWarehouseId(""); setVehicleMode("office");
     setVehicleId(""); setDriverId("");
     setHiredPlate(""); setHiredDriver(""); setHiredMake(""); setHiredPhone("");
-    setNotes("");
+    setNotes(""); setFieldOfficerId("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -71,6 +74,7 @@ export function CreateManifestModal({ open, onClose }: Props) {
       warehouseId: Number(warehouseId),
       vehicleType: vehicleMode,
       notes: notes.trim() || undefined,
+      fieldOfficerId: fieldOfficerId ? Number(fieldOfficerId) : undefined,
     };
 
     if (vehicleMode === "office") {
@@ -235,6 +239,19 @@ export function CreateManifestModal({ open, onClose }: Props) {
               </div>
             </div>
           )}
+
+          {/* Field Officer */}
+          <div className="space-y-1.5">
+            <Label>Field Officer</Label>
+            <Select value={fieldOfficerId} onValueChange={setFieldOfficerId}>
+              <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectContent>
+                {officers.map((o: any) => (
+                  <SelectItem key={o.id} value={String(o.id)}>{o.fullName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Notes — only shown explicitly for office mode; for hired it's folded into the section above */}
           {vehicleMode === "office" && (

@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, deleteDispatch, cancelDispatch, KEYS } from "@/lib/db";
+import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, deleteDispatch, cancelDispatch, assignDispatchOfficer, listFieldOfficers, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -142,6 +142,7 @@ export default function Dispatch() {
                 <TableHead>Campaign</TableHead>
                 <TableHead className="hidden md:table-cell">Vehicle / Driver</TableHead>
                 <TableHead className="hidden lg:table-cell">Warehouse</TableHead>
+                <TableHead className="hidden xl:table-cell">Officer</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden sm:table-cell text-right">Delivery</TableHead>
                 <TableHead className="pr-4 text-right">Action</TableHead>
@@ -155,6 +156,7 @@ export default function Dispatch() {
                       <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                       <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell className="hidden xl:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                       <TableCell className="hidden sm:table-cell"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                       <TableCell className="pr-4"><Skeleton className="h-7 w-24 ml-auto" /></TableCell>
@@ -190,6 +192,11 @@ export default function Dispatch() {
                           </div>
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{d.warehouseName ?? "—"}</TableCell>
+                        <TableCell className="hidden xl:table-cell">
+                          {d.fieldOfficerName
+                            ? <span className="flex items-center gap-1 text-sm"><UserCheck className="h-3.5 w-3.5 text-green-600 shrink-0" />{d.fieldOfficerName}</span>
+                            : <span className="text-xs text-muted-foreground">Unassigned</span>}
+                        </TableCell>
                         <TableCell><StatusBadge status={d.status} /></TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <DeliveryProgress delivered={d.deliveredPackages ?? 0} total={d.totalPackages ?? 0} />
@@ -245,7 +252,7 @@ export default function Dispatch() {
                   })
                 : (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-32 text-center">
+                      <TableCell colSpan={8} className="h-32 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Package2 className="h-8 w-8 opacity-30" />
                           <span className="text-sm">No dispatch records yet</span>
