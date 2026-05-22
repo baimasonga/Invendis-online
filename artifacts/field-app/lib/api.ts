@@ -151,8 +151,16 @@ export const getPodStats = (token: string) =>
 export const farmerByBarcode = (token: string, barcode: string) =>
   apiFetch<Farmer>(`/farmers/barcode/${encodeURIComponent(barcode)}`, token);
 
-export const searchFarmers = (token: string, search: string) =>
-  apiFetch<{ data: Farmer[] }>(`/farmers?search=${encodeURIComponent(search)}&limit=10`, token);
+export const searchFarmers = (
+  token: string,
+  search: string,
+  filters?: { beneficiaryType?: "individual" | "group" }
+) => {
+  const params = new URLSearchParams({ limit: "10" });
+  if (search) params.set("search", search);
+  if (filters?.beneficiaryType) params.set("beneficiaryType", filters.beneficiaryType);
+  return apiFetch<{ data: Farmer[] }>(`/farmers?${params.toString()}`, token);
+};
 
 export const submitPoD = (token: string, payload: Record<string, unknown>) =>
   apiFetch<PoD>("/pod/submit", token, { method: "POST", body: JSON.stringify(payload) });

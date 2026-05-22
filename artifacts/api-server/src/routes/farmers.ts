@@ -14,13 +14,14 @@ function generateBarcode() {
 }
 
 router.get("/api/farmers", requireAuth, async (req, res) => {
-  const { page = "1", limit = "20", search, status, districtId, valueChainId } = req.query as Record<string, string>;
+  const { page = "1", limit = "20", search, status, districtId, valueChainId, beneficiaryType } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("farmers").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
-  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`) as typeof q;
+  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
   if (districtId) q = q.eq("district_id", Number(districtId)) as typeof q;
   if (valueChainId) q = q.eq("value_chain_id", Number(valueChainId)) as typeof q;
+  if (beneficiaryType && (beneficiaryType === "individual" || beneficiaryType === "group")) q = q.eq("beneficiary_type", beneficiaryType) as typeof q;
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });

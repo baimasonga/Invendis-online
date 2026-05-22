@@ -32,6 +32,14 @@ if (Platform.OS !== "web") {
   } catch {}
 }
 
+type TypeFilter = "all" | "individual" | "group";
+
+const TYPE_OPTIONS: { value: TypeFilter; label: string; icon: string }[] = [
+  { value: "all", label: "All", icon: "layers" },
+  { value: "individual", label: "Individual", icon: "user" },
+  { value: "group", label: "Group", icon: "users" },
+];
+
 export default function ScanFarmerScreen() {
   const { dispatchId } = useLocalSearchParams<{ dispatchId?: string }>();
   const colors = useColors();
@@ -39,6 +47,7 @@ export default function ScanFarmerScreen() {
   const { token } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<"camera" | "manual">("camera");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [input, setInput] = useState("");
   const [farmer, setFarmer] = useState<Farmer | null>(null);
   const [searchResults, setSearchResults] = useState<Farmer[]>([]);
@@ -49,6 +58,9 @@ export default function ScanFarmerScreen() {
   const [camPermission, requestCamPermission] = camPerms;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const getFilters = () =>
+    typeFilter !== "all" ? { beneficiaryType: typeFilter as "individual" | "group" } : undefined;
+
   const lookup = async (code: string) => {
     if (!token || loading) return;
     setLoading(true);
@@ -56,10 +68,17 @@ export default function ScanFarmerScreen() {
     setSearchResults([]);
     try {
       const result = await farmerByBarcode(token, code);
+      const filters = getFilters();
+      if (filters?.beneficiaryType && result.beneficiaryType !== filters.beneficiaryType) {
+        Alert.alert(
+          "Type Mismatch",
+          `This farmer is registered as "${result.beneficiaryType ?? "unknown"}" but your filter is set to "${typeFilter}". Showing result anyway.`
+        );
+      }
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      const results = await searchFarmers(token, code).catch(() => ({ data: [] as Farmer[] }));
+      const results = await searchFarmers(token, code, getFilters()).catch(() => ({ data: [] as Farmer[] }));
       if (results.data.length === 1) {
         setFarmer(results.data[0]);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -67,7 +86,7 @@ export default function ScanFarmerScreen() {
         setSearchResults(results.data);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        Alert.alert("Not Found", "No farmer found with this code or name.");
+        Alert.alert("Not Found", "No farmer found matching that code or name" + (typeFilter !== "all" ? ` (filtered to ${typeFilter})` : "") + ".");
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } finally {
@@ -111,6 +130,35 @@ export default function ScanFarmerScreen() {
         ))}
       </View>
 
+      <View style={[styles.typeRow, { borderBottomColor: colors.border, backgroundColor: colors.muted }]}>
+        <Text style={[styles.typeLabel, { color: colors.mutedForeground }]}>Type:</Text>
+        <View style={[styles.typeToggle, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          {TYPE_OPTIONS.map((opt) => {
+            const active = typeFilter === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.value}
+                style={[
+                  styles.typeOption,
+                  active && { backgroundColor: colors.primary },
+                ]}
+                onPress={() => { setTypeFilter(opt.value); setFarmer(null); setSearchResults([]); }}
+                activeOpacity={0.8}
+              >
+                <Feather
+                  name={opt.icon as any}
+                  size={12}
+                  color={active ? "#fff" : colors.mutedForeground}
+                />
+                <Text style={[styles.typeOptionText, { color: active ? "#fff" : colors.mutedForeground }]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       {mode === "camera" ? (
         <View style={styles.cameraArea}>
           {Platform.OS === "web" || !CameraView ? (
@@ -141,6 +189,12 @@ export default function ScanFarmerScreen() {
               <View style={styles.overlay}>
                 <View style={[styles.frame, { borderColor: colors.primary }]} />
                 <Text style={styles.hint}>Point at farmer QR or barcode</Text>
+                {typeFilter !== "all" && (
+                  <View style={[styles.filterBadge, { backgroundColor: colors.primary }]}>
+                    <Feather name={typeFilter === "group" ? "users" : "user"} size={11} color="#fff" />
+                    <Text style={styles.filterBadgeText}>{typeFilter === "group" ? "Groups only" : "Individuals only"}</Text>
+                  </View>
+                )}
               </View>
               {loading && (
                 <View style={[styles.scanningBanner, { backgroundColor: colors.primary }]}>
@@ -231,11 +285,18 @@ const styles = StyleSheet.create({
   modeSwitcher: { flexDirection: "row", borderBottomWidth: 1 },
   modeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14 },
   modeBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  typeRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10, borderBottomWidth: 1 },
+  typeLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  typeToggle: { flexDirection: "row", borderWidth: 1, borderRadius: 8, overflow: "hidden" },
+  typeOption: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
+  typeOptionText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   cameraArea: { flex: 1 },
   cameraWrap: { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 20 },
+  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 16 },
   frame: { width: 220, height: 220, borderWidth: 2.5, borderRadius: 16 },
   hint: { color: "#fff", fontFamily: "Inter_500Medium", fontSize: 13 },
+  filterBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  filterBadgeText: { color: "#fff", fontFamily: "Inter_500Medium", fontSize: 12 },
   scanningBanner: { position: "absolute", bottom: 32, left: 32, right: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, padding: 12, borderRadius: 12 },
   scanningText: { color: "#fff", fontFamily: "Inter_500Medium", fontSize: 14 },
   camUnavail: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 32 },
