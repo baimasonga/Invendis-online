@@ -12,7 +12,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
-  ListChecks, Flag, BadgeCheck, Package,
+  ListChecks, Flag, BadgeCheck, Package, UsersRound,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -316,7 +316,19 @@ function ReviewQueue() {
                 ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
                 : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>}
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-muted-foreground mb-0.5">Farmer</p><p className="font-medium">{selectedPod.farmerName ?? "—"}</p><p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p></div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-medium">{selectedPod.farmerName ?? "—"}</p>
+                    {selectedPod.beneficiaryType === "group" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
+                        <UsersRound className="h-2.5 w-2.5" />
+                        Group{selectedPod.groupSize ? ` · ${selectedPod.groupSize}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p>
+                </div>
                 <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{selectedPod.campaignName ?? "—"}</p></div>
               </div>
               {(selectedPod.inputItemName || selectedPod.inputBarcode) && (
@@ -612,7 +624,19 @@ export default function ProofOfDelivery() {
                 ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
                 : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>}
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-muted-foreground mb-0.5">Farmer</p><p className="font-medium">{selectedPod.farmerName ?? "—"}</p><p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p></div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-medium">{selectedPod.farmerName ?? "—"}</p>
+                    {selectedPod.beneficiaryType === "group" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
+                        <UsersRound className="h-2.5 w-2.5" />
+                        Group{selectedPod.groupSize ? ` · ${selectedPod.groupSize}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p>
+                </div>
                 <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{selectedPod.campaignName ?? "—"}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">

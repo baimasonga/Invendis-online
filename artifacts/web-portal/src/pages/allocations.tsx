@@ -16,7 +16,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Users, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Plus, Users, ChevronLeft, ChevronRight, Pencil, Trash2, UsersRound } from "lucide-react";
 import { NewAllocationModal } from "@/components/modals/NewAllocationModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
@@ -157,7 +157,15 @@ export default function Allocations() {
                     <TableRow key={a.id} className="hover:bg-muted/40">
                       <TableCell className="pl-4">
                         <div>
-                          <p className="text-sm font-medium">{a.farmerName ?? "—"}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-medium">{a.farmerName ?? "—"}</p>
+                            {a.beneficiaryType === "group" && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
+                                <UsersRound className="h-2.5 w-2.5" />
+                                Group{a.groupSize ? ` · ${a.groupSize}` : ""}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground font-mono">{a.farmerCode ?? ""}</p>
                         </div>
                       </TableCell>
