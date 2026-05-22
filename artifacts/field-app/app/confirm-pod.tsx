@@ -479,6 +479,7 @@ export default function ConfirmPodScreen() {
 
   const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => ({
     farmerId: Number(farmerId),
+    ...(farmerName ? { farmerName } : {}),
     ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
     quantityDelivered: Number(quantity),
     otpStatus,

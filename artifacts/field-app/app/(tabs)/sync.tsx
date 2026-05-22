@@ -124,10 +124,11 @@ export default function SyncScreen() {
             }]} />
             <View style={styles.itemInfo}>
               <Text style={[styles.itemId, { color: colors.foreground }]}>
-                Dispatch #{(item.payload as { dispatchId?: number }).dispatchId ?? "—"}
+                {(item.payload as { farmerName?: string }).farmerName
+                  ?? `Farmer #${(item.payload as { farmerId?: number }).farmerId ?? "—"}`}
               </Text>
               <Text style={[styles.itemDate, { color: colors.mutedForeground }]}>
-                {new Date(item.createdAt).toLocaleString()}
+                Dispatch #{(item.payload as { dispatchId?: number }).dispatchId ?? "—"} · {new Date(item.createdAt).toLocaleString()}
               </Text>
               {item.error && item.error !== "synced" && (
                 <Text style={[styles.itemError, { color: colors.destructive }]}>{item.error}</Text>
