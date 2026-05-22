@@ -19,7 +19,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/EmptyState";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { getDispatch, listPoDs, pingGps } from "@/lib/api";
+import { getDispatch, listPoDs, pingGps, farmerDisplayName } from "@/lib/api";
 
 // ── GPS helper ────────────────────────────────────────────────────────────────
 
@@ -318,7 +318,14 @@ export default function DistributionDetailScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.podCode, { color: colors.primary }]}>{pod.podCode}</Text>
                 <Text style={[styles.podMeta, { color: colors.mutedForeground }]}>
-                  Farmer #{pod.farmerId} · {pod.quantityDelivered ?? "?"} units
+                  {pod.farmerFirstName != null || pod.farmerBeneficiaryType != null
+                    ? farmerDisplayName({
+                        firstName: pod.farmerFirstName ?? "",
+                        lastName: pod.farmerLastName ?? "",
+                        beneficiaryType: pod.farmerBeneficiaryType,
+                        farmerGroup: pod.farmerGroup,
+                      })
+                    : `Farmer #${pod.farmerId}`} · {pod.quantityDelivered ?? "?"} units
                 </Text>
               </View>
               <View style={styles.podBadges}>

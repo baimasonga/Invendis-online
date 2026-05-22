@@ -119,6 +119,10 @@ export interface PoD {
   inputBarcode: string | null;
   notes: string | null;
   submittedAt: string | null;
+  farmerFirstName: string | null;
+  farmerLastName: string | null;
+  farmerGroup: string | null;
+  farmerBeneficiaryType: string | null;
 }
 
 export const listDispatches = (token: string, params?: Record<string, string>) => {

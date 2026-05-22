@@ -29,13 +29,23 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 router.get("/api/pod", requireAuth, async (req, res) => {
   const { campaignId, dispatchId, status, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
-  let q = supa.from("pod").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
+  let q = supa.from("pod").select("*, farmers(first_name, last_name, farmer_group, beneficiary_type)", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (dispatchId) q = q.eq("dispatch_id", Number(dispatchId)) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
+  const flat = (data ?? []).map((row: any) => {
+    const { farmers, ...rest } = row;
+    return {
+      ...rest,
+      farmer_first_name:      farmers?.first_name      ?? null,
+      farmer_last_name:       farmers?.last_name       ?? null,
+      farmer_group:           farmers?.farmer_group    ?? null,
+      farmer_beneficiary_type: farmers?.beneficiary_type ?? null,
+    };
+  });
+  res.json({ data: snakeToCamel(flat), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
 router.get("/api/pod/stats", requireAuth, async (_req, res) => {
