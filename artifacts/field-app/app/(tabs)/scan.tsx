@@ -205,8 +205,11 @@ export default function ScanScreen() {
 
   const handleIssueFarmer = () => {
     if (!farmer) return;
+    const displayName = farmer.beneficiaryType === "group" && farmer.farmerGroup
+      ? farmer.farmerGroup
+      : `${farmer.firstName} ${farmer.lastName}`;
     router.push(
-      `/confirm-pod?farmerId=${farmer.id}&farmerName=${encodeURIComponent(farmer.firstName + " " + farmer.lastName)}&farmerCode=${farmer.farmerCode}`
+      `/confirm-pod?farmerId=${farmer.id}&farmerName=${encodeURIComponent(displayName)}&farmerCode=${farmer.farmerCode}&beneficiaryType=${encodeURIComponent(farmer.beneficiaryType ?? "individual")}`
     );
   };
 

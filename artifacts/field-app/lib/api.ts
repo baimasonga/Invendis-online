@@ -75,6 +75,15 @@ export interface Farmer {
   farmSize: number | null;
   valueChainId: number | null;
   createdAt: string;
+  beneficiaryType: string | null;
+  farmerGroup: string | null;
+}
+
+export function farmerDisplayName(farmer: Pick<Farmer, "firstName" | "lastName" | "beneficiaryType" | "farmerGroup">): string {
+  if (farmer.beneficiaryType === "group" && farmer.farmerGroup) {
+    return farmer.farmerGroup;
+  }
+  return `${farmer.firstName} ${farmer.lastName}`;
 }
 
 export interface PodStats {

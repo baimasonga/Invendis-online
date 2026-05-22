@@ -119,11 +119,12 @@ const PHOTO_SLOTS = [
 ];
 
 export default function ConfirmPodScreen() {
-  const { farmerId, farmerName, farmerCode, dispatchId } = useLocalSearchParams<{
+  const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType } = useLocalSearchParams<{
     farmerId: string;
     farmerName: string;
     farmerCode: string;
     dispatchId?: string;
+    beneficiaryType?: string;
   }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -653,7 +654,7 @@ export default function ConfirmPodScreen() {
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Beneficiary</Text>
             <View style={styles.farmerRow}>
               <View style={[styles.farmerAvatar, { backgroundColor: colors.primary + "18" }]}>
-                <Feather name="user" size={24} color={colors.primary} />
+                <Feather name={beneficiaryType === "group" ? "users" : "user"} size={24} color={colors.primary} />
               </View>
               <View>
                 <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerName}</Text>

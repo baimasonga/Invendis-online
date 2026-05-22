@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { farmerByBarcode, searchFarmers, type Farmer } from "@/lib/api";
+import { farmerByBarcode, farmerDisplayName, searchFarmers, type Farmer } from "@/lib/api";
 
 let CameraView: React.ComponentType<{
   style?: object;
@@ -86,8 +86,9 @@ export default function ScanFarmerScreen() {
     if (!farmer) return;
     const params = new URLSearchParams({
       farmerId: String(farmer.id),
-      farmerName: `${farmer.firstName} ${farmer.lastName}`,
+      farmerName: farmerDisplayName(farmer),
       farmerCode: farmer.farmerCode,
+      beneficiaryType: farmer.beneficiaryType ?? "individual",
       ...(dispatchId ? { dispatchId } : {}),
     });
     router.push(`/confirm-pod?${params.toString()}`);
@@ -186,10 +187,10 @@ export default function ScanFarmerScreen() {
               activeOpacity={0.8}
             >
               <View style={[styles.avatar, { backgroundColor: colors.primary + "18" }]}>
-                <Feather name="user" size={22} color={colors.primary} />
+                <Feather name={r.beneficiaryType === "group" ? "users" : "user"} size={22} color={colors.primary} />
               </View>
               <View style={styles.farmerDetails}>
-                <Text style={[styles.farmerName, { color: colors.foreground }]}>{r.firstName} {r.lastName}</Text>
+                <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerDisplayName(r)}</Text>
                 <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{r.farmerCode}</Text>
                 {r.phone && <Text style={[styles.farmerPhone, { color: colors.mutedForeground }]}>{r.phone}</Text>}
               </View>
@@ -203,10 +204,10 @@ export default function ScanFarmerScreen() {
         <View style={[styles.farmerPanel, { borderTopColor: colors.border, paddingBottom: bottomPad + 16, backgroundColor: colors.background }]}>
           <View style={[styles.farmerCard, { backgroundColor: colors.card, borderColor: colors.primary + "40", borderRadius: colors.radius }]}>
             <View style={[styles.avatar, { backgroundColor: colors.primary + "18" }]}>
-              <Feather name="user" size={28} color={colors.primary} />
+              <Feather name={farmer.beneficiaryType === "group" ? "users" : "user"} size={28} color={colors.primary} />
             </View>
             <View style={styles.farmerDetails}>
-              <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmer.firstName} {farmer.lastName}</Text>
+              <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerDisplayName(farmer)}</Text>
               <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmer.farmerCode}</Text>
               {farmer.phone && <Text style={[styles.farmerPhone, { color: colors.mutedForeground }]}>{farmer.phone}</Text>}
             </View>
