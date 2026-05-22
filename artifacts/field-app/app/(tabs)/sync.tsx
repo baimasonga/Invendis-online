@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState } from "@/components/EmptyState";
 import { useAuth } from "@/context/AuthContext";
-import { useOfflineQueue } from "@/context/OfflineQueueContext";
+import { useOfflineQueue, type SyncResult } from "@/context/OfflineQueueContext";
 import { useColors } from "@/hooks/useColors";
 
 export default function SyncScreen() {
@@ -22,7 +22,7 @@ export default function SyncScreen() {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { queue, syncAll, clearFailed, retryItem, isSyncing, lastSync } = useOfflineQueue();
-  const [syncResult, setSyncResult] = useState<{ success: number; failed: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const handleSync = async () => {
@@ -94,10 +94,18 @@ export default function SyncScreen() {
             name={syncResult.failed === 0 ? "check-circle" : "alert-triangle"}
             size={16}
             color={syncResult.failed === 0 ? colors.success : colors.warning}
+            style={{ marginTop: 1 }}
           />
-          <Text style={[styles.resultText, { color: syncResult.failed === 0 ? colors.success : colors.warning }]}>
-            {syncResult.success} synced successfully{syncResult.failed > 0 ? `, ${syncResult.failed} failed` : ""}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.resultText, { color: syncResult.failed === 0 ? colors.success : colors.warning }]}>
+              {syncResult.success} synced successfully{syncResult.failed > 0 ? `, ${syncResult.failed} failed` : ""}
+            </Text>
+            {syncResult.failedItems.length > 0 && (
+              <Text style={[styles.resultDetail, { color: colors.warning }]}>
+                {syncResult.failedItems.map((f) => f.farmerName).join(", ")}
+              </Text>
+            )}
+          </View>
         </View>
       )}
 
@@ -197,8 +205,9 @@ const styles = StyleSheet.create({
   statNum: { fontSize: 28, fontFamily: "Inter_700Bold" },
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   divider: { width: 1, marginVertical: 4 },
-  resultBanner: { margin: 16, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 8, borderWidth: 1 },
-  resultText: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  resultBanner: { margin: 16, flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, borderRadius: 8, borderWidth: 1 },
+  resultText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  resultDetail: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 3 },
   list: { padding: 16, gap: 10 },
   queueItem: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12, borderWidth: 1, marginBottom: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },

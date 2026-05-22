@@ -10,10 +10,16 @@ export interface QueuedPoD {
   retryCount?: number;
 }
 
+export interface SyncResult {
+  success: number;
+  failed: number;
+  failedItems: Array<{ id: string; farmerName: string }>;
+}
+
 interface OfflineQueueContextType {
   queue: QueuedPoD[];
   enqueue: (payload: Record<string, unknown>) => Promise<void>;
-  syncAll: (token: string) => Promise<{ success: number; failed: number }>;
+  syncAll: (token: string) => Promise<SyncResult>;
   retryItem: (id: string, token: string) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
   clearFailed: () => Promise<void>;
@@ -80,11 +86,12 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
     }
   }
 
-  const syncAll = async (token: string) => {
+  const syncAll = async (token: string): Promise<SyncResult> => {
     const domain = process.env.EXPO_PUBLIC_DOMAIN;
     setIsSyncing(true);
     let success = 0;
     let failed = 0;
+    const failedItems: Array<{ id: string; farmerName: string }> = [];
     const updated = [...queue];
 
     for (let i = 0; i < updated.length; i++) {
@@ -103,6 +110,10 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
           retryCount,
         };
         failed++;
+        const farmerName =
+          (item.payload.farmerName as string | undefined) ??
+          `Farmer #${(item.payload.farmerId as number | undefined) ?? "—"}`;
+        failedItems.push({ id: item.id, farmerName });
       }
     }
 
@@ -112,7 +123,7 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
     setLastSync(now);
     await AsyncStorage.setItem(LAST_SYNC_KEY, now);
     setIsSyncing(false);
-    return { success, failed };
+    return { success, failed, failedItems };
   };
 
   const retryItem = async (id: string, token: string) => {
