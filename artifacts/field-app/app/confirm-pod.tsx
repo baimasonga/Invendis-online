@@ -119,12 +119,13 @@ const PHOTO_SLOTS = [
 ];
 
 export default function ConfirmPodScreen() {
-  const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType } = useLocalSearchParams<{
+  const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType, groupSize } = useLocalSearchParams<{
     farmerId: string;
     farmerName: string;
     farmerCode: string;
     dispatchId?: string;
     beneficiaryType?: string;
+    groupSize?: string;
   }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -656,9 +657,17 @@ export default function ConfirmPodScreen() {
               <View style={[styles.farmerAvatar, { backgroundColor: colors.primary + "18" }]}>
                 <Feather name={beneficiaryType === "group" ? "users" : "user"} size={24} color={colors.primary} />
               </View>
-              <View>
+              <View style={{ flex: 1, gap: 3 }}>
                 <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerName}</Text>
                 <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmerCode}</Text>
+                {beneficiaryType === "group" && (
+                  <View style={[styles.groupBadge, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
+                    <Feather name="users" size={11} color={colors.primary} />
+                    <Text style={[styles.groupBadgeText, { color: colors.primary }]}>
+                      Group{groupSize ? ` · ${groupSize} members` : ""}
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -1567,6 +1576,8 @@ const styles = StyleSheet.create({
   farmerAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   farmerName: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   farmerCode: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  groupBadge: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1, marginTop: 4 },
+  groupBadgeText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   gpsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   gpsText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
   gpsAccuracy: { fontSize: 12, fontFamily: "Inter_400Regular" },

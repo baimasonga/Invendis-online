@@ -206,9 +206,14 @@ export default function ScanScreen() {
 
   const handleIssueFarmer = () => {
     if (!farmer) return;
-    router.push(
-      `/confirm-pod?farmerId=${farmer.id}&farmerName=${encodeURIComponent(farmerDisplayName(farmer))}&farmerCode=${farmer.farmerCode}&beneficiaryType=${encodeURIComponent(farmer.beneficiaryType ?? "individual")}`
-    );
+    const params = new URLSearchParams({
+      farmerId: String(farmer.id),
+      farmerName: farmerDisplayName(farmer),
+      farmerCode: farmer.farmerCode,
+      beneficiaryType: farmer.beneficiaryType ?? "individual",
+      ...(farmer.groupSize != null ? { groupSize: String(farmer.groupSize) } : {}),
+    });
+    router.push(`/confirm-pod?${params.toString()}`);
   };
 
   const handleOpenDispatch = () => {

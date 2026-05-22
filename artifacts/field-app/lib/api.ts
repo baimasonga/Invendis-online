@@ -77,6 +77,7 @@ export interface Farmer {
   createdAt: string;
   beneficiaryType: string | null;
   farmerGroup: string | null;
+  groupSize: number | null;
 }
 
 export function farmerDisplayName(farmer: Pick<Farmer, "firstName" | "lastName" | "beneficiaryType" | "farmerGroup">): string {

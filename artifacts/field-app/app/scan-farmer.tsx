@@ -108,6 +108,7 @@ export default function ScanFarmerScreen() {
       farmerName: farmerDisplayName(farmer),
       farmerCode: farmer.farmerCode,
       beneficiaryType: farmer.beneficiaryType ?? "individual",
+      ...(farmer.groupSize != null ? { groupSize: String(farmer.groupSize) } : {}),
       ...(dispatchId ? { dispatchId } : {}),
     });
     router.push(`/confirm-pod?${params.toString()}`);
