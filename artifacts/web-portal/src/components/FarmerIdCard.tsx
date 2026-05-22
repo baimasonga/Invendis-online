@@ -15,6 +15,8 @@ interface FarmerIdCardProps {
     valueChainName?: string | null;
     status?: string;
     phone?: string | null;
+    beneficiaryType?: string | null;
+    farmerGroup?: string | null;
   };
   photoUrl?: string | null;
 }
@@ -22,6 +24,10 @@ interface FarmerIdCardProps {
 export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const qrValue = farmer.barcodeToken ?? farmer.farmerCode;
+
+  const isGroup = farmer.beneficiaryType === "group" && !!farmer.farmerGroup;
+  const primaryName = isGroup ? farmer.farmerGroup! : `${farmer.firstName} ${farmer.lastName}`;
+  const contactName = isGroup ? `${farmer.firstName} ${farmer.lastName}` : null;
 
   function handlePrint() {
     const card = cardRef.current;
@@ -37,7 +43,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
 
     const photoBlock = photoUrl
       ? `<div class="photo-wrap">
-           <img src="${photoUrl}" alt="${farmer.firstName} ${farmer.lastName}" class="photo-img" crossorigin="anonymous" />
+           <img src="${photoUrl}" alt="${primaryName}" class="photo-img" crossorigin="anonymous" />
          </div>`
       : `<div class="photo-wrap">
            <div class="photo-placeholder">
@@ -155,6 +161,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
 
           /* ── Name / code ─────────────────────────────────────────── */
           .farmer-name { font-size: 5.5mm; font-weight: 700; color: #111827; text-align: center; line-height: 1.25; }
+          .farmer-contact { font-size: 3mm; color: #6b7280; text-align: center; margin-top: 0.5mm; }
           .farmer-code { font-family: 'Courier New', monospace; font-size: 3mm; color: #6b7280; margin-top: 1mm; text-align: center; }
 
           .divider { width: 100%; border: none; border-top: 1px solid #e5e7eb; }
@@ -211,7 +218,8 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
           <div class="card-body">
             ${photoBlock}
             <div>
-              <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
+              <div class="farmer-name">${primaryName}</div>
+              ${contactName ? `<div class="farmer-contact">Contact: ${contactName}</div>` : ""}
               <div class="farmer-code">${farmer.farmerCode}</div>
             </div>
             <hr class="divider" />
@@ -285,7 +293,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
             {photoUrl ? (
               <img
                 src={photoUrl}
-                alt={`${farmer.firstName} ${farmer.lastName}`}
+                alt={primaryName}
                 className="w-full h-full object-cover"
               />
             ) : (
@@ -299,7 +307,10 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
 
           {/* Name */}
           <div className="text-center">
-            <p className="font-bold text-sm leading-tight">{farmer.firstName} {farmer.lastName}</p>
+            <p className="font-bold text-sm leading-tight">{primaryName}</p>
+            {contactName && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">Contact: {contactName}</p>
+            )}
             <p className="font-mono text-[10px] text-muted-foreground mt-0.5">{farmer.farmerCode}</p>
           </div>
 

@@ -309,16 +309,18 @@ export default function FarmerDetail() {
             <CardContent>
               <FarmerIdCard
                 farmer={{
-                  firstName:      f.firstName,
-                  lastName:       f.lastName,
-                  farmerCode:     f.farmerCode,
-                  barcodeToken:   f.barcodeToken,
-                  gender:         f.gender,
-                  districtName:   f.districtName,
-                  chiefdomName:   f.chiefdomName,
-                  valueChainName: f.valueChainName,
-                  status:         f.status,
-                  phone:          f.phone,
+                  firstName:       f.firstName,
+                  lastName:        f.lastName,
+                  farmerCode:      f.farmerCode,
+                  barcodeToken:    f.barcodeToken,
+                  gender:          f.gender,
+                  districtName:    f.districtName,
+                  chiefdomName:    f.chiefdomName,
+                  valueChainName:  f.valueChainName,
+                  status:          f.status,
+                  phone:           f.phone,
+                  beneficiaryType: f.beneficiaryType,
+                  farmerGroup:     f.farmerGroup,
                 }}
                 photoUrl={photoSrc ?? null}
               />
