@@ -109,6 +109,7 @@ export const KEYS = {
   distributionSites: () => ["distribution-sites"],
   inputItems:        () => ["input-items"],
   systemSettings:    () => ["system-settings"],
+  farmerTypeCounts:  () => ["farmer-type-counts"],
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
@@ -220,6 +221,14 @@ export async function listFarmers(page = 1, limit = 20, search?: string, status?
     })),
     total: count ?? 0,
   };
+}
+
+export async function getFarmerTypeCounts(): Promise<{ individuals: number; groups: number }> {
+  const [ind, grp] = await Promise.all([
+    supabase.from("farmers").select("*", { count: "exact", head: true }).eq("beneficiary_type", "individual"),
+    supabase.from("farmers").select("*", { count: "exact", head: true }).eq("beneficiary_type", "group"),
+  ]);
+  return { individuals: ind.count ?? 0, groups: grp.count ?? 0 };
 }
 
 export async function getFarmer(id: number) {

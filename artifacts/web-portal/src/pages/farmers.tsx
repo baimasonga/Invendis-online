@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, listDistricts, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, listDistricts, getFarmerTypeCounts, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -70,6 +70,12 @@ export default function Farmers() {
   const { data: districts } = useQuery({
     queryKey: KEYS.districts(),
     queryFn: listDistricts,
+  });
+
+  const { data: typeCounts } = useQuery({
+    queryKey: KEYS.farmerTypeCounts(),
+    queryFn: getFarmerTypeCounts,
+    staleTime: 60_000,
   });
 
   const total = farmersData?.total ?? 0;
@@ -153,7 +159,22 @@ export default function Farmers() {
               </Button>
             )}
             {!isLoading && (
-              <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} farmers</span>
+              <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+                {typeCounts && (
+                  <span className="text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      {typeCounts.individuals.toLocaleString()} individuals
+                    </span>
+                    <span className="mx-1.5 text-muted-foreground/40">·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      {typeCounts.groups.toLocaleString()} groups
+                    </span>
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground border-l pl-2">{total.toLocaleString()} total</span>
+              </div>
             )}
           </div>
 
