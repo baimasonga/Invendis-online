@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, listDistricts, getFarmerTypeCounts, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, listDistricts, getFarmerTypeCounts, farmerDisplayName, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -281,7 +281,7 @@ export default function Farmers() {
                                 size="sm" variant="ghost"
                                 className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                                 disabled={loadingId === farmer.id}
-                                onClick={() => setRejectTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                                onClick={() => setRejectTarget({ id: farmer.id, name: farmerDisplayName(farmer) })}
                               >
                                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                               </Button>

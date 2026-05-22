@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function farmerDisplayName(farmer: any): string {
+export function farmerDisplayName(farmer: any): string {
   if (!farmer) return "—";
   if (farmer.beneficiary_type === "group" || farmer.beneficiaryType === "group") {
     return farmer.farmer_group || farmer.farmerGroup || "—";

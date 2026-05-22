@@ -3,7 +3,7 @@ import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl,
-  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, KEYS,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, farmerDisplayName, KEYS,
 } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -263,7 +263,7 @@ export default function FarmerDetail() {
                 )}
 
                 <div className="text-center space-y-1.5">
-                  <p className="text-base font-bold leading-tight">{f.firstName} {f.lastName}</p>
+                  <p className="text-base font-bold leading-tight">{farmerDisplayName(f)}</p>
                   <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
                   <div className="flex items-center justify-center gap-1.5 flex-wrap">
                     <StatusBadge status={status} size="sm" />
@@ -332,7 +332,7 @@ export default function FarmerDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Approve Farmer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark <strong>{f.firstName} {f.lastName}</strong> as approved and grant them access to distribution campaigns.
+              This will mark <strong>{farmerDisplayName(f)}</strong> as approved and grant them access to distribution campaigns.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -347,7 +347,7 @@ export default function FarmerDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reject Farmer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark <strong>{f.firstName} {f.lastName}</strong> as rejected. You can review this decision later.
+              This will mark <strong>{farmerDisplayName(f)}</strong> as rejected. You can review this decision later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
