@@ -119,13 +119,14 @@ const PHOTO_SLOTS = [
 ];
 
 export default function ConfirmPodScreen() {
-  const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType, groupSize } = useLocalSearchParams<{
+  const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType, groupSize, contactName } = useLocalSearchParams<{
     farmerId: string;
     farmerName: string;
     farmerCode: string;
     dispatchId?: string;
     beneficiaryType?: string;
     groupSize?: string;
+    contactName?: string;
   }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -591,9 +592,12 @@ export default function ConfirmPodScreen() {
 
         <Text style={[resultStyles.successTitle, { color: colors.foreground }]}>PoD Recorded!</Text>
         <Text style={[resultStyles.podCode, { color: colors.primary }]}>{submittedPod.podCode}</Text>
-        <Text style={[resultStyles.farmerLabel, { color: colors.mutedForeground }]}>
+        <Text style={[resultStyles.farmerLabel, { color: colors.mutedForeground, marginBottom: (beneficiaryType === "group" && contactName) ? 0 : 20 }]}>
           {farmerName} · {quantity} unit{Number(quantity) !== 1 ? "s" : ""}
         </Text>
+        {beneficiaryType === "group" && contactName && (
+          <Text style={[resultStyles.contactLabel, { color: colors.mutedForeground }]}>Contact: {contactName}</Text>
+        )}
 
         {/* GPS status card */}
         <View style={[resultStyles.gpsCard, { backgroundColor: gpsColor + "14", borderColor: gpsColor + "35", borderRadius: colors.radius, width: "100%" }]}>
@@ -659,6 +663,9 @@ export default function ConfirmPodScreen() {
               </View>
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerName}</Text>
+                {beneficiaryType === "group" && contactName && (
+                  <Text style={[styles.farmerContact, { color: colors.mutedForeground }]}>Contact: {contactName}</Text>
+                )}
                 <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmerCode}</Text>
                 {beneficiaryType === "group" && (
                   <View style={[styles.groupBadge, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
@@ -1548,7 +1555,8 @@ const resultStyles = StyleSheet.create({
   successInner: { width: 90, height: 90, borderRadius: 45, alignItems: "center", justifyContent: "center" },
   successTitle: { fontSize: 24, fontFamily: "Inter_700Bold", marginTop: 12 },
   podCode: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginTop: 4, letterSpacing: 1 },
-  farmerLabel: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4, marginBottom: 20 },
+  farmerLabel: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
+  contactLabel: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2, marginBottom: 20 },
   gpsCard: { padding: 20, borderWidth: 1.5, alignItems: "center", gap: 8, marginBottom: 12 },
   gpsIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   gpsTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
@@ -1575,6 +1583,7 @@ const styles = StyleSheet.create({
   farmerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   farmerAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   farmerName: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  farmerContact: { fontSize: 12, fontFamily: "Inter_400Regular" },
   farmerCode: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   groupBadge: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, borderWidth: 1, marginTop: 4 },
   groupBadgeText: { fontSize: 11, fontFamily: "Inter_500Medium" },

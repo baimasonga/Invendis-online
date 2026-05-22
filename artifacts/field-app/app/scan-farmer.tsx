@@ -103,11 +103,13 @@ export default function ScanFarmerScreen() {
 
   const handleConfirm = () => {
     if (!farmer) return;
+    const isGroup = farmer.beneficiaryType === "group";
     const params = new URLSearchParams({
       farmerId: String(farmer.id),
       farmerName: farmerDisplayName(farmer),
       farmerCode: farmer.farmerCode,
       beneficiaryType: farmer.beneficiaryType ?? "individual",
+      ...(isGroup ? { contactName: `${farmer.firstName} ${farmer.lastName}` } : {}),
       ...(farmer.groupSize != null ? { groupSize: String(farmer.groupSize) } : {}),
       ...(dispatchId ? { dispatchId } : {}),
     });
@@ -246,6 +248,9 @@ export default function ScanFarmerScreen() {
               </View>
               <View style={styles.farmerDetails}>
                 <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerDisplayName(r)}</Text>
+                {r.beneficiaryType === "group" && (
+                  <Text style={[styles.farmerContact, { color: colors.mutedForeground }]}>Contact: {r.firstName} {r.lastName}</Text>
+                )}
                 <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{r.farmerCode}</Text>
                 {r.phone && <Text style={[styles.farmerPhone, { color: colors.mutedForeground }]}>{r.phone}</Text>}
               </View>
@@ -263,6 +268,9 @@ export default function ScanFarmerScreen() {
             </View>
             <View style={styles.farmerDetails}>
               <Text style={[styles.farmerName, { color: colors.foreground }]}>{farmerDisplayName(farmer)}</Text>
+              {farmer.beneficiaryType === "group" && (
+                <Text style={[styles.farmerContact, { color: colors.mutedForeground }]}>Contact: {farmer.firstName} {farmer.lastName}</Text>
+              )}
               <Text style={[styles.farmerCode, { color: colors.mutedForeground }]}>{farmer.farmerCode}</Text>
               {farmer.phone && <Text style={[styles.farmerPhone, { color: colors.mutedForeground }]}>{farmer.phone}</Text>}
             </View>
@@ -314,6 +322,7 @@ const styles = StyleSheet.create({
   farmerDetails: { flex: 1, gap: 3 },
   resultsHeader: { fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 4 },
   farmerName: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  farmerContact: { fontSize: 12, fontFamily: "Inter_400Regular" },
   farmerCode: { fontSize: 12, fontFamily: "Inter_400Regular" },
   farmerPhone: { fontSize: 12, fontFamily: "Inter_400Regular" },
   confirmBtn: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
