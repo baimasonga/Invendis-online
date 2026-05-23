@@ -8,9 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowDownToLine, Box, PackageCheck, Pencil, Printer, Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowLeftRight, Box, PackageCheck, Pencil, Printer, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ReceiveStockModal } from "@/components/modals/ReceiveStockModal";
+import { TransferStockModal } from "@/components/modals/TransferStockModal";
 import { EditInputItemModal } from "@/components/modals/EditInputItemModal";
 import { BarcodeLabelModal } from "@/components/modals/BarcodeLabelModal";
 import { useToast } from "@/hooks/use-toast";
@@ -52,6 +53,7 @@ export default function Inventory() {
   const { toast } = useToast();
 
   const [receiveOpen, setReceiveOpen]   = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [editItem, setEditItem]         = useState<any>(null);
   const [labelItem, setLabelItem]       = useState<any>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -89,10 +91,16 @@ export default function Inventory() {
         title="Inventory"
         subtitle="Input catalogue and warehouse stock levels."
         actions={can.manageInventory ? (
-          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
-            <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
-            Receive Stock
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setTransferOpen(true)}>
+              <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" />
+              Transfer
+            </Button>
+            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setReceiveOpen(true)}>
+              <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
+              Receive Stock
+            </Button>
+          </div>
         ) : undefined}
       />
 
@@ -281,7 +289,8 @@ export default function Inventory() {
 
       {can.manageInventory && (
         <>
-          <ReceiveStockModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
+          <ReceiveStockModal  open={receiveOpen}  onClose={() => setReceiveOpen(false)} />
+          <TransferStockModal open={transferOpen} onClose={() => setTransferOpen(false)} />
           <EditInputItemModal open={!!editItem} item={editItem} onClose={() => setEditItem(null)} />
           {labelItem && (
             <BarcodeLabelModal

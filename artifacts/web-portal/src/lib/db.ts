@@ -547,6 +547,28 @@ export async function receiveStock(payload: any) {
   return cc(ledger);
 }
 
+export async function transferStock(payload: {
+  fromWarehouseId: number;
+  toWarehouseId: number;
+  inputItemId: number;
+  quantity: number;
+  notes?: string;
+}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+  const resp = await fetch("/api/inventory/transfer-stock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to transfer stock");
+  }
+  return resp.json();
+}
+
 // ── PROCUREMENT ───────────────────────────────────────────────────────────────
 export async function listProcurementOrders() {
   const { data, error } = await supabase

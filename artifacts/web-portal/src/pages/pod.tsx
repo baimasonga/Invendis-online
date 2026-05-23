@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +13,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
-  ListChecks, Flag, BadgeCheck, Package, UsersRound,
+  ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +54,36 @@ function timeAgo(date: string) {
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
 }
+
+function downloadCSV(rows: any[], cols: { key: string; label: string }[], filename: string) {
+  const header = cols.map(c => c.label).join(",");
+  const body   = rows.map(r => cols.map(c => JSON.stringify(r[c.key] ?? "")).join(",")).join("\n");
+  const blob   = new Blob([header + "\n" + body], { type: "text/csv" });
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: filename });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function downloadXLSX(rows: any[], cols: { key: string; label: string }[], filename: string) {
+  const header = cols.map(c => c.label);
+  const data   = rows.map(r => cols.map(c => r[c.key] ?? ""));
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "PoD");
+  XLSX.writeFile(wb, filename);
+}
+
+const POD_COLS = [
+  { key: "id",                label: "ID" },
+  { key: "farmerName",        label: "Farmer" },
+  { key: "farmerCode",        label: "Farmer Code" },
+  { key: "campaignName",      label: "Campaign" },
+  { key: "inputItemName",     label: "Input Item" },
+  { key: "quantityDelivered", label: "Qty Delivered" },
+  { key: "status",            label: "Status" },
+  { key: "otpStatus",         label: "OTP" },
+  { key: "faceStatus",        label: "Face Verification" },
+  { key: "submittedAt",       label: "Submitted At" },
+];
 
 const STATUS_FILTER_CHIPS = [
   { label: "All",       value: "" },
@@ -400,6 +431,29 @@ export default function ProofOfDelivery() {
   const [selectedPod, setSelectedPod] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [view, setView] = useState<"list" | "review">("list");
+  const [exporting, setExporting] = useState(false);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function exportPodCSV() {
+    setExporting(true);
+    try {
+      const result = await listPod(1, 9999, undefined, statusFilter || undefined);
+      downloadCSV(result.data ?? [], POD_COLS, `pod-${today}.csv`);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally { setExporting(false); }
+  }
+
+  async function exportPodXLSX() {
+    setExporting(true);
+    try {
+      const result = await listPod(1, 9999, undefined, statusFilter || undefined);
+      downloadXLSX(result.data ?? [], POD_COLS, `pod-${today}.xlsx`);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally { setExporting(false); }
+  }
   const limit = 20;
 
   const { data: podData, isLoading } = useQuery({
@@ -438,10 +492,20 @@ export default function ProofOfDelivery() {
           </span>
         ) : undefined}
         actions={
-          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            Record Delivery
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={exporting} onClick={exportPodCSV}>
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {exporting ? "Exporting…" : "CSV"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={exporting} onClick={exportPodXLSX}>
+              <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+              {exporting ? "Exporting…" : "Excel"}
+            </Button>
+            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Record Delivery
+            </Button>
+          </div>
         }
       />
 

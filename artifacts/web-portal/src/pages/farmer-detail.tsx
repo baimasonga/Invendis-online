@@ -5,6 +5,7 @@ import {
   getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl,
   getFaceUploadUrl, uploadBlobToS3, saveFaceReference, farmerDisplayName, KEYS,
 } from "@/lib/db";
+import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, Users, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, User, Users, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -37,8 +38,9 @@ export default function FarmerDetail() {
   const can = usePermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [editOpen, setEditOpen]       = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
-  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectOpen, setRejectOpen]   = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -162,6 +164,11 @@ export default function FarmerDetail() {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <StatusBadge status={status} />
+          {can.editFarmer && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+            </Button>
+          )}
           {can.approveFarmer && status === "pending" && (
             <>
               <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50" disabled={actionLoading} onClick={() => setRejectOpen(true)}>
@@ -328,6 +335,14 @@ export default function FarmerDetail() {
           </Card>
         </div>
       </div>
+
+      {f && (
+        <EditFarmerModal
+          open={editOpen}
+          farmer={f}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
 
       <AlertDialog open={approveOpen} onOpenChange={setApproveOpen}>
         <AlertDialogContent>
