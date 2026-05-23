@@ -1,6 +1,7 @@
 name: EAS Build — Android (Auto)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -58,16 +59,10 @@ jobs:
       - name: Build Android APK
         id: eas_build
         run: |
-          BUILD_JSON=$(eas build \
+          eas build \
             --platform android \
             --profile preview \
-            --non-interactive \
-            --json \
-            2>&1 | grep -E '^\[|\{|\[' | tail -1 || true)
-          BUILD_URL=$(echo "$BUILD_JSON" | jq -r \
-            '(if type == "array" then .[0] else . end).buildDetailsPageUrl // empty' \
-            2>/dev/null || true)
-          echo "build_url=${BUILD_URL:-}" >> "$GITHUB_OUTPUT"
+            --non-interactive
         env:
           EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
 
