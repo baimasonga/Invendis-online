@@ -57,6 +57,8 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
   const [duplicateMap, setDuplicateMap] = useState<Map<string, DuplicateInfo>>(new Map());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  // phone → first row number (1-based) for phones that appear 2+ times within the file
+  const [intraFileDupeMap, setIntraFileDupeMap] = useState<Map<string, number>>(new Map());
 
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),    queryFn: listDistricts });
   const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(),  queryFn: listValueChains });
@@ -66,7 +68,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
   function reset() {
     setStep(1); setRows([]); setDistrictId(""); setValueChainId(""); setImportResult(null);
-    setDuplicateMap(new Map()); setCheckingDuplicates(false);
+    setDuplicateMap(new Map()); setCheckingDuplicates(false); setIntraFileDupeMap(new Map());
   }
   function handleClose() { reset(); onClose(); }
 
@@ -136,6 +138,22 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
           toast({ title: "No data", description: "No valid rows were found in the file.", variant: "destructive" });
           return;
         }
+
+        // Compute intra-file duplicates (client-side, no API needed)
+        const phoneSeen = new Map<string, number>(); // phone → first 1-based row
+        const intraMap = new Map<string, number>();
+        parsed.forEach((r, i) => {
+          if (!r.phone) return;
+          if (phoneSeen.has(r.phone)) {
+            // Mark this phone as a duplicate; store first occurrence row
+            if (!intraMap.has(r.phone)) {
+              intraMap.set(r.phone, phoneSeen.get(r.phone)!);
+            }
+          } else {
+            phoneSeen.set(r.phone, i + 1);
+          }
+        });
+        setIntraFileDupeMap(intraMap);
 
         setRows(parsed);
         setStep(2);
@@ -249,6 +267,8 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
   const groups  = rows.filter(r => r.beneficiaryType === "group").length;
   const indivs  = rows.length - groups;
   const dupeCount = duplicateMap.size;
+  // Number of rows that share a phone with another row in the file (all rows with that phone, not just duplicates after first)
+  const intraFileDupeRowCount = rows.filter(r => r.phone && intraFileDupeMap.has(r.phone)).length;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
@@ -342,13 +362,23 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                   <p className="text-xs text-muted-foreground">Checking for duplicate phone numbers…</p>
                 </div>
               )}
+              {intraFileDupeRowCount > 0 && (
+                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 p-3">
+                  <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                  <p className="text-xs text-red-800">
+                    <span className="font-semibold">{intraFileDupeRowCount} row{intraFileDupeRowCount !== 1 ? "s" : ""}</span>{" "}
+                    share a phone number with another row in this file (highlighted red below).
+                    {" "}Only the first occurrence of each phone will be imported — remove the duplicates from your file to import all of them.
+                  </p>
+                </div>
+              )}
               {!checkingDuplicates && dupeCount > 0 && (
                 <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3">
                   <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-amber-800">
                       <span className="font-semibold">{dupeCount} row{dupeCount !== 1 ? "s" : ""}</span>{" "}
-                      {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted below).
+                      {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted amber below).
                       {" "}These will be skipped on import — fix your file or proceed to skip them.
                     </p>
                     <Button
@@ -404,9 +434,18 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                   </TableHeader>
                   <TableBody>
                     {rows.map((r, i) => {
-                      const dupe = r.phone ? duplicateMap.get(r.phone) : undefined;
+                      const dbDupe   = r.phone ? duplicateMap.get(r.phone)     : undefined;
+                      const intraFirstRow = r.phone ? intraFileDupeMap.get(r.phone) : undefined;
+                      const isIntra  = intraFirstRow !== undefined;
+                      const rowNum   = i + 1;
                       return (
-                        <TableRow key={i} className={cn(dupe && "bg-amber-50 hover:bg-amber-100")}>
+                        <TableRow
+                          key={i}
+                          className={cn(
+                            isIntra ? "bg-red-50 hover:bg-red-100" :
+                            dbDupe  ? "bg-amber-50 hover:bg-amber-100" : undefined,
+                          )}
+                        >
                           <TableCell className="text-xs font-medium">
                             {r.beneficiaryType === "group"
                               ? (r.farmerGroup || "—")
@@ -415,12 +454,23 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.gender || "—"}</TableCell>
                           <TableCell className="text-xs font-mono">
-                            <span className={cn(dupe ? "text-amber-700 font-semibold" : "text-muted-foreground")}>
+                            <span className={cn(
+                              isIntra ? "text-red-700 font-semibold" :
+                              dbDupe  ? "text-amber-700 font-semibold" :
+                                        "text-muted-foreground",
+                            )}>
                               {r.phone || "—"}
                             </span>
-                            {dupe && (
+                            {isIntra && (
+                              <span className="ml-1.5 text-[10px] text-red-500 font-normal">
+                                {intraFirstRow === rowNum
+                                  ? "↳ also in this file"
+                                  : `↳ same as row ${intraFirstRow}`}
+                              </span>
+                            )}
+                            {!isIntra && dbDupe && (
                               <span className="ml-1.5 text-[10px] text-amber-600 font-normal">
-                                ↳ {dupe.farmerCode}
+                                ↳ {dbDupe.farmerCode}
                               </span>
                             )}
                           </TableCell>
