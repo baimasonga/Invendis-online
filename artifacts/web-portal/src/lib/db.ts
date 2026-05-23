@@ -732,6 +732,26 @@ export async function createDispatch(payload: any) {
   return cc(await resp.json());
 }
 
+export async function importDispatch(payload: any) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+
+  const resp = await fetch("/api/dispatch/import", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to import dispatch");
+  }
+  return resp.json();
+}
+
 export async function approveDispatch(id: number) {
   const token = await dispatchToken();
   const resp = await fetch(`/api/dispatch/${id}/approve`, {

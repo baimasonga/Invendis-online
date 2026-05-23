@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomBytes } from "crypto";
 import { supa, snakeToCamel, pool } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -439,5 +440,231 @@ router.delete("/api/dispatch/:id", requireAnyAuth, requireRoleIfJwt("Admin", "Pr
   await logAudit(req, "DELETE", "Dispatch", `Deleted dispatch ID ${id}`, "dispatch", id);
   res.json({ success: true });
 });
+
+// ── Excel Import ──────────────────────────────────────────────────────────────
+router.post(
+  "/api/dispatch/import",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const b = req.body as {
+      campaignId: number;
+      warehouseId: number;
+      vehicleType: "office" | "hired";
+      vehicleId?: number;
+      driverId?: number;
+      hiredPlate?: string;
+      hiredDriverName?: string;
+      fieldOfficerId?: number;
+      notes?: string;
+      columns: Array<{ colIndex: number; name: string; unit: string; itemId: number | null }>;
+      rows: Array<{
+        community: string;
+        district: string;
+        chiefdom: string;
+        contactPerson: string | null;
+        contactPhone: string | null;
+        quantities: number[];
+      }>;
+    };
+
+    const { campaignId, warehouseId, columns, rows } = b;
+
+    let createdBy: number | null = req.user?.userId ?? null;
+    if (!createdBy && req.supabaseUser?.email) {
+      const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
+      createdBy = (u as any)?.id ?? null;
+    }
+
+    // 1. Resolve or create each input_item
+    const itemIdMap: Record<number, number> = {};
+    let newItemCount = 0;
+    for (const col of columns) {
+      if (col.itemId) {
+        itemIdMap[col.colIndex] = col.itemId;
+        continue;
+      }
+      const itemName = col.name.trim();
+      const { data: existing } = await supa
+        .from("input_items")
+        .select("id")
+        .ilike("name", itemName)
+        .limit(1)
+        .maybeSingle();
+      if (existing) {
+        itemIdMap[col.colIndex] = (existing as any).id;
+        continue;
+      }
+      const itemCode = "ITM-" + randomBytes(4).toString("hex").toUpperCase();
+      const { data: newItem, error: itemErr } = await supa
+        .from("input_items")
+        .insert({ name: itemName, item_code: itemCode, unit: col.unit || "pcs", category: "Tools", is_active: 1 })
+        .select()
+        .single();
+      if (itemErr || !newItem) {
+        res.status(500).json({ error: `Failed to create inventory item "${itemName}": ${itemErr?.message}` });
+        return;
+      }
+      itemIdMap[col.colIndex] = (newItem as any).id;
+      newItemCount++;
+      // Seed a zero stock_balance row so the item shows up in inventory
+      await supa.from("stock_balance").upsert(
+        { warehouse_id: warehouseId, input_item_id: (newItem as any).id, available: 0, reserved: 0, loaded: 0, delivered: 0, returned: 0, damaged: 0 },
+        { onConflict: "warehouse_id,input_item_id" },
+      );
+    }
+
+    // 2. Resolve district IDs (case-insensitive)
+    const districtNames = [...new Set(rows.map(r => r.district.trim()))];
+    const { data: districtRows } = await supa.from("districts").select("id,name").in("name", districtNames);
+    const districtMap: Record<string, number> = {};
+    for (const d of (districtRows ?? []) as any[]) {
+      districtMap[d.name.toLowerCase()] = d.id;
+    }
+
+    // 3. Find or create a group beneficiary per community
+    const farmerIds: number[] = [];
+    let newFarmerCount = 0;
+    for (const row of rows) {
+      const { data: existing } = await supa
+        .from("farmers")
+        .select("id")
+        .eq("beneficiary_type", "group")
+        .eq("farmer_group", row.community.trim())
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        farmerIds.push((existing as any).id);
+        // Ensure allocation exists for this campaign
+        const { data: allocExists } = await supa
+          .from("allocations")
+          .select("id")
+          .eq("campaign_id", campaignId)
+          .eq("farmer_id", (existing as any).id)
+          .limit(1)
+          .maybeSingle();
+        if (!allocExists) {
+          await supa.from("allocations").insert({
+            campaign_id: campaignId,
+            farmer_id: (existing as any).id,
+            notes: "Imported from Excel manifest",
+            allocated_by: createdBy,
+          });
+        }
+        continue;
+      }
+
+      const farmerCode  = "FRM-" + randomBytes(4).toString("hex").toUpperCase();
+      const barcodeToken = "BC-" + randomBytes(5).toString("hex").toUpperCase();
+      const districtId  = districtMap[row.district.trim().toLowerCase()] ?? null;
+      const nameParts   = (row.contactPerson ?? "").trim().split(/\s+/);
+      const firstName   = nameParts[0] ?? "";
+      const lastName    = nameParts.slice(1).join(" ") || "";
+      const notesParts  = [
+        row.chiefdom   ? `Chiefdom: ${row.chiefdom}`     : null,
+        row.contactPhone ? `Phone: ${row.contactPhone}` : null,
+      ].filter(Boolean);
+
+      const { data: newFarmer, error: farmerErr } = await supa
+        .from("farmers")
+        .insert({
+          farmer_group: row.community.trim(),
+          beneficiary_type: "group",
+          first_name: firstName,
+          last_name: lastName,
+          district_id: districtId,
+          farmer_code: farmerCode,
+          barcode_token: barcodeToken,
+          status: "approved",
+          registered_by: createdBy,
+          notes: notesParts.length ? notesParts.join(", ") : null,
+        })
+        .select()
+        .single();
+
+      if (farmerErr || !newFarmer) {
+        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${farmerErr?.message}` });
+        return;
+      }
+
+      const farmerId = (newFarmer as any).id;
+      farmerIds.push(farmerId);
+      newFarmerCount++;
+
+      await supa.from("allocations").insert({
+        campaign_id: campaignId,
+        farmer_id: farmerId,
+        notes: "Imported from Excel manifest",
+        allocated_by: createdBy,
+      });
+    }
+
+    // 4. Create the dispatch manifest
+    const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
+    const isHired = b.vehicleType === "hired";
+    const dispCols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
+    const dispVals: unknown[] = [manifestCode, campaignId, warehouseId, b.vehicleType ?? "office", b.notes ?? null, createdBy];
+
+    if (isHired) {
+      dispCols.push("hired_plate", "hired_driver_name");
+      dispVals.push(b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null, b.hiredDriverName ?? null);
+    } else {
+      dispCols.push("vehicle_id", "driver_id");
+      dispVals.push(b.vehicleId ?? null, b.driverId ?? null);
+    }
+    if (b.fieldOfficerId) {
+      dispCols.push("field_officer_id");
+      dispVals.push(Number(b.fieldOfficerId));
+    }
+
+    const dispPH = dispVals.map((_, i) => `$${i + 1}`).join(", ");
+    let dispatchRow: Record<string, unknown>;
+    try {
+      const r = await pool.query(
+        `INSERT INTO dispatches (${dispCols.join(", ")}) VALUES (${dispPH}) RETURNING *`,
+        dispVals,
+      );
+      dispatchRow = r.rows[0];
+    } catch (pgErr: any) {
+      res.status(500).json({ error: pgErr.message }); return;
+    }
+
+    const dispatchId = dispatchRow.id as number;
+
+    // 5. Create dispatch_items (sum total quantity per item across all communities)
+    let totalPackages = 0;
+    for (const col of columns) {
+      const itemId = itemIdMap[col.colIndex];
+      if (!itemId) continue;
+      const totalQty = rows.reduce((sum, row) => sum + (Number(row.quantities[col.colIndex]) || 0), 0);
+      if (totalQty <= 0) continue;
+      await supa.from("dispatch_items").insert({
+        dispatch_id: dispatchId,
+        input_item_id: itemId,
+        quantity_loaded: totalQty,
+      });
+      totalPackages += totalQty;
+    }
+
+    await supa.from("dispatches")
+      .update({ total_packages: totalPackages, updated_at: new Date().toISOString() })
+      .eq("id", dispatchId);
+
+    await logAudit(
+      req, "IMPORT", "Dispatch",
+      `Imported dispatch manifest ${manifestCode} from Excel (${rows.length} communities, ${columns.length} items)`,
+      "dispatch", dispatchId,
+    );
+
+    res.status(201).json({
+      dispatch: snakeToCamel(dispatchRow),
+      manifestCode,
+      itemsCreated: newItemCount,
+      farmersCreated: newFarmerCount,
+      totalCommunities: rows.length,
+    });
+  },
+);
 
 export default router;

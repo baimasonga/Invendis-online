@@ -10,9 +10,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X } from "lucide-react";
+import { Plus, Upload, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
+import { ImportManifestModal } from "@/components/modals/ImportManifestModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -49,6 +50,7 @@ export default function Dispatch() {
   const [manifestSearch, setManifestSearch] = useState("");
   const [debouncedManifestSearch, setDebouncedManifestSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
@@ -143,10 +145,18 @@ export default function Dispatch() {
         title="Vehicle Dispatch"
         subtitle="Manage delivery manifests and track dispatch status."
         actions={
-          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            Create Manifest
-          </Button>
+          <div className="flex gap-2">
+            {can.manageDispatch && (
+              <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                Import from Excel
+              </Button>
+            )}
+            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Create Manifest
+            </Button>
+          </div>
         }
       />
 
@@ -359,8 +369,6 @@ export default function Dispatch() {
         </CardContent>
       </Card>
 
-      <CreateManifestModal open={createOpen} onClose={() => setCreateOpen(false)} />
-
       <Dialog open={!!cancelTarget} onOpenChange={(v) => { if (!v) { setCancelTarget(null); setCancelReason(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -412,6 +420,9 @@ export default function Dispatch() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CreateManifestModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <ImportManifestModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }
