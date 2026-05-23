@@ -1876,7 +1876,7 @@ export async function bulkImportFarmers(payload: {
   }>;
   districtId?: number;
   valueChainId?: number;
-}): Promise<{ created: number; skipped: number; farmers: any[] }> {
+}): Promise<{ created: number; skipped: number; duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }>; farmers: any[] }> {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");

@@ -116,15 +116,39 @@ router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "Proj
 
   const createdBy = req.user?.userId;
   const created: any[] = [];
+  const duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }> = [];
   let skipped = 0;
 
-  for (const row of rows) {
+  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+    const row = rows[rowIdx];
     const firstName = String(row.firstName || "").trim();
     const lastName  = String(row.lastName  || "").trim();
     const farmerGroup = String(row.farmerGroup || "").trim() || null;
     const beneficiaryType = row.beneficiaryType === "group" ? "group" : "individual";
+    const phone = String(row.phone || "").trim() || null;
 
     if (!firstName && !farmerGroup) { skipped++; continue; }
+
+    if (phone) {
+      const { data: existing, error: dupErr } = await supa
+        .from("farmers")
+        .select("farmer_code")
+        .eq("phone", phone)
+        .limit(1);
+
+      if (dupErr) { skipped++; continue; }
+
+      if (existing && existing.length > 0) {
+        const displayName = farmerGroup || `${firstName} ${lastName}`.trim() || "—";
+        duplicates.push({
+          row: rowIdx + 1,
+          name: displayName,
+          phone,
+          matchedFarmerCode: (existing[0] as any).farmer_code,
+        });
+        continue;
+      }
+    }
 
     const farmerCode   = generateFarmerCode();
     const barcodeToken = generateBarcode();
@@ -133,7 +157,7 @@ router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "Proj
       first_name:       firstName || null,
       last_name:        String(row.lastName || "").trim() || null,
       gender:           row.gender || null,
-      phone:            String(row.phone || "").trim() || null,
+      phone:            phone,
       district_id:      districtId ?? null,
       value_chain_id:   valueChainId ?? null,
       beneficiary_type: beneficiaryType,
@@ -155,8 +179,8 @@ router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "Proj
     });
   }
 
-  await logAudit(req, "BULK_IMPORT", "Farmers", `Bulk imported ${created.length} farmers (${skipped} skipped)`, "farmer", 0);
-  res.status(201).json({ created: created.length, skipped, farmers: created });
+  await logAudit(req, "BULK_IMPORT", "Farmers", `Bulk imported ${created.length} farmers (${skipped} skipped, ${duplicates.length} duplicates)`, "farmer", 0);
+  res.status(201).json({ created: created.length, skipped, duplicates, farmers: created });
 });
 
 export default router;

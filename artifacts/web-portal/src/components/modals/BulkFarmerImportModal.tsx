@@ -37,7 +37,12 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
   const [isDragOver, setIsDragOver]   = useState(false);
   const [districtId, setDistrictId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
-  const [importResult, setImportResult] = useState<{ created: number; skipped: number; farmers: any[] } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    skipped: number;
+    duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }>;
+    farmers: any[];
+  } | null>(null);
 
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),    queryFn: listDistricts });
   const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(),  queryFn: listValueChains });
@@ -340,26 +345,64 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
           {/* Step 3: Done */}
           {step === 3 && importResult && (
-            <div className="py-10 flex flex-col items-center gap-5 text-center">
-              <CheckCircle2 className="h-14 w-14 text-emerald-600" />
-              <div>
-                <p className="text-lg font-semibold">Registration Complete</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  <span className="font-medium text-foreground">{importResult.created}</span> farmers registered
-                  {importResult.skipped > 0 && (
-                    <>, <span className="text-amber-600">{importResult.skipped} skipped</span> (missing name/group)</>
-                  )}
-                </p>
+            <div className="py-6 flex flex-col items-center gap-5">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <CheckCircle2 className="h-14 w-14 text-emerald-600" />
+                <div>
+                  <p className="text-lg font-semibold">Registration Complete</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    <span className="font-medium text-foreground">{importResult.created}</span> farmer{importResult.created !== 1 ? "s" : ""} registered
+                    {importResult.duplicates?.length > 0 && (
+                      <>, <span className="text-amber-600 font-medium">{importResult.duplicates.length} duplicate{importResult.duplicates.length !== 1 ? "s" : ""} skipped</span></>
+                    )}
+                    {importResult.skipped > 0 && (
+                      <>, <span className="text-muted-foreground">{importResult.skipped} skipped</span> (missing name/group)</>
+                    )}
+                  </p>
+                </div>
+                {importResult.farmers.length > 0 && (
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => printLabels(importResult.farmers)}
+                  >
+                    <Printer className="h-4 w-4" />
+                    Print Barcode Labels ({importResult.farmers.length})
+                  </Button>
+                )}
               </div>
-              {importResult.farmers.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => printLabels(importResult.farmers)}
-                >
-                  <Printer className="h-4 w-4" />
-                  Print Barcode Labels ({importResult.farmers.length})
-                </Button>
+
+              {importResult.duplicates?.length > 0 && (
+                <div className="w-full rounded-md border border-amber-200 bg-amber-50 overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-200">
+                    <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <p className="text-xs font-semibold text-amber-800">
+                      {importResult.duplicates.length} row{importResult.duplicates.length !== 1 ? "s" : ""} skipped — phone number already registered
+                    </p>
+                  </div>
+                  <div className="overflow-auto max-h-48">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-amber-50/80">
+                          <TableHead className="text-xs text-amber-800">Row</TableHead>
+                          <TableHead className="text-xs text-amber-800">Name / Group</TableHead>
+                          <TableHead className="text-xs text-amber-800">Phone</TableHead>
+                          <TableHead className="text-xs text-amber-800">Matched Farmer Code</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {importResult.duplicates.map((d) => (
+                          <TableRow key={d.row} className="bg-white">
+                            <TableCell className="text-xs text-muted-foreground">{d.row}</TableCell>
+                            <TableCell className="text-xs font-medium">{d.name}</TableCell>
+                            <TableCell className="text-xs font-mono text-muted-foreground">{d.phone}</TableCell>
+                            <TableCell className="text-xs font-mono text-amber-700">{d.matchedFarmerCode}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               )}
             </div>
           )}
