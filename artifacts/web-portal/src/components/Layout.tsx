@@ -46,6 +46,7 @@ const NAV_GROUPS = [
       { href: "/pod",            label: "Proof of Delivery", icon: CheckSquare,    roles: [] },
       { href: "/reconciliation", label: "Reconciliation",    icon: RefreshCcw,     roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/incidents",      label: "Incidents",         icon: AlertTriangle,  roles: ["admin","projectmanager","districtcoordinator"] },
+      { href: "/supervisor",     label: "Supervisor View",   icon: ShieldAlert,    roles: ["admin","projectmanager","districtcoordinator"] },
     ],
   },
   {

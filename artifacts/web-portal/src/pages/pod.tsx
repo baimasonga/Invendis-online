@@ -1,12 +1,14 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, KEYS } from "@/lib/db";
+import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -112,6 +114,8 @@ function ReviewQueue() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectedPod, setSelectedPod] = useState<any>(null);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const limit = 25;
 
   const { data: podData, isLoading } = useQuery({
@@ -167,6 +171,19 @@ function ReviewQueue() {
       toast({ title: `${ids.length} PoD${ids.length !== 1 ? "s" : ""} approved` });
     },
     onError: (err: any) => toast({ title: "Batch approve failed", description: err.message, variant: "destructive" }),
+  });
+
+  const overrideMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => overrideFacePod(id, reason),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.pod() });
+      await qc.invalidateQueries({ queryKey: KEYS.podStats() });
+      setOverrideOpen(false);
+      setOverrideReason("");
+      setSelectedPod(null);
+      toast({ title: "Face check overridden by supervisor" });
+    },
+    onError: (err: any) => toast({ title: "Override failed", description: err.message, variant: "destructive" }),
   });
 
   const selectedArr = [...selected];
@@ -343,9 +360,26 @@ function ReviewQueue() {
           </DialogHeader>
           {selectedPod && (
             <div className="space-y-4">
-              {selectedPod.photoUrl
-                ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
-                : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>}
+              {(() => {
+                const faceKey = (selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "");
+                const isFailed = faceKey === "failed" || faceKey === "noface";
+                return isFailed ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Delivery Photo</p>
+                      {selectedPod.photoUrl ? <PodDetailPhoto photoKey={selectedPod.photoUrl} /> : <div className="h-32 bg-muted rounded-lg flex items-center justify-center text-xs text-muted-foreground">No photo</div>}
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Reference Photo</p>
+                      {selectedPod.referencePhotoKey ? <PodDetailPhoto photoKey={selectedPod.referencePhotoKey} /> : <div className="h-32 bg-muted rounded-lg flex items-center justify-center text-xs text-muted-foreground">No reference</div>}
+                    </div>
+                  </div>
+                ) : (
+                  selectedPod.photoUrl
+                    ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
+                    : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
@@ -375,7 +409,13 @@ function ReviewQueue() {
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{selectedPod.quantityDelivered ?? "—"}</p></div>
                 <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={selectedPod.otpStatus} /></div>
-                <div><p className="text-xs text-muted-foreground mb-0.5">Face</p><FaceStatusPill status={selectedPod.faceStatus} /></div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Face</p>
+                  <FaceStatusPill status={selectedPod.faceStatus} />
+                  {selectedPod.faceSimilarity != null && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{Number(selectedPod.faceSimilarity).toFixed(0)}% match</p>
+                  )}
+                </div>
               </div>
               {(selectedPod.farmerLatitude && selectedPod.farmerLongitude) ? (
                 <a href={`https://www.google.com/maps?q=${selectedPod.farmerLatitude},${selectedPod.farmerLongitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
@@ -413,8 +453,55 @@ function ReviewQueue() {
                   </Button>
                 </div>
               )}
+              {selectedPod.status === "Pending" && ["failed", "noface"].includes((selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "")) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-900/20"
+                  onClick={() => { setOverrideOpen(true); setOverrideReason(""); }}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
+                  Supervisor Override
+                </Button>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Override Face Dialog */}
+      <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-amber-600" />
+              Supervisor Override
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Overriding marks this PoD face check as accepted by a supervisor. Provide a reason for the record.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Reason *</Label>
+              <Textarea
+                placeholder="e.g. Field officer confirmed identity in person, network issue prevented biometric match…"
+                rows={3}
+                value={overrideReason}
+                onChange={e => setOverrideReason(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setOverrideOpen(false)}>Cancel</Button>
+              <Button
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={!overrideReason.trim() || overrideMutation.isPending}
+                onClick={() => overrideMutation.mutate({ id: selectedPod!.id, reason: overrideReason })}
+              >
+                {overrideMutation.isPending ? "Saving…" : "Confirm Override"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
@@ -432,6 +519,8 @@ export default function ProofOfDelivery() {
   const [statusFilter, setStatusFilter] = useState("");
   const [view, setView] = useState<"list" | "review">("list");
   const [exporting, setExporting] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -476,6 +565,19 @@ export default function ProofOfDelivery() {
       setSelectedPod(null);
     },
     onError: (err: any) => toast({ title: "Approve failed", description: err.message, variant: "destructive" }),
+  });
+
+  const listOverrideMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => overrideFacePod(id, reason),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.pod() });
+      await qc.invalidateQueries({ queryKey: KEYS.podStats() });
+      setOverrideOpen(false);
+      setOverrideReason("");
+      setSelectedPod(null);
+      toast({ title: "Face check overridden by supervisor" });
+    },
+    onError: (err: any) => toast({ title: "Override failed", description: err.message, variant: "destructive" }),
   });
 
   const total = podData?.total ?? 0;
@@ -709,7 +811,12 @@ export default function ProofOfDelivery() {
               </div>
               <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 text-sm">
                 <span className="text-xs text-muted-foreground">Face Verification</span>
-                <FaceStatusPill status={selectedPod.faceStatus} />
+                <div className="flex items-center gap-2">
+                  <FaceStatusPill status={selectedPod.faceStatus} />
+                  {selectedPod.faceSimilarity != null && (
+                    <span className="text-[10px] text-muted-foreground">{Number(selectedPod.faceSimilarity).toFixed(0)}%</span>
+                  )}
+                </div>
               </div>
               {(selectedPod.farmerLatitude && selectedPod.farmerLongitude) ? (
                 <a href={`https://www.google.com/maps?q=${selectedPod.farmerLatitude},${selectedPod.farmerLongitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
@@ -735,8 +842,55 @@ export default function ProofOfDelivery() {
                   {approveMutation.isPending ? "Approving…" : "Approve Delivery"}
                 </Button>
               )}
+              {selectedPod.status === "Pending" && ["failed", "noface"].includes((selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "")) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-900/20"
+                  onClick={() => { setOverrideOpen(true); setOverrideReason(""); }}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
+                  Supervisor Override
+                </Button>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Override Face Dialog */}
+      <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-amber-600" />
+              Supervisor Override
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Overriding marks this PoD face check as accepted by a supervisor. Provide a reason for the record.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Reason *</Label>
+              <Textarea
+                placeholder="e.g. Field officer confirmed identity in person…"
+                rows={3}
+                value={overrideReason}
+                onChange={e => setOverrideReason(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setOverrideOpen(false)}>Cancel</Button>
+              <Button
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={!overrideReason.trim() || listOverrideMutation.isPending}
+                onClick={() => listOverrideMutation.mutate({ id: selectedPod!.id, reason: overrideReason })}
+              >
+                {listOverrideMutation.isPending ? "Saving…" : "Confirm Override"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

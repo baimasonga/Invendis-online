@@ -1010,7 +1010,7 @@ export async function triggerGpsTraceSync(): Promise<{ synced: number; skipped: 
 }
 
 // ── POD ───────────────────────────────────────────────────────────────────────
-export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string) {
+export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string, faceStatus?: string) {
   let q = supabase
     .from("pod")
     .select("*", { count: "exact" })
@@ -1018,11 +1018,12 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
     .range((page - 1) * limit, page * limit - 1);
   if (dispatchId) q = q.eq("dispatch_id", dispatchId);
   if (status) q = q.eq("status", status);
+  if (faceStatus) q = q.eq("face_status", faceStatus);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [farmerMap, campaignMap, inputItemMap] = await Promise.all([
-    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group,group_size"),
+    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group,group_size,photo_url"),
     lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
     lookupMap("input_items", [...new Set(rows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,category,unit"),
   ]);
@@ -1033,6 +1034,7 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       beneficiaryType: farmerMap[r.farmer_id]?.beneficiary_type ?? null,
       groupSize: farmerMap[r.farmer_id]?.group_size ?? null,
+      referencePhotoKey: farmerMap[r.farmer_id]?.photo_url ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
       inputItemName: inputItemMap[r.input_item_id]?.name ?? null,
       inputItemCategory: inputItemMap[r.input_item_id]?.category ?? null,
@@ -1861,6 +1863,14 @@ export async function flagPodException(id: number, notes?: string): Promise<void
     .eq("id", id);
   if (error) throw new Error(error.message);
   await logAudit("UPDATE", "pod", `Flagged PoD #${id} as Exception`, "pod", id);
+}
+
+export async function overrideFacePod(id: number, reason: string): Promise<void> {
+  const { error } = await supabase.from("pod")
+    .update({ face_status: "Override", override_reason: reason })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("UPDATE", "pod", `Supervisor override face verification for PoD #${id}: ${reason}`, "pod", id);
 }
 
 export async function batchApprovePods(ids: number[]): Promise<void> {
