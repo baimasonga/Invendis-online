@@ -119,6 +119,21 @@ router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "Proj
   const duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }> = [];
   let skipped = 0;
 
+  // Pre-scan: detect duplicate phone numbers within the uploaded batch itself.
+  // Key = normalised phone, Value = first 1-based row index that used it.
+  const seenPhones = new Map<string, number>();
+  const intraBatchDuplicateRows = new Set<number>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const phone = String(rows[i].phone || "").trim();
+    if (!phone) continue;
+    if (seenPhones.has(phone)) {
+      intraBatchDuplicateRows.add(i);
+    } else {
+      seenPhones.set(phone, i + 1); // store 1-based row of first occurrence
+    }
+  }
+
   for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
     const row = rows[rowIdx];
     const firstName = String(row.firstName || "").trim();
@@ -128,6 +143,19 @@ router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "Proj
     const phone = String(row.phone || "").trim() || null;
 
     if (!firstName && !farmerGroup) { skipped++; continue; }
+
+    // Skip rows whose phone number already appeared earlier in this same batch.
+    if (phone && intraBatchDuplicateRows.has(rowIdx)) {
+      const firstSeenRow = seenPhones.get(phone)!;
+      const displayName = farmerGroup || `${firstName} ${lastName}`.trim() || "—";
+      duplicates.push({
+        row: rowIdx + 1,
+        name: displayName,
+        phone,
+        matchedFarmerCode: `duplicate within import file (row ${firstSeenRow})`,
+      });
+      continue;
+    }
 
     if (phone) {
       const { data: existing, error: dupErr } = await supa
