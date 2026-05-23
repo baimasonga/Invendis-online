@@ -4,14 +4,20 @@ import { logger } from "./logger.js";
 
 const API_BASE = "https://api.gps-trace.com";
 
-function getProviderToken(): string {
-  const token = process.env["GPS_TRACE_API_TOKEN"];
-  if (!token) throw new Error("GPS_TRACE_API_TOKEN not configured.");
-  return token;
+function getProviderTokens(): string[] {
+  const tokens: string[] = [];
+  for (let i = 0; i <= 9; i++) {
+    const key = i === 0 ? "GPS_TRACE_API_TOKEN" : `GPS_TRACE_API_TOKEN_${i}`;
+    const val = process.env[key]?.trim();
+    if (val && !tokens.includes(val)) tokens.push(val);
+  }
+  if (!tokens.length) throw new Error("No GPS_TRACE_API_TOKEN configured.");
+  return tokens;
 }
 
-function providerHeaders(): Record<string, string> {
-  return { "accept": "application/json", "X-AccessToken": getProviderToken() };
+function providerHeaders(token?: string): Record<string, string> {
+  const t = token ?? getProviderTokens()[0];
+  return { "accept": "application/json", "X-AccessToken": t };
 }
 
 const WIALON_HOST = (): string =>
@@ -142,21 +148,55 @@ async function wialonFetchUnitPositions(): Promise<Map<string, { lat: number; ln
   return result;
 }
 
-export async function fetchAllTrackers(): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/provider/units`, { headers: providerHeaders() });
+async function fetchUnitsForToken(token: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/provider/units`, { headers: providerHeaders(token) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`GPS-Trace units fetch failed (${res.status}): ${body}`);
   }
   const json = await res.json() as any;
-  if (Array.isArray(json)) return json;
-  if (Array.isArray(json.items)) return json.items;
-  if (Array.isArray(json.data)) return json.data;
-  return [];
+  const items: any[] = Array.isArray(json) ? json : (json.items ?? json.data ?? []);
+  return items.map(u => ({ ...u, _token: token }));
+}
+
+export async function fetchAllTrackers(): Promise<any[]> {
+  const tokens = getProviderTokens();
+  const results = await Promise.allSettled(tokens.map(t => fetchUnitsForToken(t)));
+  const seen = new Set<number>();
+  const merged: any[] = [];
+  for (const r of results) {
+    if (r.status === "rejected") {
+      logger.warn({ err: r.reason?.message }, "GPS-Trace: failed to fetch units from one account");
+      continue;
+    }
+    for (const unit of r.value) {
+      if (!seen.has(unit.id)) {
+        seen.add(unit.id);
+        merged.push(unit);
+      }
+    }
+  }
+  return merged;
+}
+
+// Map from unitId → the token that owns it (populated by fetchAllTrackers or lazily)
+const _unitTokenCache = new Map<number, string>();
+
+async function resolveTokenForUnit(unitId: number): Promise<string> {
+  if (_unitTokenCache.has(unitId)) return _unitTokenCache.get(unitId)!;
+  const tokens = getProviderTokens();
+  if (tokens.length === 1) return tokens[0];
+  // Try to discover which account owns this unit
+  const units = await fetchAllTrackers();
+  for (const u of units) {
+    if (u._token) _unitTokenCache.set(Number(u.id), u._token);
+  }
+  return _unitTokenCache.get(unitId) ?? tokens[0];
 }
 
 async function fetchTrackerTelemetry(unitId: number): Promise<any> {
-  const res = await fetch(`${API_BASE}/provider/units/${unitId}/telemetry`, { headers: providerHeaders() });
+  const token = await resolveTokenForUnit(unitId);
+  const res = await fetch(`${API_BASE}/provider/units/${unitId}/telemetry`, { headers: providerHeaders(token) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`telemetry fetch failed (${res.status}): ${body}`);
@@ -165,7 +205,8 @@ async function fetchTrackerTelemetry(unitId: number): Promise<any> {
 }
 
 async function fetchTrackerMessages(unitId: number, count = 1): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/provider/units/${unitId}/messages?count=${count}`, { headers: providerHeaders() });
+  const token = await resolveTokenForUnit(unitId);
+  const res = await fetch(`${API_BASE}/provider/units/${unitId}/messages?count=${count}`, { headers: providerHeaders(token) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`messages fetch failed (${res.status}): ${body}`);
