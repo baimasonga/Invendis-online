@@ -1621,7 +1621,7 @@ async function mdToken(): Promise<string> {
   if (!session?.access_token) throw new Error("Not authenticated");
   return session.access_token;
 }
-async function mdFetch(path: string, opts: RequestInit = {}) {
+async function mdFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = await mdToken();
   const res = await fetch(path, {
     ...opts,

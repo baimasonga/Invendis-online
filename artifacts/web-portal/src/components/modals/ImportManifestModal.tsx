@@ -260,8 +260,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
 
     try {
       const result = await importMutation.mutateAsync(payload);
-      await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
-      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
+      await qc.invalidateQueries({ queryKey: ["farmers"] });
       setImportResult(result);
       setStep(5);
     } catch (err: any) {
