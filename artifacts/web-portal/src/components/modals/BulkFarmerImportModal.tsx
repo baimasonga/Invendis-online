@@ -70,6 +70,52 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
     setStep(1); setRows([]); setDistrictId(""); setValueChainId(""); setImportResult(null);
     setDuplicateMap(new Map()); setCheckingDuplicates(false); setIntraFileDupeMap(new Map());
   }
+
+  function recomputeIntraMap(updatedRows: FarmerRow[]): Map<string, number> {
+    const phoneSeen = new Map<string, number>();
+    const intraMap  = new Map<string, number>();
+    updatedRows.forEach((r, i) => {
+      if (!r.phone) return;
+      if (phoneSeen.has(r.phone)) {
+        if (!intraMap.has(r.phone)) intraMap.set(r.phone, phoneSeen.get(r.phone)!);
+      } else {
+        phoneSeen.set(r.phone, i + 1);
+      }
+    });
+    return intraMap;
+  }
+
+  function updateRowPhone(index: number, newPhone: string) {
+    const oldPhone    = rows[index].phone;
+    const updatedRows = rows.map((r, i) => i === index ? { ...r, phone: newPhone } : r);
+    setRows(updatedRows);
+    setIntraFileDupeMap(recomputeIntraMap(updatedRows));
+    // Only remove the old phone from the DB-duplicate map when no other row
+    // still uses it — otherwise the remaining rows would lose their highlight.
+    if (oldPhone && oldPhone !== newPhone && duplicateMap.has(oldPhone)) {
+      const stillUsed = updatedRows.some(r => r.phone === oldPhone);
+      if (!stillUsed) {
+        const next = new Map(duplicateMap);
+        next.delete(oldPhone);
+        setDuplicateMap(next);
+      }
+    }
+  }
+
+  async function onBlurRowPhone(index: number) {
+    const phone = rows[index].phone.trim();
+    if (!phone || duplicateMap.has(phone)) return;
+    try {
+      const dupes = await bulkCheckDuplicates([phone]);
+      if (dupes.length > 0) {
+        const next = new Map(duplicateMap);
+        for (const d of dupes) { if (d.phone) next.set(d.phone, d); }
+        setDuplicateMap(next);
+      }
+    } catch {
+      // non-fatal
+    }
+  }
   function handleClose() { reset(); onClose(); }
 
   function downloadTemplate() {
@@ -399,7 +445,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                     <p className="text-xs text-amber-800">
                       <span className="font-semibold">{dupeCount} row{dupeCount !== 1 ? "s" : ""}</span>{" "}
                       {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted amber below).
-                      {" "}These will be skipped on import — fix your file or proceed to skip them.
+                      {" "}Edit the phone number directly in the table to fix it, or proceed to skip these rows.
                     </p>
                     <Button
                       variant="outline"
@@ -473,25 +519,36 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                             }
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.gender || "—"}</TableCell>
-                          <TableCell className="text-xs font-mono">
-                            <span className={cn(
-                              isIntra ? "text-red-700 font-semibold" :
-                              dbDupe  ? "text-amber-700 font-semibold" :
-                                        "text-muted-foreground",
-                            )}>
-                              {r.phone || "—"}
-                            </span>
-                            {isIntra && (
-                              <span className="ml-1.5 text-[10px] text-red-500 font-normal">
-                                {intraFirstRow === rowNum
-                                  ? "↳ also in this file"
-                                  : `↳ same as row ${intraFirstRow}`}
-                              </span>
-                            )}
-                            {!isIntra && dbDupe && (
-                              <span className="ml-1.5 text-[10px] text-amber-600 font-normal">
-                                ↳ {dbDupe.farmerCode}
-                              </span>
+                          <TableCell className="text-xs font-mono py-1">
+                            {(isIntra || dbDupe) ? (
+                              <div className="flex flex-col gap-0.5">
+                                <input
+                                  type="text"
+                                  value={r.phone}
+                                  onChange={e => updateRowPhone(i, e.target.value)}
+                                  onBlur={() => onBlurRowPhone(i)}
+                                  className={cn(
+                                    "w-full px-1.5 py-0.5 text-xs font-mono rounded border bg-white focus:outline-none focus:ring-1",
+                                    isIntra
+                                      ? "border-red-300 text-red-700 focus:ring-red-400"
+                                      : "border-amber-300 text-amber-700 focus:ring-amber-400",
+                                  )}
+                                />
+                                {isIntra && (
+                                  <span className="text-[10px] text-red-500">
+                                    {intraFirstRow === rowNum
+                                      ? "↳ also in this file"
+                                      : `↳ same as row ${intraFirstRow}`}
+                                  </span>
+                                )}
+                                {!isIntra && dbDupe && (
+                                  <span className="text-[10px] text-amber-600">
+                                    ↳ {dbDupe.farmerCode}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">{r.phone || "—"}</span>
                             )}
                           </TableCell>
                           <TableCell className="text-xs">
