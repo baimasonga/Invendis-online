@@ -58,9 +58,10 @@ export function ImportManifestModal({ open, onClose }: Props) {
   const [hiredPlate, setHiredPlate]         = useState("");
   const [hiredDriver, setHiredDriver]       = useState("");
   const [notes, setNotes]                   = useState("");
-  const [fieldOfficerId, setFieldOfficerId] = useState("");
-  const [stockShortfalls, setStockShortfalls] = useState<any[] | null>(null);
-  const [importResult, setImportResult]       = useState<any>(null);
+  const [fieldOfficerId, setFieldOfficerId]     = useState("");
+  const [autoCampaignName, setAutoCampaignName] = useState("");
+  const [stockShortfalls, setStockShortfalls]   = useState<any[] | null>(null);
+  const [importResult, setImportResult]         = useState<any>(null);
 
   const { data: campaignsData } = useQuery({ queryKey: KEYS.campaigns(),      queryFn: () => listCampaigns(1, 100) });
   const { data: vehiclesData }  = useQuery({ queryKey: KEYS.vehicles(),       queryFn: () => listVehicles(1, 200) });
@@ -177,7 +178,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
     setStep(1); setParsedRows([]); setColumnMapping([]);
     setCampaignId(""); setWarehouseId(""); setVehicleMode("office");
     setVehicleId(""); setDriverId(""); setHiredPlate(""); setHiredDriver("");
-    setNotes(""); setFieldOfficerId("");
+    setNotes(""); setFieldOfficerId(""); setAutoCampaignName("");
     setStockShortfalls(null); setImportResult(null);
   }
 
@@ -237,11 +238,10 @@ export function ImportManifestModal({ open, onClose }: Props) {
 
   async function handleImport(force = false) {
     if (!campaignId || !warehouseId) {
-      toast({ title: "Required fields", description: "Select a campaign and warehouse to continue.", variant: "destructive" });
+      toast({ title: "Required fields", description: "Select or auto-create a campaign, and select a warehouse.", variant: "destructive" });
       return;
     }
     const payload: any = {
-      campaignId:     Number(campaignId),
       warehouseId:    Number(warehouseId),
       vehicleType:    vehicleMode,
       fieldOfficerId: fieldOfficerId ? Number(fieldOfficerId) : undefined,
@@ -250,6 +250,12 @@ export function ImportManifestModal({ open, onClose }: Props) {
       columns:        columnMapping.map(c => ({ ...c, name: c.name.trim() || `Item ${c.colIndex + 1}` })),
       rows:           parsedRows,
     };
+    if (campaignId === "_new") {
+      const defaultName = `Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`;
+      payload.newCampaignName = autoCampaignName.trim() || defaultName;
+    } else {
+      payload.campaignId = Number(campaignId);
+    }
     if (vehicleMode === "office") {
       if (vehicleId) payload.vehicleId = Number(vehicleId);
       if (driverId)  payload.driverId  = Number(driverId);
@@ -262,6 +268,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
       const result = await importMutation.mutateAsync(payload);
       await qc.invalidateQueries({ queryKey: ["dispatches"] });
       await qc.invalidateQueries({ queryKey: ["farmers"] });
+      await qc.invalidateQueries({ queryKey: ["campaigns"] });
       setImportResult(result);
       setStep(5);
     } catch (err: any) {
@@ -484,11 +491,20 @@ export function ImportManifestModal({ open, onClose }: Props) {
                   <div className="space-y-1.5">
                     <Label>Campaign *</Label>
                     <Select value={campaignId} onValueChange={setCampaignId}>
-                      <SelectTrigger><SelectValue placeholder="Select campaign" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select or auto-create" /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="_new">✦ Auto-create from this import</SelectItem>
                         {campaigns.map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {campaignId === "_new" && (
+                      <Input
+                        placeholder={`Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`}
+                        value={autoCampaignName}
+                        onChange={e => setAutoCampaignName(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Source Warehouse *</Label>
@@ -563,10 +579,10 @@ export function ImportManifestModal({ open, onClose }: Props) {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Field Officer <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                    <Select value={fieldOfficerId} onValueChange={setFieldOfficerId}>
+                    <Select value={fieldOfficerId || "_none"} onValueChange={v => setFieldOfficerId(v === "_none" ? "" : v)}>
                       <SelectTrigger><SelectValue placeholder="Assign officer" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="_none">None</SelectItem>
                         {officers.map((o: any) => (
                           <SelectItem key={o.id} value={String(o.id)}>{o.fullName ?? o.full_name}</SelectItem>
                         ))}
@@ -592,6 +608,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
                     <span className="font-mono font-medium">{importResult.manifestCode}</span>{" "}
                     created — {importResult.totalCommunities} communities,{" "}
                     {importResult.farmersCreated ?? 0} new beneficiaries
+                    {importResult.campaignName && (
+                      <><br /><span className="text-xs">Campaign: <span className="font-medium text-foreground">{importResult.campaignName}</span></span></>
+                    )}
                   </p>
                 </div>
                 {importResult.communities?.length > 0 && (

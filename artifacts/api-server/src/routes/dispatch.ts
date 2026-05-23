@@ -448,7 +448,8 @@ router.post(
   requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
   async (req, res) => {
     const b = req.body as {
-      campaignId: number;
+      campaignId?: number;
+      newCampaignName?: string;
       warehouseId: number;
       vehicleType: "office" | "hired";
       vehicleId?: number;
@@ -469,7 +470,8 @@ router.post(
       }>;
     };
 
-    const { campaignId, warehouseId, columns, rows } = b;
+    const { warehouseId, columns, rows } = b;
+    let campaignId: number | undefined = b.campaignId;
 
     let createdBy: number | null = req.user?.userId ?? null;
     if (!createdBy && req.supabaseUser?.email) {
@@ -560,6 +562,33 @@ router.post(
     const districtMap: Record<string, number> = {};
     for (const d of (districtRows ?? []) as any[]) {
       districtMap[d.name.toLowerCase()] = d.id;
+    }
+
+    // 2b. Auto-create campaign if none supplied
+    let autoCampaignName: string | undefined;
+    if (!campaignId) {
+      const primaryDistrictId = districtMap[districtNames[0]?.toLowerCase()] ?? null;
+      autoCampaignName = b.newCampaignName?.trim()
+        || `Distribution - ${districtNames.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`;
+      const campaignCode = "CAM-" + randomBytes(4).toString("hex").toUpperCase();
+      const { data: newCampaign, error: campErr } = await supa
+        .from("campaigns")
+        .insert({
+          name: autoCampaignName,
+          campaign_code: campaignCode,
+          district_id: primaryDistrictId,
+          start_date: new Date().toISOString().slice(0, 10),
+          end_date: new Date(Date.now() + 180 * 24 * 3600_000).toISOString().slice(0, 10),
+          status: "approved",
+          created_by: createdBy,
+        })
+        .select()
+        .single();
+      if (campErr || !newCampaign) {
+        res.status(500).json({ error: `Failed to auto-create campaign: ${campErr?.message}` });
+        return;
+      }
+      campaignId = (newCampaign as any).id;
     }
 
     // 3. Find or create a group beneficiary per community
@@ -708,6 +737,8 @@ router.post(
     res.status(201).json({
       dispatch: snakeToCamel(dispatchRow),
       manifestCode,
+      campaignId,
+      campaignName: autoCampaignName,
       itemsCreated: newItemCount,
       farmersCreated: newFarmerCount,
       totalCommunities: rows.length,
