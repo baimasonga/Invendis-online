@@ -240,6 +240,26 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
     setTimeout(() => win.print(), 700);
   }
 
+  function exportSkippedRows(duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }>) {
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = ["Row", "Name", "Phone", "Conflict"];
+    const dataRows = duplicates.map(d => {
+      const intraBatchRow = parseIntraBatchRow(d.matchedFarmerCode);
+      const conflict = intraBatchRow !== null
+        ? `Duplicate of row ${intraBatchRow} in this file`
+        : d.matchedFarmerCode;
+      return [String(d.row), d.name, d.phone, conflict].map(escape).join(",");
+    });
+    const csv = [header.map(escape).join(","), ...dataRows].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "skipped-duplicates.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function downloadFlaggedRows() {
     const flagged = rows.filter(r => r.phone && duplicateMap.has(r.phone));
     const sheetData = [
@@ -524,9 +544,18 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                 <div className="w-full rounded-md border border-amber-200 bg-amber-50 overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-200">
                     <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                    <p className="text-xs font-semibold text-amber-800">
+                    <p className="text-xs font-semibold text-amber-800 flex-1">
                       {importResult.duplicates.length} row{importResult.duplicates.length !== 1 ? "s" : ""} skipped — duplicate phone number
                     </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100 shrink-0"
+                      onClick={() => exportSkippedRows(importResult.duplicates)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export skipped rows
+                    </Button>
                   </div>
                   <div className="overflow-auto max-h-48">
                     <Table>
