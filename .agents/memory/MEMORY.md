@@ -1,3 +1,4 @@
+- [Data store — Supabase only](supabase-only.md) — ALL app data lives in Supabase; executeSql/DATABASE_URL hits Replit PostgreSQL (migrations only, never app data).
 - [Profiles table](profiles-table.md) — public.profiles (UUID PK, no auth FK) required for mobile auth and all /api/users/profile/* routes.
 - [Stock lifecycle](stock-lifecycle.md) — stock_balance tracks available/loaded/delivered; deductions happen at dispatch "In Transit" transition, not at create time.
 - [PoD approval chain](pod-approval-chain.md) — approving a PoD must update allocations, campaigns.delivered_count, dispatch_items.quantity_delivered, and dispatches.delivered_packages.
