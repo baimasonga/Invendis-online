@@ -101,30 +101,39 @@ export function ImportManifestModal({ open, onClose }: Props) {
         const contactNameIdx   = headerRow.findIndex((h: any) => typeof h === "string" && h.toLowerCase().includes("contact person"));
         const contactPhoneIdx  = headerRow.findIndex((h: any) => typeof h === "string" && (h.toLowerCase().includes("contact #") || h.toLowerCase().includes("contact number")));
 
-        if (communityIdx < 0 || distributionIdx < 0) {
-          toast({ title: "Parse error", description: "Could not detect Community or Distribution columns.", variant: "destructive" });
+        if (communityIdx < 0) {
+          toast({ title: "Parse error", description: "Could not detect a Community column.", variant: "destructive" });
           return;
         }
 
+        // Distribution column is optional — use it as right boundary when present;
+        // otherwise fall back to the first Contact column, or end of header row.
+        const toolEndIdx =
+          distributionIdx >= 0 ? distributionIdx :
+          contactNameIdx  >= 0 ? contactNameIdx  :
+          contactPhoneIdx >= 0 ? contactPhoneIdx  :
+          headerRow.length;
+
         const toolHeaders: string[] = [];
-        for (let i = communityIdx + 1; i < distributionIdx; i++) {
+        for (let i = communityIdx + 1; i < toolEndIdx; i++) {
           toolHeaders.push(headerRow[i]?.toString() ?? `Item ${i - communityIdx}`);
         }
         if (toolHeaders.length === 0) {
-          toast({ title: "Parse error", description: "No tool/item columns found between Community and Distribution.", variant: "destructive" });
+          toast({ title: "Parse error", description: "No tool/item columns found after the Community column.", variant: "destructive" });
           return;
         }
 
         const rows: ParsedRow[] = [];
         for (let i = headerRowIdx + 1; i < raw.length; i++) {
           const row = raw[i] as any[];
-          const noVal   = row[0];
-          const distVal = row[districtIdx];
-          if (noVal === null || noVal === undefined) continue;
+          const communityVal = row[communityIdx];
+          const distVal = districtIdx >= 0 ? row[districtIdx] : null;
+          if (communityVal === null || communityVal === undefined || communityVal === "") continue;
+          if (typeof communityVal === "string" && (communityVal.toLowerCase().includes("total") || communityVal.toLowerCase().includes("grand"))) continue;
           if (typeof distVal === "string" && (distVal.toLowerCase().includes("total") || distVal.toLowerCase().includes("grand"))) continue;
 
           const quantities: number[] = [];
-          for (let j = communityIdx + 1; j < distributionIdx; j++) {
+          for (let j = communityIdx + 1; j < toolEndIdx; j++) {
             quantities.push(Number(row[j] ?? 0));
           }
           rows.push({
@@ -187,8 +196,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
   function downloadTemplate() {
     const activeItems = itemList.filter((it: any) => it.isActive !== false && it.isActive !== 0);
     const toolCols = activeItems.length ? activeItems.map((it: any) => it.name || "") : ["Tool 1", "Tool 2"];
-    const headers = ["No", "District", "Chiefdom", "Community", ...toolCols, "Distribution", "Contact Person", "Contact #"];
-    const example = [1, "Bo", "Kakua", "Gangama", ...toolCols.map(() => 12), 1, "Firstname Lastname", "078-000000"];
+    const headers = ["No", "District", "Chiefdom", "Community", ...toolCols, "Distribution (optional)", "Contact Person", "Contact #"];
+    const example = [1, "Bo", "Kakua", "Gangama", ...toolCols.map(() => 12), "", "Firstname Lastname", "078-000000"];
     const ws = XLSX.utils.aoa_to_sheet([headers, example]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Distribution Plan");
@@ -331,8 +340,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
                 </div>
                 <div className="rounded-md bg-muted/60 p-3 space-y-1 text-xs text-muted-foreground">
                   <p className="font-medium text-foreground text-xs">Expected column order:</p>
-                  <p>No · District · Chiefdom · Community · [Tool columns] · Distribution · Contact Person · Contact #</p>
-                  <p>Subtotal rows (e.g. "Bo Total", "GRAND TOTAL") are skipped automatically.</p>
+                  <p>No · District · Chiefdom · Community · [Tool columns] · <span className="italic">Distribution (optional)</span> · Contact Person · Contact #</p>
+                  <p>Subtotal rows (e.g. "Bo Total", "GRAND TOTAL") are skipped automatically. Distribution date can be set later by editing the manifest.</p>
                 </div>
               </div>
             )}
