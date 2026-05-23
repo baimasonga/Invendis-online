@@ -564,6 +564,19 @@ router.post(
       districtMap[d.name.toLowerCase()] = d.id;
     }
 
+    // 2c. Resolve chiefdom IDs (name + district_id composite key)
+    const chiefdomNames = [...new Set(rows.map(r => r.chiefdom?.trim()).filter(Boolean))] as string[];
+    const chiefdomMap: Record<string, number> = {}; // key: "name_lower|districtId"
+    if (chiefdomNames.length > 0) {
+      const { data: chiefdomRows } = await supa
+        .from("chiefdoms")
+        .select("id,name,district_id")
+        .in("name", chiefdomNames);
+      for (const c of (chiefdomRows ?? []) as any[]) {
+        chiefdomMap[`${(c.name as string).toLowerCase()}|${c.district_id}`] = c.id;
+      }
+    }
+
     // 2b. Auto-create campaign if none supplied
     let autoCampaignName: string | undefined;
     if (!campaignId) {
@@ -596,15 +609,29 @@ router.post(
     const farmerIds: number[] = [];
     let newFarmerCount = 0;
     for (const row of rows) {
+      const districtId  = districtMap[row.district.trim().toLowerCase()] ?? null;
+      const chiefdomId  = row.chiefdom?.trim()
+        ? (chiefdomMap[`${row.chiefdom.trim().toLowerCase()}|${districtId}`] ?? null)
+        : null;
+      const phone = row.contactPhone?.trim() || null;
+
       const { data: existing } = await supa
         .from("farmers")
-        .select("id, farmer_code, barcode_token, farmer_group")
+        .select("id, farmer_code, barcode_token, farmer_group, phone, chiefdom_id")
         .eq("beneficiary_type", "group")
         .eq("farmer_group", row.community.trim())
         .limit(1)
         .maybeSingle();
 
       if (existing) {
+        // Backfill phone / chiefdom if the record is missing them
+        const backfill: Record<string, unknown> = {};
+        if (!(existing as any).phone && phone)        backfill.phone       = phone;
+        if (!(existing as any).chiefdom_id && chiefdomId) backfill.chiefdom_id = chiefdomId;
+        if (Object.keys(backfill).length > 0) {
+          await supa.from("farmers").update(backfill).eq("id", (existing as any).id);
+        }
+
         farmerIds.push((existing as any).id);
         communities.push({
           community: row.community.trim(),
@@ -631,30 +658,27 @@ router.post(
         continue;
       }
 
-      const farmerCode  = "FRM-" + randomBytes(4).toString("hex").toUpperCase();
-      const barcodeToken = "BC-" + randomBytes(5).toString("hex").toUpperCase();
-      const districtId  = districtMap[row.district.trim().toLowerCase()] ?? null;
-      const nameParts   = (row.contactPerson ?? "").trim().split(/\s+/);
-      const firstName   = nameParts[0] ?? "";
-      const lastName    = nameParts.slice(1).join(" ") || "";
-      const notesParts  = [
-        row.chiefdom   ? `Chiefdom: ${row.chiefdom}`     : null,
-        row.contactPhone ? `Phone: ${row.contactPhone}` : null,
-      ].filter(Boolean);
+      const farmerCode   = "FRM-" + randomBytes(4).toString("hex").toUpperCase();
+      const barcodeToken = "BC-"  + randomBytes(5).toString("hex").toUpperCase();
+      const nameParts    = (row.contactPerson ?? "").trim().split(/\s+/);
+      const firstName    = nameParts[0] ?? "";
+      const lastName     = nameParts.slice(1).join(" ") || "";
 
       const { data: newFarmer, error: farmerErr } = await supa
         .from("farmers")
         .insert({
-          farmer_group: row.community.trim(),
+          farmer_group:    row.community.trim(),
           beneficiary_type: "group",
-          first_name: firstName,
-          last_name: lastName,
-          district_id: districtId,
-          farmer_code: farmerCode,
-          barcode_token: barcodeToken,
-          status: "approved",
-          registered_by: createdBy,
-          notes: notesParts.length ? notesParts.join(", ") : null,
+          first_name:      firstName,
+          last_name:       lastName,
+          district_id:     districtId,
+          chiefdom_id:     chiefdomId,
+          phone:           phone,
+          farmer_code:     farmerCode,
+          barcode_token:   barcodeToken,
+          status:          "pending",
+          registered_by:   createdBy,
+          notes:           "Auto-registered from dispatch import — complete profile via Farmer Registry",
         })
         .select()
         .single();
