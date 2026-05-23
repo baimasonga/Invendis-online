@@ -29,14 +29,14 @@ const COLOR_MAP: Record<CardColor, { border: string; iconBg: string; iconText: s
 };
 
 function StatCard({
-  title, value, sub, icon: Icon, color = "green",
+  title, value, sub, icon: Icon, color = "green", href,
 }: {
   title: string; value: string | number; sub?: string;
-  icon: React.ElementType; color?: CardColor;
+  icon: React.ElementType; color?: CardColor; href?: string;
 }) {
   const c = COLOR_MAP[color];
-  return (
-    <Card className={`border-l-4 ${c.border} relative overflow-hidden`}>
+  const card = (
+    <Card className={`border-l-4 ${c.border} relative overflow-hidden${href ? " cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -51,6 +51,7 @@ function StatCard({
       </CardContent>
     </Card>
   );
+  return href ? <Link href={href} className="block">{card}</Link> : card;
 }
 
 const RECENT_ACTION_COLORS: Record<string, string> = {
@@ -152,6 +153,7 @@ export default function Dashboard() {
             sub={`${Number(summary.pendingFarmers)} pending approval`}
             icon={Users}
             color="green"
+            href="/farmers"
           />
           <StatCard
             title="Active Campaigns"
@@ -159,6 +161,7 @@ export default function Dashboard() {
             sub="Ongoing distributions"
             icon={Flag}
             color="blue"
+            href="/campaigns"
           />
           <StatCard
             title="Pending PoD"
@@ -166,6 +169,7 @@ export default function Dashboard() {
             sub="Awaiting verification"
             icon={ClipboardList}
             color={summary.pendingPod > 0 ? "red" : "green"}
+            href="/pod"
           />
           <StatCard
             title="Total Dispatches"
@@ -173,6 +177,7 @@ export default function Dashboard() {
             sub="All time"
             icon={Truck}
             color="violet"
+            href="/dispatch"
           />
           <StatCard
             title="Total Allocations"
@@ -180,6 +185,7 @@ export default function Dashboard() {
             sub="All campaigns"
             icon={Package}
             color="amber"
+            href="/allocations"
           />
         </div>
       ) : null}

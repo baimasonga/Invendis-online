@@ -4,6 +4,7 @@ import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 import { getPresignedUploadUrl, bucket } from "../lib/aws.js";
+import { sendSms } from "../lib/sms.js";
 
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
@@ -187,6 +188,16 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     res.status(500).json({ error: pgErr.message }); return;
   }
 
+  // Update farmer's group_size if field officer adjusted it
+  const actualGroupSizeVal = (req.body as any).actualGroupSize;
+  if (actualGroupSizeVal && body.farmer_id) {
+    try {
+      await supa.from("farmers")
+        .update({ group_size: Number(actualGroupSizeVal) })
+        .eq("id", body.farmer_id);
+    } catch { /* best-effort: don't fail PoD submit if group_size update fails */ }
+  }
+
   await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);
   res.status(201).json(snakeToCamel(podRow));
 });
@@ -332,6 +343,23 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
       await supa.from("dispatches")
         .update({ delivered_packages: Math.round(totalDelivered), updated_at: new Date().toISOString() })
         .eq("id", dispatch_id);
+    }
+
+    // SMS notification to farmer (non-fatal)
+    try {
+      const { data: farmer } = await supa.from("farmers")
+        .select("phone, first_name, last_name, farmer_group")
+        .eq("id", farmer_id)
+        .single();
+      const phone = (farmer as any)?.phone;
+      if (phone) {
+        const name = (farmer as any)?.farmer_group
+          || `${(farmer as any)?.first_name ?? ""} ${(farmer as any)?.last_name ?? ""}`.trim()
+          || "Beneficiary";
+        await sendSms(phone, `Dear ${name}, your delivery has been confirmed. Thank you. — Invendis SL`);
+      }
+    } catch (smsErr: any) {
+      req.log.warn({ err: smsErr.message }, "PoD approval SMS failed");
     }
 
     await logAudit(req, "APPROVE", "PoD", `Approved PoD ID ${podId}`, "pod", podId);

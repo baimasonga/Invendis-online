@@ -86,4 +86,64 @@ router.post("/api/farmers/:id/reject", requireAuth, requireRoles("Admin", "Proje
   res.json(snakeToCamel(data));
 });
 
+router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+  const { rows, districtId, valueChainId } = req.body as {
+    rows: Array<{
+      firstName?: string; lastName?: string; gender?: string; phone?: string;
+      beneficiaryType?: string; farmerGroup?: string; groupSize?: number;
+    }>;
+    districtId?: number;
+    valueChainId?: number;
+  };
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: "No rows provided" });
+    return;
+  }
+
+  const createdBy = req.user?.userId;
+  const created: any[] = [];
+  let skipped = 0;
+
+  for (const row of rows) {
+    const firstName = String(row.firstName || "").trim();
+    const lastName  = String(row.lastName  || "").trim();
+    const farmerGroup = String(row.farmerGroup || "").trim() || null;
+    const beneficiaryType = row.beneficiaryType === "group" ? "group" : "individual";
+
+    if (!firstName && !farmerGroup) { skipped++; continue; }
+
+    const farmerCode   = generateFarmerCode();
+    const barcodeToken = generateBarcode();
+
+    const { data, error } = await supa.from("farmers").insert({
+      first_name:       firstName || null,
+      last_name:        String(row.lastName || "").trim() || null,
+      gender:           row.gender || null,
+      phone:            String(row.phone || "").trim() || null,
+      district_id:      districtId ?? null,
+      value_chain_id:   valueChainId ?? null,
+      beneficiary_type: beneficiaryType,
+      group_size:       row.groupSize ? Number(row.groupSize) : null,
+      farmer_group:     farmerGroup,
+      farmer_code:      farmerCode,
+      barcode_token:    barcodeToken,
+      status:           "pending",
+      registered_by:    createdBy ?? null,
+    }).select("id, farmer_code, barcode_token, first_name, last_name, farmer_group").single();
+
+    if (error) { skipped++; continue; }
+
+    created.push({
+      id:           (data as any).id,
+      farmerCode:   (data as any).farmer_code,
+      barcodeToken: (data as any).barcode_token,
+      name: farmerGroup || `${(data as any).first_name ?? ""} ${(data as any).last_name ?? ""}`.trim(),
+    });
+  }
+
+  await logAudit(req, "BULK_IMPORT", "Farmers", `Bulk imported ${created.length} farmers (${skipped} skipped)`, "farmer", 0);
+  res.status(201).json({ created: created.length, skipped, farmers: created });
+});
+
 export default router;

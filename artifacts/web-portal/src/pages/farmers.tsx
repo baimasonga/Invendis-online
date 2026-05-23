@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, User } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, User, FileSpreadsheet } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
 import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
+import { BulkFarmerImportModal } from "@/components/modals/BulkFarmerImportModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -55,6 +56,7 @@ export default function Farmers() {
   const [districtFilter, setDistrictFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
@@ -121,10 +123,16 @@ export default function Farmers() {
         title="Farmer Registry"
         subtitle="Manage and verify registered farmers."
         actions={can.registerFarmer ? (
-          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            Register Farmer
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setBulkImportOpen(true)}>
+              <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+              Bulk Import
+            </Button>
+            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Register Farmer
+            </Button>
+          </div>
         ) : undefined}
       />
 
@@ -336,7 +344,10 @@ export default function Farmers() {
       </Card>
 
       {can.registerFarmer && (
-        <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
+        <>
+          <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
+          <BulkFarmerImportModal open={bulkImportOpen} onClose={() => setBulkImportOpen(false)} />
+        </>
       )}
       {can.editFarmer && (
         <EditFarmerModal open={!!editFarmer} farmer={editFarmer} onClose={() => setEditFarmer(null)} />

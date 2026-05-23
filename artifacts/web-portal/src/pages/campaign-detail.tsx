@@ -189,7 +189,7 @@ export default function CampaignDetail() {
               </Card>
             </div>
 
-            <div>
+            <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-3 pt-4">
                   <CardTitle className="text-sm font-semibold">Overview</CardTitle>
@@ -213,6 +213,42 @@ export default function CampaignDetail() {
                   />
                 </CardContent>
               </Card>
+
+              {/* District breakdown */}
+              {(() => {
+                const byDistrict: Record<string, number> = {};
+                for (const a of allocationList) {
+                  const d = a.districtName ?? "Unknown";
+                  byDistrict[d] = (byDistrict[d] ?? 0) + 1;
+                }
+                const districts = Object.entries(byDistrict).sort((x, y) => y[1] - x[1]);
+                if (districts.length <= 1) return null;
+                return (
+                  <Card>
+                    <CardHeader className="pb-2 pt-4">
+                      <CardTitle className="text-sm font-semibold flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5" /> By District
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0 pb-1">
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {districts.map(([district, count]) => {
+                            const pct = allocationList.length > 0 ? Math.round((count / allocationList.length) * 100) : 0;
+                            return (
+                              <tr key={district} className="border-t">
+                                <td className="pl-4 py-2 text-muted-foreground">{district}</td>
+                                <td className="pr-4 py-2 text-right font-medium tabular-nums">{count}</td>
+                                <td className="pr-4 py-2 text-right text-muted-foreground">{pct}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
             </div>
           </div>
         </TabsContent>

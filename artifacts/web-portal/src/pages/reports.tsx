@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import * as XLSX from "xlsx";
 import { useQuery } from "@tanstack/react-query";
 import {
   getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport,
@@ -15,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Users, MapPin, TrendingUp, Download, Truck, Package, CalendarDays, X,
   AlertTriangle, CheckCircle2, Clock, Printer, ChevronDown, ChevronUp,
-  FileText, Filter, RotateCcw,
+  FileText, Filter, RotateCcw, FileSpreadsheet,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -34,6 +35,16 @@ function downloadCSV(rows: any[], columns: { key: string; label: string }[], fil
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function downloadXLSX(rows: any[], columns: { key: string; label: string }[], filename: string) {
+  if (!rows.length) return;
+  const header = columns.map(c => c.label);
+  const data   = rows.map(row => columns.map(c => row[c.key] ?? ""));
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Report");
+  XLSX.writeFile(wb, filename);
 }
 
 function KpiCard({ label, value, icon: Icon, color }: {
@@ -359,6 +370,16 @@ export default function Reports() {
     }
   }
 
+  async function exportIncidentsXLSX() {
+    setIncExporting(true);
+    try {
+      const result = await listIncidents(1, 9999, incStatus || undefined);
+      downloadXLSX(result.data ?? [], incidentsCols, `incidents-${today}.xlsx`);
+    } finally {
+      setIncExporting(false);
+    }
+  }
+
   const benRows: any[]  = (benReport as any)?.rows ?? [];
   const summary: any    = (benReport as any)?.summary ?? {};
   const stockList       = Array.isArray(stockRows) ? stockRows : [];
@@ -508,10 +529,16 @@ export default function Reports() {
           <Card>
             <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold">Farmers by District</CardTitle>
-              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!benRows.length}
-                onClick={() => downloadCSV(benRows, beneficiaryCols, `beneficiaries-${today}.csv`)}>
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!benRows.length}
+                  onClick={() => downloadCSV(benRows, beneficiaryCols, `beneficiaries-${today}.csv`)}>
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!benRows.length}
+                  onClick={() => downloadXLSX(benRows, beneficiaryCols, `beneficiaries-${today}.xlsx`)}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -567,10 +594,16 @@ export default function Reports() {
             <CardHeader className="pb-2 pt-4 px-4 space-y-2">
               <div className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-semibold">Stock Movement Ledger</CardTitle>
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!stockList.length}
-                  onClick={() => downloadCSV(stockList, stockCols, `stock-movement-${today}.csv`)}>
-                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!stockList.length}
+                    onClick={() => downloadCSV(stockList, stockCols, `stock-movement-${today}.csv`)}>
+                    <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!stockList.length}
+                    onClick={() => downloadXLSX(stockList, stockCols, `stock-movement-${today}.xlsx`)}>
+                    <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
+                  </Button>
+                </div>
               </div>
               <DateRangeFilter from={stockFrom} to={stockTo} onFrom={setStockFrom} onTo={setStockTo} onClear={() => { setStockFrom(""); setStockTo(""); }} />
             </CardHeader>
@@ -631,10 +664,16 @@ export default function Reports() {
             <CardHeader className="pb-2 pt-4 px-4 space-y-2">
               <div className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-semibold">Distribution Manifests</CardTitle>
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!distList.length}
-                  onClick={() => downloadCSV(distList, distributionCols, `distribution-${today}.csv`)}>
-                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!distList.length}
+                    onClick={() => downloadCSV(distList, distributionCols, `distribution-${today}.csv`)}>
+                    <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!distList.length}
+                    onClick={() => downloadXLSX(distList, distributionCols, `distribution-${today}.xlsx`)}>
+                    <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
+                  </Button>
+                </div>
               </div>
               <DateRangeFilter from={distFrom} to={distTo} onFrom={setDistFrom} onTo={setDistTo} onClear={() => { setDistFrom(""); setDistTo(""); }} />
             </CardHeader>
@@ -1065,7 +1104,11 @@ export default function Reports() {
                 )}
                 <Button size="sm" variant="outline" className="h-7 text-xs" disabled={incExporting || incTotal === 0}
                   onClick={exportIncidents}>
-                  <Download className="h-3.5 w-3.5 mr-1" /> {incExporting ? "Exporting…" : "Export CSV"}
+                  <Download className="h-3.5 w-3.5 mr-1" /> {incExporting ? "…" : "CSV"}
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={incExporting || incTotal === 0}
+                  onClick={exportIncidentsXLSX}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> {incExporting ? "…" : "Excel"}
                 </Button>
               </div>
             </div>

@@ -457,6 +457,7 @@ router.post(
       hiredDriverName?: string;
       fieldOfficerId?: number;
       notes?: string;
+      force?: boolean;
       columns: Array<{ colIndex: number; name: string; unit: string; itemId: number | null }>;
       rows: Array<{
         community: string;
@@ -514,6 +515,45 @@ router.post(
       );
     }
 
+    // 1b. Stock availability check (skipped if force=true)
+    if (!b.force) {
+      const itemTotals: Record<number, number> = {};
+      for (const row of rows) {
+        for (let i = 0; i < columns.length; i++) {
+          const qty = row.quantities[i] ?? 0;
+          if (qty > 0) {
+            const itemId = itemIdMap[columns[i].colIndex];
+            if (itemId) itemTotals[itemId] = (itemTotals[itemId] ?? 0) + qty;
+          }
+        }
+      }
+      const checkIds = Object.keys(itemTotals).map(Number);
+      if (checkIds.length > 0) {
+        const { data: stockRows } = await supa
+          .from("stock_balance")
+          .select("input_item_id, available")
+          .eq("warehouse_id", warehouseId)
+          .in("input_item_id", checkIds);
+        const nameMap: Record<number, string> = {};
+        for (const col of columns) {
+          if (itemIdMap[col.colIndex]) nameMap[itemIdMap[col.colIndex]] = col.name;
+        }
+        const shortfalls: Array<{ itemName: string; needed: number; available: number }> = [];
+        for (const [idStr, needed] of Object.entries(itemTotals)) {
+          const id = Number(idStr);
+          const bal = (stockRows ?? []).find((s: any) => s.input_item_id === id);
+          const available = Number((bal as any)?.available ?? 0);
+          if (needed > available) {
+            shortfalls.push({ itemName: nameMap[id] ?? `Item ${id}`, needed, available });
+          }
+        }
+        if (shortfalls.length > 0) {
+          res.status(422).json({ error: "insufficient_stock", shortfalls });
+          return;
+        }
+      }
+    }
+
     // 2. Resolve district IDs (case-insensitive)
     const districtNames = [...new Set(rows.map(r => r.district.trim()))];
     const { data: districtRows } = await supa.from("districts").select("id,name").in("name", districtNames);
@@ -523,12 +563,13 @@ router.post(
     }
 
     // 3. Find or create a group beneficiary per community
+    const communities: Array<{ community: string; district: string; farmerCode: string; barcodeToken: string }> = [];
     const farmerIds: number[] = [];
     let newFarmerCount = 0;
     for (const row of rows) {
       const { data: existing } = await supa
         .from("farmers")
-        .select("id")
+        .select("id, farmer_code, barcode_token, farmer_group")
         .eq("beneficiary_type", "group")
         .eq("farmer_group", row.community.trim())
         .limit(1)
@@ -536,6 +577,12 @@ router.post(
 
       if (existing) {
         farmerIds.push((existing as any).id);
+        communities.push({
+          community: row.community.trim(),
+          district: row.district.trim(),
+          farmerCode: (existing as any).farmer_code ?? "",
+          barcodeToken: (existing as any).barcode_token ?? "",
+        });
         // Ensure allocation exists for this campaign
         const { data: allocExists } = await supa
           .from("allocations")
@@ -591,6 +638,7 @@ router.post(
       const farmerId = (newFarmer as any).id;
       farmerIds.push(farmerId);
       newFarmerCount++;
+      communities.push({ community: row.community.trim(), district: row.district.trim(), farmerCode, barcodeToken });
 
       await supa.from("allocations").insert({
         campaign_id: campaignId,
@@ -663,6 +711,7 @@ router.post(
       itemsCreated: newItemCount,
       farmersCreated: newFarmerCount,
       totalCommunities: rows.length,
+      communities,
     });
   },
 );

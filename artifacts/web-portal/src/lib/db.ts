@@ -747,6 +747,11 @@ export async function importDispatch(payload: any) {
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    if (resp.status === 422 && (err as any).shortfalls) {
+      const stockError: any = new Error("insufficient_stock");
+      stockError.shortfalls = (err as any).shortfalls;
+      throw stockError;
+    }
     throw new Error((err as any).error ?? "Failed to import dispatch");
   }
   return resp.json();
@@ -1791,4 +1796,27 @@ export async function batchApprovePods(ids: number[]): Promise<void> {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error((err as any).error ?? "Failed to batch approve PoDs");
   }
+}
+
+export async function bulkImportFarmers(payload: {
+  rows: Array<{
+    firstName?: string; lastName?: string; gender?: string; phone?: string;
+    beneficiaryType?: string; farmerGroup?: string; groupSize?: number;
+  }>;
+  districtId?: number;
+  valueChainId?: number;
+}): Promise<{ created: number; skipped: number; farmers: any[] }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+  const resp = await fetch("/api/farmers/bulk-import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Bulk import failed");
+  }
+  return resp.json();
 }

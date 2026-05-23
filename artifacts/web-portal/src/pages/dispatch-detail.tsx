@@ -464,6 +464,9 @@ export default function DispatchDetail() {
                       <TableCell>
                         <p className="text-sm font-medium">{p.farmerName}</p>
                         <p className="text-xs text-muted-foreground">{p.farmerCode}</p>
+                        {p.beneficiaryType === "group" && p.groupSize ? (
+                          <p className="text-xs text-muted-foreground tabular-nums">{p.groupSize} members</p>
+                        ) : null}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm">{p.inputItemName ?? "—"}</TableCell>
                       <TableCell className="text-right text-sm hidden sm:table-cell">{p.quantityDelivered}</TableCell>

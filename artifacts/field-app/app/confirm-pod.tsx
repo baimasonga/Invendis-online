@@ -140,6 +140,7 @@ export default function ConfirmPodScreen() {
   // Details
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
+  const [actualGroupSize, setActualGroupSize] = useState(groupSize || "");
   const [gps, setGps] = useState<GPSCoords | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
 
@@ -489,6 +490,7 @@ export default function ConfirmPodScreen() {
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
     photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
+    ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
   });
 
   const doSubmit = async (otpStatus: string, faceStatus: string, offline = false) => {
@@ -679,6 +681,40 @@ export default function ConfirmPodScreen() {
               </View>
             </View>
           </View>
+
+          {beneficiaryType === "group" && (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Members Present</Text>
+              <View style={styles.qtyRow}>
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setActualGroupSize(v => String(Math.max(1, Number(v || groupSize || 1) - 1)))}
+                >
+                  <Feather name="minus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+                <TextInput
+                  style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
+                  value={actualGroupSize}
+                  onChangeText={setActualGroupSize}
+                  keyboardType="numeric"
+                  textAlign="center"
+                  placeholder={groupSize || "Count"}
+                  placeholderTextColor={colors.mutedForeground}
+                />
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setActualGroupSize(v => String(Number(v || groupSize || 0) + 1))}
+                >
+                  <Feather name="plus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+              {groupSize ? (
+                <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
+                  Registered: {groupSize} members
+                </Text>
+              ) : null}
+            </View>
+          )}
 
           <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>GPS Location</Text>
