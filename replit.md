@@ -1,5 +1,8 @@
 # Invendis — Inventory & Distribution System
 
+## User Preferences
+- **Always push to GitHub** (`baimasonga/Invendis-online`, remote `github`) after every task or code change.
+
 A full-stack web application + mobile field app for managing agricultural input distribution in Sierra Leone. Tracks farmer registry, inventory/warehouse management, distribution campaigns, vehicle dispatch & GPS tracking, Proof of Delivery (PoD), stock reconciliation, reports, and audit logs.
 
 ## Architecture
