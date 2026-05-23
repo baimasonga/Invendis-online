@@ -33,6 +33,11 @@ interface DuplicateInfo {
 const STEP_LABELS = ["Upload", "Setup & Preview", "Done"];
 const EXCEL_COLS  = ["First Name", "Last Name", "Gender", "Phone", "Type", "Group Name", "Group Size"];
 
+function parseIntraBatchRow(matchedFarmerCode: string): number | null {
+  const m = matchedFarmerCode.match(/duplicate within import file \(row (\d+)\)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 export function BulkFarmerImportModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -435,7 +440,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-200">
                     <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
                     <p className="text-xs font-semibold text-amber-800">
-                      {importResult.duplicates.length} row{importResult.duplicates.length !== 1 ? "s" : ""} skipped — phone number already registered
+                      {importResult.duplicates.length} row{importResult.duplicates.length !== 1 ? "s" : ""} skipped — duplicate phone number
                     </p>
                   </div>
                   <div className="overflow-auto max-h-48">
@@ -445,18 +450,31 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                           <TableHead className="text-xs text-amber-800">Row</TableHead>
                           <TableHead className="text-xs text-amber-800">Name / Group</TableHead>
                           <TableHead className="text-xs text-amber-800">Phone</TableHead>
-                          <TableHead className="text-xs text-amber-800">Matched Farmer Code</TableHead>
+                          <TableHead className="text-xs text-amber-800">Conflict</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {importResult.duplicates.map((d) => (
-                          <TableRow key={d.row} className="bg-white">
-                            <TableCell className="text-xs text-muted-foreground">{d.row}</TableCell>
-                            <TableCell className="text-xs font-medium">{d.name}</TableCell>
-                            <TableCell className="text-xs font-mono text-muted-foreground">{d.phone}</TableCell>
-                            <TableCell className="text-xs font-mono text-amber-700">{d.matchedFarmerCode}</TableCell>
-                          </TableRow>
-                        ))}
+                        {importResult.duplicates.map((d) => {
+                          const intraBatchRow = parseIntraBatchRow(d.matchedFarmerCode);
+                          return (
+                            <TableRow key={d.row} className="bg-white">
+                              <TableCell className="text-xs text-muted-foreground">{d.row}</TableCell>
+                              <TableCell className="text-xs font-medium">{d.name}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">{d.phone}</TableCell>
+                              <TableCell className="text-xs">
+                                {intraBatchRow !== null ? (
+                                  <span className="italic text-muted-foreground">
+                                    Duplicate of row {intraBatchRow} in this file
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-amber-700 select-all cursor-default" title={d.matchedFarmerCode}>
+                                    {d.matchedFarmerCode}
+                                  </span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
