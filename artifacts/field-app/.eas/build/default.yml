@@ -1,0 +1,13 @@
+build:
+  name: Android APK Build
+  steps:
+    - eas/checkout
+    - run:
+        name: Install pnpm@10 and workspace dependencies
+        command: |
+          npm install -g pnpm@10
+          cd ../../
+          pnpm install --frozen-lockfile
+    - eas/use_npm_token
+    - eas/prebuild
+    - eas/build
