@@ -1659,9 +1659,7 @@ export async function importDistributionSites(rows: any[]) {
 
 // ── Input Items ───────────────────────────────────────────────────────────────
 export async function listInputItems() {
-  const { data, error } = await supabase.from("input_items").select("*").order("name");
-  if (error) throw new Error(error.message);
-  return cc(data ?? []);
+  return mdFetch<any[]>("/api/master-data/input-items");
 }
 export async function createInputItem(payload: any) {
   return mdFetch("/api/master-data/input-items", { method: "POST", body: JSON.stringify(payload) });

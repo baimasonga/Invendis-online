@@ -216,12 +216,14 @@ export default function CampaignDetail() {
 
               {/* District breakdown */}
               {(() => {
-                const byDistrict: Record<string, number> = {};
+                const byDistrict: Record<string, { allocated: number; delivered: number }> = {};
                 for (const a of allocationList) {
                   const d = a.districtName ?? "Unknown";
-                  byDistrict[d] = (byDistrict[d] ?? 0) + 1;
+                  if (!byDistrict[d]) byDistrict[d] = { allocated: 0, delivered: 0 };
+                  byDistrict[d].allocated++;
+                  if ((a.status ?? "").toLowerCase() === "delivered") byDistrict[d].delivered++;
                 }
-                const districts = Object.entries(byDistrict).sort((x, y) => y[1] - x[1]);
+                const districts = Object.entries(byDistrict).sort((x, y) => y[1].allocated - x[1].allocated);
                 if (districts.length <= 1) return null;
                 return (
                   <Card>
@@ -232,14 +234,26 @@ export default function CampaignDetail() {
                     </CardHeader>
                     <CardContent className="p-0 pb-1">
                       <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="pl-4 py-1.5 text-left font-medium text-muted-foreground">District</th>
+                            <th className="pr-2 py-1.5 text-right font-medium text-muted-foreground">Alloc.</th>
+                            <th className="pr-4 py-1.5 text-right font-medium text-muted-foreground">Delivered</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          {districts.map(([district, count]) => {
-                            const pct = allocationList.length > 0 ? Math.round((count / allocationList.length) * 100) : 0;
+                          {districts.map(([district, { allocated, delivered }]) => {
+                            const pct = allocated > 0 ? Math.round((delivered / allocated) * 100) : 0;
                             return (
                               <tr key={district} className="border-t">
-                                <td className="pl-4 py-2 text-muted-foreground">{district}</td>
-                                <td className="pr-4 py-2 text-right font-medium tabular-nums">{count}</td>
-                                <td className="pr-4 py-2 text-right text-muted-foreground">{pct}%</td>
+                                <td className="pl-4 py-2 text-muted-foreground truncate max-w-[100px]">{district}</td>
+                                <td className="pr-2 py-2 text-right tabular-nums">{allocated}</td>
+                                <td className="pr-4 py-2 text-right tabular-nums">
+                                  <span className={delivered > 0 ? "text-emerald-700 font-medium" : "text-muted-foreground"}>
+                                    {delivered}
+                                  </span>
+                                  <span className="text-muted-foreground ml-1">({pct}%)</span>
+                                </td>
                               </tr>
                             );
                           })}
