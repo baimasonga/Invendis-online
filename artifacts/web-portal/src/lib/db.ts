@@ -1892,3 +1892,20 @@ export async function bulkImportFarmers(payload: {
   }
   return resp.json();
 }
+
+export async function bulkCheckDuplicates(phones: string[]): Promise<Array<{ phone: string; farmerCode: string; name: string }>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ phones }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Duplicate check failed");
+  }
+  const json = await resp.json();
+  return json.duplicates ?? [];
+}

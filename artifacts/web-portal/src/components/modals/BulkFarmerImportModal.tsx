@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
-import { bulkImportFarmers, listDistricts, listValueChains, KEYS } from "@/lib/db";
+import { bulkImportFarmers, listDistricts, listValueChains, bulkCheckDuplicates, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { FileSpreadsheet, Download, Printer, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle } from "lucide-react";
+import { FileSpreadsheet, Download, Printer, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props { open: boolean; onClose: () => void; }
@@ -22,6 +22,12 @@ interface FarmerRow {
   beneficiaryType: string;
   farmerGroup: string;
   groupSize: number | null;
+}
+
+interface DuplicateInfo {
+  phone: string;
+  farmerCode: string;
+  name: string;
 }
 
 const STEP_LABELS = ["Upload", "Setup & Preview", "Done"];
@@ -44,6 +50,9 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
     farmers: any[];
   } | null>(null);
 
+  const [duplicateMap, setDuplicateMap] = useState<Map<string, DuplicateInfo>>(new Map());
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),    queryFn: listDistricts });
   const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(),  queryFn: listValueChains });
 
@@ -52,6 +61,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
   function reset() {
     setStep(1); setRows([]); setDistrictId(""); setValueChainId(""); setImportResult(null);
+    setDuplicateMap(new Map()); setCheckingDuplicates(false);
   }
   function handleClose() { reset(); onClose(); }
 
@@ -68,7 +78,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
   function parseFile(file: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
         const wb   = XLSX.read(data, { type: "array" });
@@ -124,6 +134,23 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
         setRows(parsed);
         setStep(2);
+
+        const phones = parsed.map(r => r.phone).filter(Boolean);
+        if (phones.length > 0) {
+          setCheckingDuplicates(true);
+          try {
+            const dupes = await bulkCheckDuplicates(phones);
+            const map = new Map<string, DuplicateInfo>();
+            for (const d of dupes) {
+              if (d.phone) map.set(d.phone, d);
+            }
+            setDuplicateMap(map);
+          } catch {
+            // non-fatal; advisory only
+          } finally {
+            setCheckingDuplicates(false);
+          }
+        }
       } catch (err: any) {
         toast({ title: "File error", description: err.message, variant: "destructive" });
       }
@@ -192,6 +219,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
 
   const groups  = rows.filter(r => r.beneficiaryType === "group").length;
   const indivs  = rows.length - groups;
+  const dupeCount = duplicateMap.size;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
@@ -278,6 +306,24 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                 </p>
               </div>
 
+              {/* Duplicate warning banner */}
+              {checkingDuplicates && (
+                <div className="flex items-center gap-2 rounded-md bg-muted/60 border px-3 py-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />
+                  <p className="text-xs text-muted-foreground">Checking for duplicate phone numbers…</p>
+                </div>
+              )}
+              {!checkingDuplicates && dupeCount > 0 && (
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3">
+                  <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-800">
+                    <span className="font-semibold">{dupeCount} row{dupeCount !== 1 ? "s" : ""}</span>{" "}
+                    {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted below).
+                    {" "}These will be skipped on import — fix your file or proceed to skip them.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label>District <span className="text-muted-foreground text-xs">(optional)</span></Label>
@@ -317,26 +363,38 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="text-xs font-medium">
-                          {r.beneficiaryType === "group"
-                            ? (r.farmerGroup || "—")
-                            : `${r.firstName} ${r.lastName}`.trim() || "—"
-                          }
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{r.gender || "—"}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground font-mono">{r.phone || "—"}</TableCell>
-                        <TableCell className="text-xs">
-                          <Badge variant={r.beneficiaryType === "group" ? "secondary" : "outline"} className="text-[10px]">
-                            {r.beneficiaryType}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-right tabular-nums text-muted-foreground">
-                          {r.groupSize ?? "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {rows.map((r, i) => {
+                      const dupe = r.phone ? duplicateMap.get(r.phone) : undefined;
+                      return (
+                        <TableRow key={i} className={cn(dupe && "bg-amber-50 hover:bg-amber-100")}>
+                          <TableCell className="text-xs font-medium">
+                            {r.beneficiaryType === "group"
+                              ? (r.farmerGroup || "—")
+                              : `${r.firstName} ${r.lastName}`.trim() || "—"
+                            }
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{r.gender || "—"}</TableCell>
+                          <TableCell className="text-xs font-mono">
+                            <span className={cn(dupe ? "text-amber-700 font-semibold" : "text-muted-foreground")}>
+                              {r.phone || "—"}
+                            </span>
+                            {dupe && (
+                              <span className="ml-1.5 text-[10px] text-amber-600 font-normal">
+                                ↳ {dupe.farmerCode}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <Badge variant={r.beneficiaryType === "group" ? "secondary" : "outline"} className="text-[10px]">
+                              {r.beneficiaryType}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-right tabular-nums text-muted-foreground">
+                            {r.groupSize ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

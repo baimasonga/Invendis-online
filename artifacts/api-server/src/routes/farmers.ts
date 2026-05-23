@@ -64,6 +64,27 @@ router.get("/api/farmers/check-duplicate", requireAuth, async (req, res) => {
   res.json({ matches: snakeToCamel(data ?? []) });
 });
 
+router.post("/api/farmers/bulk-check-duplicates", requireAuth, async (req, res) => {
+  const { phones } = req.body as { phones?: string[] };
+  if (!Array.isArray(phones) || phones.length === 0) { res.json({ duplicates: [] }); return; }
+  const cleaned = phones.map(p => String(p).trim()).filter(Boolean);
+  if (cleaned.length === 0) { res.json({ duplicates: [] }); return; }
+  const orFilter = cleaned.map(p => `phone.eq.${p}`).join(",");
+  const { data, error } = await supa
+    .from("farmers")
+    .select("id, first_name, last_name, farmer_group, farmer_code, beneficiary_type, phone")
+    .or(orFilter);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const duplicates = (data ?? []).map((r: any) => ({
+    phone: r.phone,
+    farmerCode: r.farmer_code,
+    name: r.beneficiary_type === "group"
+      ? (r.farmer_group || "—")
+      : `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "—",
+  }));
+  res.json({ duplicates });
+});
+
 router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
   const { data: rows, error } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
