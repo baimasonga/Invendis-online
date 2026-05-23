@@ -392,6 +392,51 @@ async function syncViaProviderApi(
   return { synced, skipped, source: "provider-api" };
 }
 
+export interface TrackerLivePosition {
+  id: number;
+  label: string;
+  ident: string | null;
+  lat: number | null;
+  lng: number | null;
+  speed: number | null;
+  heading: number | null;
+  recordedAt: string | null;
+  enabled: boolean;
+}
+
+export async function fetchAllLivePositions(): Promise<TrackerLivePosition[]> {
+  const trackers = await fetchAllTrackers();
+  const results = await Promise.allSettled(
+    trackers.map(async (t): Promise<TrackerLivePosition> => {
+      let pos: { lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date } | null = null;
+      try {
+        const [telRes, msgRes] = await Promise.allSettled([
+          fetchTrackerTelemetry(t.id),
+          fetchTrackerMessages(t.id, 1),
+        ]);
+        pos = extractPositionFromProviderData(
+          telRes.status === "fulfilled" ? telRes.value : null,
+          msgRes.status === "fulfilled" ? msgRes.value : [],
+        );
+      } catch { /* no position available */ }
+      return {
+        id: Number(t.id),
+        label: (t.name ?? t.label ?? `Unit #${t.id}`) as string,
+        ident: (t.ident ?? null) as string | null,
+        lat: pos?.lat ?? null,
+        lng: pos?.lng ?? null,
+        speed: pos?.speed ?? null,
+        heading: pos?.heading ?? null,
+        recordedAt: pos?.recordedAt?.toISOString() ?? null,
+        enabled: t.enabled ?? true,
+      };
+    })
+  );
+  return results
+    .filter((r): r is PromiseFulfilledResult<TrackerLivePosition> => r.status === "fulfilled")
+    .map(r => r.value);
+}
+
 let _pollTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startGpsPoller(intervalMs = 30_000): void {

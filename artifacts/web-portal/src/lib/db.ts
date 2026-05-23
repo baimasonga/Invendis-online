@@ -969,6 +969,16 @@ export async function listGpsTraceUnits(): Promise<{ id: number; label: string; 
   return resp.json();
 }
 
+export async function listGpsTraceLive(): Promise<any[]> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gps/trace/live", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to fetch live tracker positions");
+  }
+  return resp.json();
+}
+
 export async function listGpsTraceStatus(): Promise<any[]> {
   const token = await gpsToken();
   const resp = await fetch("/api/gps/trace/status", { headers: { Authorization: `Bearer ${token}` } });

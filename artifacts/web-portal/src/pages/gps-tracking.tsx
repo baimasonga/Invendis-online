@@ -5,7 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   listVehicleGpsStatus, listGpsTrack, listGpsVehicleHistory, KEYS,
-  listGpsTraceUnits, listGpsTraceStatus,
+  listGpsTraceUnits, listGpsTraceStatus, listGpsTraceLive,
   linkGpsTraceUnit, unlinkGpsTraceUnit, triggerGpsTraceSync,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -365,6 +365,27 @@ function createDestIcon(): L.DivIcon {
   });
 }
 
+function createTrackerIcon(tier: "live" | "recent" | "stale" | "offline", selected: boolean): L.DivIcon {
+  const color = TIER_HEX[tier];
+  const s = selected ? 38 : 30;
+  const shadow = selected ? `filter:drop-shadow(0 0 5px ${color});` : "filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));";
+  return L.divIcon({
+    className: "leaflet-tracker-marker",
+    html: `<div style="
+        position:relative;width:${s}px;height:${s}px;
+        background:${color};border:2.5px solid white;
+        border-radius:4px;${shadow}
+        display:flex;align-items:center;justify-content:center;">
+      <svg xmlns='http://www.w3.org/2000/svg' width='${Math.round(s * 0.45)}' height='${Math.round(s * 0.45)}' viewBox='0 0 24 24' fill='white'>
+        <path d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/>
+      </svg>
+    </div>`,
+    iconSize: [s, s],
+    iconAnchor: [s / 2, s / 2],
+    popupAnchor: [0, -s / 2 - 6],
+  });
+}
+
 // ── FitBoundsOnChange ─────────────────────────────────────────────────────────
 
 function FitBoundsOnChange({ points }: { points: [number, number][] }) {
@@ -495,6 +516,110 @@ function VehicleMap({ vehicles, selectedVehicle, trackPoints, selectedData, onSe
           />
         </>
       )}
+    </MapContainer>
+  );
+}
+
+// ── TrackerCard ───────────────────────────────────────────────────────────────
+
+function TrackerCard({ t, isSelected, onSelect }: { t: any; isSelected: boolean; onSelect: () => void }) {
+  const tier = getSignalTier(t.recordedAt);
+  const c = SIGNAL_CONFIG[tier];
+  const Icon = c.icon;
+  const hasPos = t.lat != null && t.lng != null;
+
+  return (
+    <Card
+      className={`cursor-pointer transition-all hover:shadow-md ${isSelected ? "ring-2 ring-blue-500 shadow-md" : "hover:border-blue-200"}`}
+      onClick={onSelect}
+    >
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="relative shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Radio className="h-3.5 w-3.5 text-blue-700 dark:text-blue-400" />
+              </div>
+              {tier === "live" && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-xs leading-tight truncate">{t.label}</p>
+              <p className="text-[10px] text-muted-foreground font-mono truncate">{t.ident ?? "—"}</p>
+            </div>
+          </div>
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${c.labelCls}`}>
+            <Icon className={`h-2.5 w-2.5 ${c.iconCls}`} />
+            {c.label}
+          </span>
+        </div>
+
+        <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
+          {hasPos ? (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {t.lat.toFixed(4)}, {t.lng.toFixed(4)}
+            </span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">No position</span>
+          )}
+          <div className="flex items-center gap-2">
+            {t.speed != null && t.speed > 0 && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                <Gauge className="h-2.5 w-2.5" />{t.speed} km/h
+              </span>
+            )}
+            {t.recordedAt && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">{formatAgo(t.recordedAt)}</span>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── TrackerMap ────────────────────────────────────────────────────────────────
+
+function TrackerMap({ trackers, selectedId, onSelect }: { trackers: any[]; selectedId: number | null; onSelect: (id: number | null) => void }) {
+  const positioned = trackers.filter(t => t.lat != null && t.lng != null);
+
+  const fitPoints = useMemo<[number, number][]>(
+    () => positioned.map(t => [t.lat, t.lng]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [positioned.map(t => `${t.id}`).join(",")]
+  );
+
+  return (
+    <MapContainer center={SL_CENTER} zoom={7} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      />
+      <FitBoundsOnChange points={fitPoints} />
+      {positioned.map(t => {
+        const tier = getSignalTier(t.recordedAt);
+        return (
+          <Marker
+            key={t.id}
+            position={[t.lat, t.lng]}
+            icon={createTrackerIcon(tier, selectedId === t.id)}
+            eventHandlers={{ click: () => onSelect(selectedId === t.id ? null : t.id) }}
+          >
+            <Popup>
+              <div className="min-w-[160px] py-0.5">
+                <p className="font-semibold text-sm">{t.label}</p>
+                <p className="text-xs text-gray-500 font-mono">{t.ident ?? "—"}</p>
+                {t.speed != null && <p className="text-xs mt-1">{t.speed} km/h</p>}
+                <p className="text-xs text-gray-400 mt-0.5">{formatAgo(t.recordedAt)}</p>
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
     </MapContainer>
   );
 }
@@ -985,7 +1110,9 @@ function SelectedVehiclePanel({ data: d, trackPoints }: { data: any; trackPoints
 
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
+  const [selectedTracker, setSelectedTracker] = useState<number | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [viewMode, setViewMode] = useState<"vehicles" | "trackers">("trackers");
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
     queryKey: KEYS.vehicles(),
@@ -993,26 +1120,46 @@ export default function GpsTracking() {
     refetchInterval: 30_000,
   });
 
+  const { data: liveTrackers, isLoading: loadingTrackers, refetch: refetchTrackers, isFetching: isFetchingTrackers } = useQuery({
+    queryKey: ["gps-trace-live"],
+    queryFn: listGpsTraceLive,
+    refetchInterval: 30_000,
+    enabled: viewMode === "trackers",
+  });
+
   const { data: track, isLoading: loadingTrack } = useQuery({
     queryKey: ["gps-track", selectedVehicle],
     queryFn: () => listGpsTrack(selectedVehicle ?? undefined, 100),
-    enabled: !!selectedVehicle,
+    enabled: !!selectedVehicle && viewMode === "vehicles",
     refetchInterval: 30_000,
   });
 
   const vehicleList: any[] = Array.isArray(vehicles) ? vehicles : [];
+  const trackerList: any[] = Array.isArray(liveTrackers) ? liveTrackers : [];
   const trackPoints: any[] = Array.isArray(track) ? (track as any[]).slice().reverse() : [];
   const selectedData = vehicleList.find((v: any) => v.id === selectedVehicle);
   const liveCount = vehicleList.filter((v: any) => getSignalTier(v.lastPing) === "live").length;
   const arrivedCount = vehicleList.filter((v: any) => getArrivalStatus(v) === "arrived").length;
+  const trackerLiveCount = trackerList.filter(t => getSignalTier(t.recordedAt) === "live").length;
+  const trackerWithPos = trackerList.filter(t => t.lat != null && t.lng != null).length;
+
+  const isRefreshing = viewMode === "vehicles" ? isFetching : isFetchingTrackers;
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Live Vehicle Tracking"
-        subtitle="Real-time GPS positions. Refreshes every 30 seconds."
+        title="Live GPS Tracking"
+        subtitle="Real-time positions from all GPS-Trace accounts. Refreshes every 30 seconds."
         badge={
-          liveCount > 0 ? (
+          viewMode === "trackers" && trackerLiveCount > 0 ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+              </span>
+              {trackerLiveCount} live
+            </span>
+          ) : viewMode === "vehicles" && liveCount > 0 ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -1031,152 +1178,264 @@ export default function GpsTracking() {
               <Settings2 className="h-3.5 w-3.5 mr-1.5" />
               {showSetup ? "Hide Setup" : "Tracker Setup"}
             </Button>
-            <Button size="sm" variant="outline" className="h-8" onClick={() => refetch()} disabled={isFetching}>
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+            <Button
+              size="sm" variant="outline" className="h-8"
+              onClick={() => viewMode === "vehicles" ? refetch() : refetchTrackers()}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isRefreshing ? "animate-spin" : ""}`} />
               Refresh
             </Button>
           </div>
         }
       />
 
+      {/* View mode tab toggle */}
+      <div className="flex items-center gap-1 p-1 rounded-lg bg-muted w-fit">
+        <button
+          onClick={() => { setViewMode("trackers"); setSelectedVehicle(null); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            viewMode === "trackers"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Radio className="h-3.5 w-3.5" />
+          All Trackers
+          {trackerList.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-semibold">{trackerList.length}</span>
+          )}
+        </button>
+        <button
+          onClick={() => { setViewMode("vehicles"); setSelectedTracker(null); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            viewMode === "vehicles"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Truck className="h-3.5 w-3.5" />
+          Dispatched Vehicles
+          {vehicleList.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">{vehicleList.length}</span>
+          )}
+        </button>
+      </div>
+
       {showSetup && <GpsTracePanel />}
 
-      {/* Summary strip */}
-      {!isLoading && vehicleList.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Vehicles",    value: vehicleList.length, cls: "text-blue-700",    bg: "bg-blue-50 dark:bg-blue-900/20" },
-            { label: "Arrived",     value: arrivedCount,        cls: "text-teal-700",   bg: "bg-teal-50 dark:bg-teal-900/20" },
-            { label: "Live Signal", value: liveCount,           cls: "text-emerald-700",bg: "bg-emerald-50 dark:bg-emerald-900/20" },
-          ].map((s) => (
-            <Card key={s.label} className={`${s.bg} border-transparent`}>
-              <CardContent className="p-3 text-center">
-                <p className={`text-xl font-bold ${s.cls}`}>{s.value}</p>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      {/* ── ALL TRACKERS MODE ─────────────────────────────────────────────── */}
+      {viewMode === "trackers" && (
+        <>
+          {/* Summary strip */}
+          {!loadingTrackers && trackerList.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Trackers",      value: trackerList.length, cls: "text-blue-700",    bg: "bg-blue-50 dark:bg-blue-900/20" },
+                { label: "With Position", value: trackerWithPos,      cls: "text-teal-700",   bg: "bg-teal-50 dark:bg-teal-900/20" },
+                { label: "Live Signal",   value: trackerLiveCount,    cls: "text-emerald-700",bg: "bg-emerald-50 dark:bg-emerald-900/20" },
+              ].map((s) => (
+                <Card key={s.label} className={`${s.bg} border-transparent`}>
+                  <CardContent className="p-3 text-center">
+                    <p className={`text-xl font-bold ${s.cls}`}>{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Tracker list */}
+            <div className="lg:col-span-1 space-y-2 max-h-[600px] overflow-y-auto pr-1">
+              <div className="flex items-center gap-2 mb-2 sticky top-0 bg-background/95 py-1">
+                <Radio className="h-4 w-4 text-blue-600" />
+                <h2 className="text-sm font-semibold">GPS Trackers</h2>
+                {!loadingTrackers && (
+                  <span className="ml-auto text-xs text-muted-foreground">{trackerList.length} units</span>
+                )}
+              </div>
+              {loadingTrackers ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <Card key={i}><CardContent className="p-3"><Skeleton className="h-16 w-full" /></CardContent></Card>
+                ))
+              ) : trackerList.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
+                    <Radio className="h-10 w-10 opacity-20" />
+                    <p className="text-sm">No trackers found</p>
+                  </CardContent>
+                </Card>
+              ) : trackerList.map((t: any) => (
+                <TrackerCard
+                  key={t.id}
+                  t={t}
+                  isSelected={selectedTracker === t.id}
+                  onSelect={() => setSelectedTracker(selectedTracker === t.id ? null : t.id)}
+                />
+              ))}
+            </div>
+
+            {/* Tracker map */}
+            <div className="lg:col-span-2">
+              <Card className="overflow-hidden">
+                <div className="h-[560px] w-full">
+                  {loadingTrackers ? (
+                    <Skeleton className="h-full w-full rounded-none" />
+                  ) : (
+                    <TrackerMap
+                      trackers={trackerList}
+                      selectedId={selectedTracker}
+                      onSelect={setSelectedTracker}
+                    />
+                  )}
+                </div>
+                <div className="px-4 py-2 border-t bg-muted/30 flex items-center gap-4 flex-wrap">
+                  {(["live", "recent", "stale", "offline"] as const).map(t => (
+                    <span key={t} className="flex items-center gap-1.5 text-[10px] text-muted-foreground capitalize">
+                      <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: TIER_HEX[t] }} />
+                      {t}
+                    </span>
+                  ))}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {trackerWithPos} of {trackerList.length} trackers have a position fix
+                  </span>
+                </div>
+              </Card>
+            </div>
+          </div>
+        </>
       )}
 
-      {/* Main layout: vehicle list left, map right */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Vehicle list */}
-        <div className="lg:col-span-1 space-y-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Radio className="h-4 w-4 text-green-600" />
-            <h2 className="text-sm font-semibold">Vehicles</h2>
-            {!isLoading && (
-              <span className="ml-auto text-xs text-muted-foreground">{vehicleList.length} tracked</span>
-            )}
-          </div>
+      {/* ── DISPATCHED VEHICLES MODE ──────────────────────────────────────── */}
+      {viewMode === "vehicles" && (
+        <>
+          {!isLoading && vehicleList.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Vehicles",    value: vehicleList.length, cls: "text-blue-700",    bg: "bg-blue-50 dark:bg-blue-900/20" },
+                { label: "Arrived",     value: arrivedCount,        cls: "text-teal-700",   bg: "bg-teal-50 dark:bg-teal-900/20" },
+                { label: "Live Signal", value: liveCount,           cls: "text-emerald-700",bg: "bg-emerald-50 dark:bg-emerald-900/20" },
+              ].map((s) => (
+                <Card key={s.label} className={`${s.bg} border-transparent`}>
+                  <CardContent className="p-3 text-center">
+                    <p className={`text-xl font-bold ${s.cls}`}>{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
 
-          {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full" /></CardContent></Card>
-            ))
-          ) : vehicleList.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
-                <Truck className="h-10 w-10 opacity-20" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">No vehicles in transit</p>
-                  <p className="text-xs mt-1">GPS data appears here when vehicles are dispatched.</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : vehicleList.map((v: any) => (
-            <VehicleCard
-              key={v.id}
-              v={v}
-              isSelected={selectedVehicle === v.id}
-              onSelect={() => setSelectedVehicle(selectedVehicle === v.id ? null : v.id)}
-            />
-          ))}
-        </div>
-
-        {/* Map + detail panel */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Map */}
-          <Card className="overflow-hidden">
-            <div className="h-[480px] w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-1 space-y-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Truck className="h-4 w-4 text-green-600" />
+                <h2 className="text-sm font-semibold">Vehicles</h2>
+                {!isLoading && (
+                  <span className="ml-auto text-xs text-muted-foreground">{vehicleList.length} tracked</span>
+                )}
+              </div>
               {isLoading ? (
-                <Skeleton className="h-full w-full rounded-none" />
-              ) : (
-                <VehicleMap
-                  vehicles={vehicleList}
-                  selectedVehicle={selectedVehicle}
-                  trackPoints={trackPoints}
-                  selectedData={selectedData}
-                  onSelect={setSelectedVehicle}
+                Array.from({ length: 3 }).map((_, i) => (
+                  <Card key={i}><CardContent className="p-4"><Skeleton className="h-24 w-full" /></CardContent></Card>
+                ))
+              ) : vehicleList.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
+                    <Truck className="h-10 w-10 opacity-20" />
+                    <div className="text-center">
+                      <p className="text-sm font-medium">No vehicles in transit</p>
+                      <p className="text-xs mt-1">GPS data appears here when vehicles are dispatched.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : vehicleList.map((v: any) => (
+                <VehicleCard
+                  key={v.id}
+                  v={v}
+                  isSelected={selectedVehicle === v.id}
+                  onSelect={() => setSelectedVehicle(selectedVehicle === v.id ? null : v.id)}
+                />
+              ))}
+            </div>
+
+            <div className="lg:col-span-2 space-y-4">
+              <Card className="overflow-hidden">
+                <div className="h-[480px] w-full">
+                  {isLoading ? (
+                    <Skeleton className="h-full w-full rounded-none" />
+                  ) : (
+                    <VehicleMap
+                      vehicles={vehicleList}
+                      selectedVehicle={selectedVehicle}
+                      trackPoints={trackPoints}
+                      selectedData={selectedData}
+                      onSelect={setSelectedVehicle}
+                    />
+                  )}
+                </div>
+                <div className="px-4 py-2 border-t bg-muted/30 flex items-center gap-4 flex-wrap">
+                  {(["live", "recent", "stale", "offline"] as const).map(t => (
+                    <span key={t} className="flex items-center gap-1.5 text-[10px] text-muted-foreground capitalize">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: TIER_HEX[t] }} />
+                      {t}
+                    </span>
+                  ))}
+                  <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground ml-auto">
+                    <span className="w-2.5 h-2.5 rounded-full inline-block bg-teal-500" />
+                    Destination
+                  </span>
+                  {vehicleList.length === 0 && (
+                    <span className="text-[10px] text-muted-foreground">No vehicles in transit — dispatch a vehicle to see it here</span>
+                  )}
+                </div>
+              </Card>
+
+              {selectedVehicle && selectedData && (
+                <SelectedVehiclePanel data={selectedData} trackPoints={trackPoints} />
+              )}
+              {selectedVehicle && selectedData && (
+                <TripHistoryPanel
+                  vehicleId={selectedVehicle}
+                  plateNumber={selectedData.plateNumber ?? `Vehicle #${selectedVehicle}`}
                 />
               )}
-            </div>
-            {/* Map legend */}
-            <div className="px-4 py-2 border-t bg-muted/30 flex items-center gap-4 flex-wrap">
-              {(["live", "recent", "stale", "offline"] as const).map(t => (
-                <span key={t} className="flex items-center gap-1.5 text-[10px] text-muted-foreground capitalize">
-                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: TIER_HEX[t] }} />
-                  {t}
-                </span>
-              ))}
-              <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground ml-auto">
-                <span className="w-2.5 h-2.5 rounded-full inline-block bg-teal-500" />
-                Destination
-              </span>
-              {vehicleList.length === 0 && (
-                <span className="text-[10px] text-muted-foreground">No vehicles in transit — dispatch a vehicle to see it here</span>
+              {selectedVehicle && (
+                <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <Truck className="h-3.5 w-3.5 text-emerald-700" />
+                      </div>
+                      {selectedData?.plateNumber ?? `Vehicle #${selectedVehicle}`} — GPS History
+                      {loadingTrack && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {loadingTrack ? (
+                      <div className="space-y-2">
+                        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                      </div>
+                    ) : trackPoints.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
+                        <Radio className="h-7 w-7 opacity-20" />
+                        <p className="text-sm">No GPS pings recorded yet.</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-[320px] overflow-y-auto divide-y">
+                        {trackPoints.map((pt: any, i: number) => (
+                          <GpsHistoryRow key={pt.id ?? i} pt={pt} isFirst={i === 0} />
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               )}
             </div>
-          </Card>
-
-          {/* Journey info panel when vehicle selected */}
-          {selectedVehicle && selectedData && (
-            <SelectedVehiclePanel data={selectedData} trackPoints={trackPoints} />
-          )}
-
-          {/* Dispatch trip history */}
-          {selectedVehicle && selectedData && (
-            <TripHistoryPanel
-              vehicleId={selectedVehicle}
-              plateNumber={selectedData.plateNumber ?? `Vehicle #${selectedVehicle}`}
-            />
-          )}
-
-          {/* GPS track history */}
-          {selectedVehicle && (
-            <Card>
-              <CardHeader className="pb-2 pt-4">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
-                    <Truck className="h-3.5 w-3.5 text-emerald-700" />
-                  </div>
-                  {selectedData?.plateNumber ?? `Vehicle #${selectedVehicle}`} — GPS History
-                  {loadingTrack && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {loadingTrack ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-                  </div>
-                ) : trackPoints.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-                    <Radio className="h-7 w-7 opacity-20" />
-                    <p className="text-sm">No GPS pings recorded yet.</p>
-                  </div>
-                ) : (
-                  <div className="max-h-[320px] overflow-y-auto divide-y">
-                    {trackPoints.map((pt: any, i: number) => (
-                      <GpsHistoryRow key={pt.id ?? i} pt={pt} isFirst={i === 0} />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

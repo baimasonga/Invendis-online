@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { fetchAllTrackers, syncAllVehicles } from "../lib/gpstrace.js";
+import { fetchAllTrackers, syncAllVehicles, fetchAllLivePositions } from "../lib/gpstrace.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -277,6 +277,15 @@ router.get("/api/gps/history/:vehicleId", requireAnyAuth, async (req, res) => {
     };
   });
   res.json(rows);
+});
+
+router.get("/api/gps/trace/live", requireAnyAuth, async (_req, res) => {
+  try {
+    const positions = await fetchAllLivePositions();
+    res.json(positions);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 router.get("/api/gps/trace/units", requireAnyAuth, async (_req, res) => {
