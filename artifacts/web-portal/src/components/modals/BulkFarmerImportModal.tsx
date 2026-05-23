@@ -222,6 +222,30 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
     setTimeout(() => win.print(), 700);
   }
 
+  function downloadFlaggedRows() {
+    const flagged = rows.filter(r => r.phone && duplicateMap.has(r.phone));
+    const sheetData = [
+      [...EXCEL_COLS, "Matched Farmer Code"],
+      ...flagged.map(r => {
+        const dupeInfo = duplicateMap.get(r.phone)!;
+        return [
+          r.firstName,
+          r.lastName,
+          r.gender,
+          r.phone,
+          r.beneficiaryType,
+          r.farmerGroup,
+          r.groupSize ?? "",
+          dupeInfo.farmerCode,
+        ];
+      }),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Flagged Rows");
+    XLSX.writeFile(wb, "flagged-duplicate-rows.xlsx");
+  }
+
   const groups  = rows.filter(r => r.beneficiaryType === "group").length;
   const indivs  = rows.length - groups;
   const dupeCount = duplicateMap.size;
@@ -321,11 +345,22 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
               {!checkingDuplicates && dupeCount > 0 && (
                 <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3">
                   <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-xs text-amber-800">
-                    <span className="font-semibold">{dupeCount} row{dupeCount !== 1 ? "s" : ""}</span>{" "}
-                    {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted below).
-                    {" "}These will be skipped on import — fix your file or proceed to skip them.
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-amber-800">
+                      <span className="font-semibold">{dupeCount} row{dupeCount !== 1 ? "s" : ""}</span>{" "}
+                      {dupeCount !== 1 ? "have" : "has"} a phone number already in the system (highlighted below).
+                      {" "}These will be skipped on import — fix your file or proceed to skip them.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 h-7 text-xs gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100"
+                      onClick={downloadFlaggedRows}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download flagged rows
+                    </Button>
+                  </div>
                 </div>
               )}
 
