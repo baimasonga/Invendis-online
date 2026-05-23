@@ -51,6 +51,19 @@ router.get("/api/farmers/stats", requireAuth, async (_req, res) => {
   res.json(stats);
 });
 
+router.get("/api/farmers/check-duplicate", requireAuth, async (req, res) => {
+  const { phone, nationalId } = req.query as Record<string, string>;
+  if (!phone?.trim() && !nationalId?.trim()) { res.json({ matches: [] }); return; }
+  let q = supa.from("farmers").select("id, first_name, last_name, farmer_group, farmer_code, beneficiary_type, phone, national_id");
+  const orParts: string[] = [];
+  if (phone?.trim())      orParts.push(`phone.eq.${phone.trim()}`);
+  if (nationalId?.trim()) orParts.push(`national_id.eq.${nationalId.trim()}`);
+  q = (orParts.length === 1 ? q.or(orParts[0]) : q.or(orParts.join(","))) as typeof q;
+  const { data, error } = await (q as any).limit(5);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ matches: snakeToCamel(data ?? []) });
+});
+
 router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
   const { data: rows, error } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }

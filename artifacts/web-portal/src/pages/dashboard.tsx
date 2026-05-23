@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Users, Package, Flag, Truck, ClipboardList, Activity,
-  UserPlus, ClipboardCheck, TrendingUp, ArrowRight,
+  UserPlus, ClipboardCheck, TrendingUp, ArrowRight, AlertTriangle,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -91,12 +91,14 @@ export default function Dashboard() {
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = (user as any)?.fullName?.split(" ")[0] ?? (user as any)?.username ?? "";
 
-  const summary          = data?.summary;
-  const farmerChartData  = (data?.charts?.farmerStatusChart ?? []).map((e: any, i: number) => ({ ...e, fill: COLORS[i % COLORS.length] }));
-  const campaignChartData: any[] = data?.charts?.campaignCompletionChart ?? [];
-  const warehouseStockData: any[] = data?.charts?.warehouseStockChart ?? [];
-  const podTrendData: any[]       = data?.charts?.podTrendChart ?? [];
-  const activity: any[]           = data?.recentActivity ?? [];
+  const summary               = data?.summary;
+  const farmerChartData       = (data?.charts?.farmerStatusChart ?? []).map((e: any, i: number) => ({ ...e, fill: COLORS[i % COLORS.length] }));
+  const campaignChartData: any[]    = data?.charts?.campaignCompletionChart ?? [];
+  const warehouseStockData: any[]   = data?.charts?.warehouseStockChart ?? [];
+  const podTrendData: any[]         = data?.charts?.podTrendChart ?? [];
+  const districtData: any[]         = data?.charts?.farmersByDistrictChart ?? [];
+  const beneficiaryData: any[]      = (data?.charts?.beneficiaryTypeChart ?? []).map((e: any, i: number) => ({ ...e, fill: PIE_COLORS[i % PIE_COLORS.length] }));
+  const activity: any[]             = data?.recentActivity ?? [];
 
   return (
     <div className="space-y-6">
@@ -150,7 +152,7 @@ export default function Dashboard() {
           <StatCard
             title="Total Farmers"
             value={Number(summary.totalFarmers).toLocaleString()}
-            sub={`${Number(summary.pendingFarmers)} pending approval`}
+            sub={`${Number(summary.pendingFarmers)} pending · ${summary.femalePct ?? 0}% female`}
             icon={Users}
             color="green"
             href="/farmers"
@@ -186,6 +188,14 @@ export default function Dashboard() {
             icon={Package}
             color="amber"
             href="/allocations"
+          />
+          <StatCard
+            title="Open Incidents"
+            value={summary.openIncidents ?? 0}
+            sub={summary.openIncidents > 0 ? "Requires attention" : "All clear"}
+            icon={AlertTriangle}
+            color={summary.openIncidents > 0 ? "red" : "green"}
+            href="/incidents"
           />
         </div>
       ) : null}
@@ -254,7 +264,60 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Charts row 2: Warehouse + Campaigns + Recent Activity */}
+      {/* Charts row 2: Farmers by District + Beneficiary Type */}
+      {(districtData.length > 0 || beneficiaryData.length > 0) && (
+        <div className="grid gap-5 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Farmers by District</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <Skeleton className="h-44 w-full" />
+              ) : districtData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(160, districtData.length * 28)}>
+                  <BarChart data={districtData} layout="vertical" barSize={14}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+                    <Tooltip
+                      formatter={(v: any) => [Number(v).toLocaleString(), "Farmers"]}
+                      contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }}
+                    />
+                    <Bar dataKey="farmers" radius={[0, 4, 4, 0]} fill="#15803d" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No farmer data yet</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Beneficiary Type</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <Skeleton className="h-44 w-full" />
+              ) : beneficiaryData.some((d: any) => d.value > 0) ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={beneficiaryData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65} innerRadius={32}>
+                      {beneficiaryData.map((e: any, i: number) => <Cell key={i} fill={e.fill} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb" }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-44 flex items-center justify-center text-sm text-muted-foreground">No farmer data yet</div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Charts row 3: Warehouse + Campaigns + Recent Activity */}
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader className="pb-2">

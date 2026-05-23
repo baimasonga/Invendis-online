@@ -121,8 +121,10 @@ export async function getDashboardData() {
     { count: totalDispatches },
     { count: totalAllocations },
     { count: pendingPod },
+    { count: openIncidents },
     recentActivity,
     farmersByStatus,
+    farmerExtData,
     campaignStatuses,
     stockLedger,
     podTrendRaw,
@@ -133,8 +135,10 @@ export async function getDashboardData() {
     supabase.from("dispatches").select("*", { count: "exact", head: true }),
     supabase.from("allocations").select("*", { count: "exact", head: true }),
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
+    supabase.from("incidents").select("*", { count: "exact", head: true }).neq("status", "Resolved"),
     supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(10),
     supabase.from("farmers").select("status").limit(1000),
+    supabase.from("farmers").select("gender, beneficiary_type, district_id").limit(5000),
     supabase.from("campaigns").select("status").limit(500),
     supabase.from("stock_ledger").select("warehouse_id, quantity").limit(2000),
     supabase.from("pod").select("submitted_at, status").gte("submitted_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).limit(500),
@@ -179,18 +183,63 @@ export async function getDashboardData() {
   }
   const podTrendChart = Object.values(podByDay);
 
+  // Gender + beneficiary type + district breakdown from farmerExtData
+  const farmerRows = farmerExtData.data ?? [];
+  const femaleCount = farmerRows.filter((r: any) => r.gender === "Female").length;
+  const femalePct   = farmerRows.length > 0 ? Math.round((femaleCount / farmerRows.length) * 100) : 0;
+  const indivCount  = farmerRows.filter((r: any) => r.beneficiary_type === "individual").length;
+  const groupCount  = farmerRows.filter((r: any) => r.beneficiary_type === "group").length;
+
+  const districtCounts: Record<number, number> = {};
+  for (const r of farmerRows) {
+    if (r.district_id) districtCounts[r.district_id] = (districtCounts[r.district_id] ?? 0) + 1;
+  }
+  const districtIds = Object.keys(districtCounts).map(Number);
+  let farmersByDistrictChart: { name: string; farmers: number }[] = [];
+  if (districtIds.length) {
+    const { data: dNames } = await supabase.from("districts").select("id,name").in("id", districtIds);
+    farmersByDistrictChart = (dNames ?? [])
+      .map((d: any) => ({ name: d.name, farmers: districtCounts[d.id] ?? 0 }))
+      .sort((a: any, b: any) => b.farmers - a.farmers)
+      .slice(0, 8);
+  }
+
   return {
     summary: {
-      totalFarmers: totalFarmers ?? 0,
-      pendingFarmers: pendingFarmers ?? 0,
+      totalFarmers:    totalFarmers    ?? 0,
+      pendingFarmers:  pendingFarmers  ?? 0,
       activeCampaigns: activeCampaigns ?? 0,
       totalDispatches: totalDispatches ?? 0,
       totalAllocations: totalAllocations ?? 0,
-      pendingPod: pendingPod ?? 0,
+      pendingPod:      pendingPod      ?? 0,
+      openIncidents:   openIncidents   ?? 0,
+      femalePct,
+      femaleCount,
+      indivCount,
+      groupCount,
     },
-    charts: { farmerStatusChart, campaignCompletionChart, warehouseStockChart, podTrendChart },
+    charts: {
+      farmerStatusChart,
+      campaignCompletionChart,
+      warehouseStockChart,
+      podTrendChart,
+      farmersByDistrictChart,
+      beneficiaryTypeChart: [
+        { name: "Individual", value: indivCount },
+        { name: "Group",      value: groupCount },
+      ],
+    },
     recentActivity: cc(recentActivity.data ?? []),
   };
+}
+
+export async function checkFarmerDuplicate(phone?: string, nationalId?: string): Promise<any[]> {
+  if (!phone?.trim() && !nationalId?.trim()) return [];
+  const params = new URLSearchParams();
+  if (phone?.trim())      params.set("phone",      phone.trim());
+  if (nationalId?.trim()) params.set("nationalId", nationalId.trim());
+  const result = await mdFetch<{ matches: any[] }>(`/api/farmers/check-duplicate?${params}`);
+  return result.matches ?? [];
 }
 
 // ── FARMERS ───────────────────────────────────────────────────────────────────

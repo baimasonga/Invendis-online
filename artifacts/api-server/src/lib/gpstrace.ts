@@ -245,7 +245,7 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
     try {
       return await syncViaWialon(vList);
     } catch (err: any) {
-      logger.warn({ err: err.message }, "Wialon sync failed — falling back to Provider API");
+      logger.debug({ err: err.message }, "Wialon sync failed — falling back to Provider API");
     }
   }
 

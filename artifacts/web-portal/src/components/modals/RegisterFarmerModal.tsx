@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
   createFarmer, listDistricts, listChiefdoms, listValueChains, KEYS,
-  getFaceUploadUrl, uploadBlobToS3, saveFaceReference,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, checkFarmerDuplicate,
 } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { BiometricCapture } from "@/components/BiometricCapture";
-import { CheckCircle, User, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle, User, Users } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -45,6 +45,26 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
   const [districtId, setDistrictId]   = useState("");
   const [chiefdomId, setChiefdomId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+
+  async function checkDuplicate(phoneVal?: string, nidVal?: string) {
+    const p = (phoneVal ?? phone).trim();
+    const n = (nidVal ?? nationalId).trim();
+    if (!p && !n) { setDuplicateWarning(null); return; }
+    try {
+      const matches = await checkFarmerDuplicate(p || undefined, n || undefined);
+      if (matches.length > 0) {
+        const m = matches[0];
+        const name = m.farmerGroup || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || "Unknown";
+        const field = (p && m.phone === p) ? "phone number" : "national ID";
+        setDuplicateWarning(`"${name}" (${m.farmerCode}) is already registered with this ${field}.`);
+      } else {
+        setDuplicateWarning(null);
+      }
+    } catch {
+      setDuplicateWarning(null);
+    }
+  }
 
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
   const { data: chiefdoms }   = useQuery({
@@ -67,6 +87,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
     setFirstName(""); setLastName(""); setGender(""); setPhone("");
     setNationalId(""); setFarmerGroup(""); setGroupSize("");
     setDistrictId(""); setChiefdomId(""); setValueChainId("");
+    setDuplicateWarning(null);
   }
 
   function handleClose() { resetAll(); onClose(); }
@@ -221,7 +242,10 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="rf-group-phone">Contact Phone</Label>
-                    <Input id="rf-group-phone" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+232 76 000000" />
+                    <Input id="rf-group-phone" value={phone} onChange={e => setPhone(e.target.value)}
+                      onBlur={() => checkDuplicate(phone, nationalId)}
+                      placeholder="076-123456" />
+                    <p className="text-[10px] text-muted-foreground">Format: 076-123456 or +232 76 123456</p>
                   </div>
                 </div>
               </>
@@ -253,13 +277,18 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="rf-phone">Phone</Label>
-                    <Input id="rf-phone" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+232 76 000000" />
+                    <Input id="rf-phone" value={phone} onChange={e => setPhone(e.target.value)}
+                      onBlur={() => checkDuplicate(phone, nationalId)}
+                      placeholder="076-123456" />
+                    <p className="text-[10px] text-muted-foreground">Format: 076-123456 or +232 76 123456</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="rf-nid">National ID</Label>
-                    <Input id="rf-nid" value={nationalId} onChange={e => setNationalId(e.target.value)} placeholder="SL-ID-…" />
+                    <Input id="rf-nid" value={nationalId} onChange={e => setNationalId(e.target.value)}
+                      onBlur={() => checkDuplicate(phone, nationalId)}
+                      placeholder="SL-ID-…" />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="rf-farmer-group">Farmer Group / Cooperative</Label>
@@ -307,6 +336,15 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
                 </SelectContent>
               </Select>
             </div>
+
+            {duplicateWarning && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-800">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+                <span>
+                  <span className="font-semibold">Possible duplicate:</span> {duplicateWarning} Continue only if this is a different beneficiary.
+                </span>
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2">
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
