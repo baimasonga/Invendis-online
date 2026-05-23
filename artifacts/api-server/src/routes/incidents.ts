@@ -2,6 +2,7 @@ import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { sendSms } from "../lib/sms.js";
 import { randomBytes } from "crypto";
 
 const router = Router();
@@ -43,6 +44,54 @@ router.post("/api/incidents", requireAuth, async (req, res) => {
   }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "CREATE", "Incidents", `Reported incident: ${incidentCode}`, "incident", (data as any).id);
+
+  // Notify district coordinator via SMS (best-effort, never blocks the response)
+  const districtId = req.user!.districtId ?? (data as any).district_id ?? null;
+  (async () => {
+    try {
+      // Step 1: find the district coordinator's email via the users table (district-aware)
+      let coordinatorEmail: string | null = null;
+      if (districtId) {
+        const { data: coordUsers } = await supa
+          .from("users")
+          .select("email")
+          .ilike("role", "districtcoordinator")
+          .eq("district_id", districtId)
+          .eq("is_active", true)
+          .limit(1);
+        coordinatorEmail = (coordUsers ?? [])[0]?.email ?? null;
+      } else {
+        // No district on incident — fall back to any active DistrictCoordinator
+        const { data: coordUsers } = await supa
+          .from("users")
+          .select("email")
+          .ilike("role", "districtcoordinator")
+          .eq("is_active", true)
+          .limit(1);
+        coordinatorEmail = (coordUsers ?? [])[0]?.email ?? null;
+      }
+
+      if (!coordinatorEmail) return;
+
+      // Step 2: look up the coordinator's phone from the profiles table
+      const { data: profileRows } = await supa
+        .from("profiles")
+        .select("phone, full_name")
+        .eq("email", coordinatorEmail)
+        .limit(1);
+      const profile = (profileRows ?? [])[0] as any;
+      const phone = profile?.phone as string | null | undefined;
+
+      if (phone) {
+        const incType = (data as any).type ?? "incident";
+        const msg = `[Invendis] New ${incType} reported (${incidentCode}) by ${req.user!.username}. Please review in the Incidents tab.`;
+        await sendSms(phone, msg);
+      }
+    } catch (err) {
+      req.log?.warn({ err, incidentCode }, "Failed to send incident SMS to district coordinator");
+    }
+  })();
+
   res.status(201).json(snakeToCamel(data));
 });
 

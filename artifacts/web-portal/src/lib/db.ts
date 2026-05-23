@@ -1785,12 +1785,13 @@ export async function getPhotoUrl(key: string): Promise<string | null> {
   try { return await getFaceViewUrl(key); } catch { return null; }
 }
 
-export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendingPod: number }> {
-  const [farmers, pod] = await Promise.all([
+export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendingPod: number; openIncidents: number }> {
+  const [farmers, pod, incidents] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
+    supabase.from("incidents").select("*", { count: "exact", head: true }).eq("status", "Open"),
   ]);
-  return { pendingFarmers: farmers.count ?? 0, pendingPod: pod.count ?? 0 };
+  return { pendingFarmers: farmers.count ?? 0, pendingPod: pod.count ?? 0, openIncidents: incidents.count ?? 0 };
 }
 
 // ── INCIDENTS ─────────────────────────────────────────────────────────────────
