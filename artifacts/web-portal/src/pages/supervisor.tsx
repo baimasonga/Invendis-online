@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Redirect } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   listPod, getPodStats, approvePod, overrideFacePod, getPhotoUrl,
@@ -17,6 +18,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 const FACE_STYLES: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
   verified:    { cls: "text-emerald-700", icon: ShieldCheck, label: "Verified" },
@@ -66,6 +68,12 @@ function StatCard({ label, value, icon: Icon, cls, bg }: { label: string; value:
 }
 
 export default function SupervisorView() {
+  const { user } = useAuth();
+  const role = (user?.role ?? "").toLowerCase().replace(/\s+/g, "");
+  if (user && !["admin", "projectmanager", "districtcoordinator"].includes(role)) {
+    return <Redirect to="/dashboard" />;
+  }
+
   const qc = useQueryClient();
   const { toast } = useToast();
   const [selectedPod, setSelectedPod] = useState<any>(null);

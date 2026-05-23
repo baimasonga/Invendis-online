@@ -209,6 +209,19 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   res.status(201).json(snakeToCamel(podRow));
 });
 
+router.post("/api/pod/:id/override-face", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+  const { reason } = req.body as { reason: string };
+  if (!reason?.trim()) { res.status(400).json({ error: "reason is required" }); return; }
+  const { data, error } = await supa.from("pod")
+    .update({ face_status: "Override", override_reason: reason })
+    .eq("id", Number(req.params.id))
+    .select()
+    .single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "OVERRIDE_FACE", "PoD", `Supervisor override face verification for PoD ID ${req.params.id}: ${reason}`, "pod", (data as any).id);
+  res.json(snakeToCamel(data));
+});
+
 router.post("/api/pod/:id/approve-exception", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { notes } = req.body;
   const { data, error } = await supa.from("pod").update({ status: "Verified", approved_by: req.user!.userId, approved_at: new Date().toISOString(), notes }).eq("id", Number(req.params.id)).select().single();

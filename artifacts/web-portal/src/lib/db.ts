@@ -1866,11 +1866,18 @@ export async function flagPodException(id: number, notes?: string): Promise<void
 }
 
 export async function overrideFacePod(id: number, reason: string): Promise<void> {
-  const { error } = await supabase.from("pod")
-    .update({ face_status: "Override", override_reason: reason })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "pod", `Supervisor override face verification for PoD #${id}: ${reason}`, "pod", id);
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Not authenticated");
+  const resp = await fetch(`/api/pod/${id}/override-face`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    body: JSON.stringify({ reason }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to override face verification");
+  }
 }
 
 export async function batchApprovePods(ids: number[]): Promise<void> {
