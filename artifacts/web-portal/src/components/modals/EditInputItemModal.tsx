@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { updateInputItem, listValueChains, KEYS } from "@/lib/db";
+import { createInputItem, updateInputItem, listValueChains, KEYS } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ const CATEGORIES = ["Seed", "Fertilizer", "Chemical", "Tool", "Equipment", "Othe
 interface Props {
   open: boolean;
   onClose: () => void;
-  item: any;
+  item?: any;
 }
 
 const CATEGORY_PREFIX: Record<string, string> = {
@@ -34,14 +34,25 @@ function generateBarcode(category: string): string {
   return `${prefix}-${suffix}`;
 }
 
+function generateItemCode(category: string): string {
+  const prefix = CATEGORY_PREFIX[(category ?? "").toLowerCase()] ?? "INP";
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}-${num}`;
+}
+
 export function EditInputItemModal({ open, onClose, item }: Props) {
+  const isEdit = !!item;
   const qc = useQueryClient();
   const { toast } = useToast();
+
+  const createMutation = useMutation({ mutationFn: (payload: any) => createInputItem(payload) });
   const updateMutation = useMutation({ mutationFn: ({ id, payload }: { id: number; payload: any }) => updateInputItem(id, payload) });
 
   const [name, setName]               = useState("");
+  const [itemCode, setItemCode]       = useState("");
   const [category, setCategory]       = useState("");
   const [unit, setUnit]               = useState("");
+  const [description, setDescription] = useState("");
   const [valueChainId, setValueChainId] = useState("");
   const [barcode, setBarcode]         = useState("");
 
@@ -51,43 +62,72 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
   const barcodeSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
 
   useEffect(() => {
-    if (item && open) {
-      setName(item.name ?? "");
-      setCategory(item.category ?? "");
-      setUnit(item.unit ?? item.unitOfMeasure ?? "");
-      setValueChainId(item.valueChainId ? String(item.valueChainId) : "");
-      setBarcode(item.barcode ?? "");
+    if (open) {
+      if (item) {
+        setName(item.name ?? "");
+        setItemCode(item.itemCode ?? item.code ?? "");
+        setCategory(item.category ?? "");
+        setUnit(item.unit ?? item.unitOfMeasure ?? "");
+        setDescription(item.description ?? "");
+        setValueChainId(item.valueChainId ? String(item.valueChainId) : "");
+        setBarcode(item.barcode ?? "");
+      } else {
+        setName(""); setItemCode(""); setCategory(""); setUnit("");
+        setDescription(""); setValueChainId(""); setBarcode("");
+      }
     }
   }, [item, open]);
 
   const { data: valueChains } = useQuery({ queryKey: KEYS.valueChains(), queryFn: listValueChains });
   const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
 
+  function handleCategoryChange(val: string) {
+    setCategory(val);
+    if (!isEdit && !barcode) setBarcode(generateBarcode(val));
+    if (!isEdit && !itemCode) setItemCode(generateItemCode(val));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name) return;
     try {
-      await updateMutation.mutateAsync({
-        id: item.id,
-        payload: {
+      if (isEdit) {
+        await updateMutation.mutateAsync({
+          id: item.id,
+          payload: {
+            name,
+            category: category || undefined,
+            unit: unit || undefined,
+            description: description || undefined,
+            valueChainId: valueChainId && valueChainId !== "0" ? Number(valueChainId) : undefined,
+            barcode: barcode.trim() || null,
+          },
+        });
+        toast({ title: "Item updated", description: `"${name}" updated successfully.` });
+      } else {
+        await createMutation.mutateAsync({
           name,
+          itemCode: itemCode.trim() || undefined,
           category: category || undefined,
           unit: unit || undefined,
+          description: description || undefined,
           valueChainId: valueChainId && valueChainId !== "0" ? Number(valueChainId) : undefined,
           barcode: barcode.trim() || null,
-        },
-      });
+        });
+        toast({ title: "Item added", description: `"${name}" added to the catalogue.` });
+      }
       await qc.invalidateQueries({ queryKey: KEYS.inventory() });
-      toast({ title: "Item updated", description: `"${name}" updated successfully.` });
       onClose();
     } catch (err: any) {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+      toast({ title: isEdit ? "Update failed" : "Create failed", description: err.message, variant: "destructive" });
     }
   }
 
+  const isPending = isEdit ? updateMutation.isPending : createMutation.isPending;
+
   const labelItem = {
     name,
-    itemCode: item?.itemCode ?? item?.code ?? "",
+    itemCode: isEdit ? (item?.itemCode ?? item?.code ?? "") : itemCode,
     barcode,
     category,
     unit,
@@ -97,18 +137,20 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
     <>
       <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Edit Input Item</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{isEdit ? "Edit Input Item" : "Add Input Item"}</DialogTitle>
+          </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 py-1">
 
             <div className="space-y-1.5">
               <Label>Name *</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} required />
+              <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Rice Seed (Nerica 4)" required />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Category</Label>
-                <Select value={category} onValueChange={setCategory}>
+                <Select value={category} onValueChange={handleCategoryChange}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
                     {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
@@ -121,6 +163,19 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
               </div>
             </div>
 
+            {!isEdit && (
+              <div className="space-y-1.5">
+                <Label>Item Code</Label>
+                <Input
+                  className="font-mono"
+                  value={itemCode}
+                  onChange={e => setItemCode(e.target.value)}
+                  placeholder="Auto-generated from category"
+                />
+                <p className="text-[10px] text-muted-foreground">Leave blank to auto-generate when you pick a category.</p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label>Value Chain</Label>
               <Select value={valueChainId} onValueChange={setValueChainId}>
@@ -132,6 +187,11 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes…" />
             </div>
 
             {/* ── Barcode field ── */}
@@ -184,8 +244,8 @@ export function EditInputItemModal({ open, onClose, item }: Props) {
                 <Printer className="h-3.5 w-3.5 mr-1" /> Print Label
               </Button>
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={updateMutation.isPending || !name}>
-                {updateMutation.isPending ? "Saving…" : "Save Changes"}
+              <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={isPending || !name}>
+                {isPending ? "Saving…" : isEdit ? "Save Changes" : "Add Item"}
               </Button>
             </DialogFooter>
           </form>
