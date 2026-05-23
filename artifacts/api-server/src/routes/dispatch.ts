@@ -416,6 +416,14 @@ router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin"
   const id = Number(req.params.id);
   const { reason } = req.body as { reason?: string };
 
+  // Fetch current state so we know the vehicle_id and prior status
+  const { data: existing, error: fetchErr } = await supa
+    .from("dispatches")
+    .select("id, status, vehicle_id")
+    .eq("id", id)
+    .single();
+  if (fetchErr || !existing) { res.status(fetchErr ? 500 : 404).json({ error: fetchErr?.message ?? "Dispatch not found" }); return; }
+
   const { data, error } = await supa
     .from("dispatches")
     .update({
@@ -429,6 +437,12 @@ router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin"
     .single();
 
   if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+
+  // If dispatch was In Transit, reset vehicle status back to Active
+  if ((existing as any).status === "In Transit" && (existing as any).vehicle_id) {
+    await supa.from("vehicles").update({ status: "Active" }).eq("id", (existing as any).vehicle_id);
+  }
+
   await logAudit(req, "CANCEL", "Dispatch", `Cancelled dispatch ID ${id}${reason ? `: ${reason}` : ""}`, "dispatch", id);
   res.json(snakeToCamel(data));
 });

@@ -952,6 +952,13 @@ export async function listGpsTrack(vehicleId?: number, limit = 50) {
   return resp.json();
 }
 
+export async function listGpsVehicleHistory(vehicleId: number, limit = 20) {
+  const token = await gpsToken();
+  const resp = await fetch(`/api/gps/history/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS history fetch failed: ${resp.statusText}`);
+  return resp.json();
+}
+
 export async function listGpsTraceUnits(): Promise<{ id: number; label: string; source: string; status: string }[]> {
   const token = await gpsToken();
   const resp = await fetch("/api/gps/trace/units", { headers: { Authorization: `Bearer ${token}` } });

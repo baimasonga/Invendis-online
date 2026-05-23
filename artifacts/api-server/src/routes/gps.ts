@@ -224,6 +224,61 @@ router.get("/api/gps/track/:vehicleId", requireAnyAuth, async (req, res) => {
   res.json(snakeToCamel((data ?? []).reverse()));
 });
 
+// ── Vehicle dispatch history ───────────────────────────────────────────────────
+router.get("/api/gps/history/:vehicleId", requireAnyAuth, async (req, res) => {
+  const vehicleId = Number(req.params.vehicleId);
+  const limit = Math.min(Number((req.query as any).limit ?? "20"), 50);
+
+  const { data: dispatches, error } = await supa
+    .from("dispatches")
+    .select("id, manifest_code, status, departed_at, arrived_at, campaign_id, warehouse_id")
+    .eq("vehicle_id", vehicleId)
+    .not("departed_at", "is", null)
+    .order("departed_at", { ascending: false })
+    .limit(limit);
+
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const list = dispatches ?? [];
+
+  const campaignIds  = [...new Set(list.map((d: any) => d.campaign_id).filter(Boolean))];
+  const warehouseIds = [...new Set(list.map((d: any) => d.warehouse_id).filter(Boolean))];
+  const [{ data: campaigns }, { data: warehouses }] = await Promise.all([
+    campaignIds.length  ? supa.from("campaigns").select("id, name, district_id").in("id", campaignIds)  : Promise.resolve({ data: [] }),
+    warehouseIds.length ? supa.from("warehouses").select("id, name").in("id", warehouseIds) : Promise.resolve({ data: [] }),
+  ]);
+
+  const districtIds = [...new Set((campaigns ?? []).map((c: any) => c.district_id).filter(Boolean))];
+  const { data: districts } = districtIds.length
+    ? await supa.from("districts").select("id, name").in("id", districtIds)
+    : { data: [] };
+
+  const campMap      = Object.fromEntries((campaigns ?? []).map((c: any) => [c.id, c]));
+  const warehouseMap = Object.fromEntries((warehouses ?? []).map((w: any) => [w.id, w]));
+  const districtMap  = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d]));
+
+  const rows = list.map((d: any) => {
+    const campaign  = d.campaign_id  ? campMap[d.campaign_id]       : null;
+    const warehouse = d.warehouse_id ? warehouseMap[d.warehouse_id] : null;
+    const district  = campaign?.district_id ? districtMap[campaign.district_id] : null;
+    const departedMs  = d.departed_at ? new Date(d.departed_at).getTime() : null;
+    const arrivedMs   = d.arrived_at  ? new Date(d.arrived_at).getTime()  : null;
+    const durationMs  = departedMs != null ? (arrivedMs ?? Date.now()) - departedMs : null;
+    return {
+      dispatchId:    d.id,
+      manifestCode:  d.manifest_code,
+      status:        d.status,
+      warehouseName: warehouse?.name ?? null,
+      campaignName:  campaign?.name  ?? null,
+      districtName:  district?.name  ?? null,
+      departedAt:    d.departed_at,
+      arrivedAt:     d.arrived_at,
+      durationMins:  durationMs != null ? Math.round(durationMs / 60000) : null,
+      isOngoing:     !d.arrived_at && !!d.departed_at,
+    };
+  });
+  res.json(rows);
+});
+
 router.get("/api/gps/trace/units", requireAnyAuth, async (_req, res) => {
   try {
     const trackers = await fetchAllTrackers();

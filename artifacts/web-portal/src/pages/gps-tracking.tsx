@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, Circle } from
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
-  listVehicleGpsStatus, listGpsTrack, KEYS,
+  listVehicleGpsStatus, listGpsTrack, listGpsVehicleHistory, KEYS,
   listGpsTraceUnits, listGpsTraceStatus,
   linkGpsTraceUnit, unlinkGpsTraceUnit, triggerGpsTraceSync,
 } from "@/lib/db";
@@ -19,7 +19,7 @@ import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
   ChevronRight, RefreshCw, Wifi, WifiOff, Target,
   AlertTriangle, CheckCircle2, RouteOff, Link2, Link2Off,
-  Signal, Settings2, ArrowRight, Warehouse,
+  Signal, Settings2, ArrowRight, Warehouse, History, Timer,
 } from "lucide-react";
 
 // ── Nominatim reverse-geocoding ───────────────────────────────────────────────
@@ -211,6 +211,28 @@ function GpsHistoryRow({ pt, isFirst }: { pt: any; isFirst: boolean }) {
       </span>
     </div>
   );
+}
+
+// ── Duration helpers ──────────────────────────────────────────────────────────
+
+function formatDuration(mins: number): string {
+  if (mins < 1)  return "< 1m";
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function useLiveDuration(departedAt: string | null | undefined): number | null {
+  const [mins, setMins] = useState<number | null>(null);
+  useEffect(() => {
+    if (!departedAt) { setMins(null); return; }
+    const update = () => setMins(Math.round((Date.now() - new Date(departedAt).getTime()) / 60000));
+    update();
+    const timer = setInterval(update, 60_000);
+    return () => clearInterval(timer);
+  }, [departedAt]);
+  return mins;
 }
 
 // Sierra Leone default center
@@ -477,6 +499,112 @@ function VehicleMap({ vehicles, selectedVehicle, trackPoints, selectedData, onSe
   );
 }
 
+// ── TripHistoryRow ────────────────────────────────────────────────────────────
+
+function TripHistoryRow({ trip: t }: { trip: any }) {
+  const elapsed = useLiveDuration(t.isOngoing ? t.departedAt : null);
+
+  return (
+    <div className="py-2.5 px-1 flex items-start gap-3">
+      <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${t.isOngoing ? "bg-emerald-500" : "bg-slate-200"}`} />
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          <span className="font-medium text-blue-700 dark:text-blue-400 flex items-center gap-0.5">
+            <Warehouse className="h-2.5 w-2.5 shrink-0" />
+            {t.warehouseName ?? "Unknown origin"}
+          </span>
+          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="font-medium text-teal-700 dark:text-teal-400 flex items-center gap-0.5">
+            <MapPin className="h-2.5 w-2.5 shrink-0" />
+            {t.districtName ? `${t.districtName} District` : (t.campaignName ?? "Unknown destination")}
+          </span>
+        </div>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+            <Clock className="h-2.5 w-2.5" />
+            {t.departedAt
+              ? new Date(t.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+              : "Not departed"}
+          </span>
+          {(t.durationMins != null || elapsed != null) && (
+            <span className={`text-[10px] font-medium flex items-center gap-0.5 ${t.isOngoing ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+              <Timer className="h-2.5 w-2.5" />
+              {t.isOngoing
+                ? `${formatDuration(elapsed ?? t.durationMins ?? 0)} elapsed`
+                : formatDuration(t.durationMins ?? 0)}
+            </span>
+          )}
+          {t.manifestCode && (
+            <span className="font-mono text-[10px] text-muted-foreground/60">{t.manifestCode}</span>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 pt-0.5">
+        {t.isOngoing ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+            </span>
+            Active
+          </span>
+        ) : t.arrivedAt ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-teal-100 text-teal-700">
+            <CheckCircle2 className="h-2.5 w-2.5" /> Done
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+            {t.status ?? "Pending"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── TripHistoryPanel ──────────────────────────────────────────────────────────
+
+function TripHistoryPanel({ vehicleId, plateNumber }: { vehicleId: number; plateNumber: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["gps-history", vehicleId],
+    queryFn: () => listGpsVehicleHistory(vehicleId, 15),
+    refetchInterval: 60_000,
+  });
+
+  const trips: any[] = Array.isArray(data) ? data : [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 pt-4">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+            <History className="h-3.5 w-3.5 text-violet-700 dark:text-violet-400" />
+          </div>
+          {plateNumber} — Dispatch History
+          {isLoading && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {isLoading ? (
+          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : trips.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
+            <History className="h-7 w-7 opacity-20" />
+            <p className="text-sm">No dispatch history yet.</p>
+          </div>
+        ) : (
+          <div className="divide-y max-h-[280px] overflow-y-auto">
+            {trips.map((t: any, i: number) => (
+              <TripHistoryRow key={t.dispatchId ?? i} trip={t} />
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] text-muted-foreground mt-2">Showing last {trips.length} dispatches that departed.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── GPS-Trace Management Panel ────────────────────────────────────────────────
 
 function GpsTracePanel() {
@@ -676,10 +804,16 @@ function GpsTracePanel() {
 
 // ── SelectedVehiclePanel ──────────────────────────────────────────────────────
 
-function SelectedVehiclePanel({ data: d }: { data: any }) {
+function SelectedVehiclePanel({ data: d, trackPoints }: { data: any; trackPoints: any[] }) {
   const currentLoc = useReverseGeocode(d.lastLatitude, d.lastLongitude);
   const destLoc    = useReverseGeocode(d.effectiveDestLat, d.effectiveDestLng);
   const noDestination = !d.hasDestination && !d.destinationLabel;
+  const elapsed = useLiveDuration(!d.arrivedAt ? d.departedAt : null);
+  const avgSpeed = useMemo(() => {
+    const speeds = trackPoints.filter((p: any) => p.speed != null && p.speed > 0).map((p: any) => p.speed as number);
+    if (!speeds.length) return null;
+    return Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+  }, [trackPoints]);
 
   return (
     <Card className={
@@ -765,11 +899,6 @@ function SelectedVehiclePanel({ data: d }: { data: any }) {
                 {d.distanceLabel} from destination
               </p>
             )}
-            {d.arrivedAt && (
-              <p className="text-xs text-teal-700 dark:text-teal-400">
-                Arrived {new Date(d.arrivedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-              </p>
-            )}
             {d.campaignName && (
               <p className="text-[10px] text-muted-foreground">{d.campaignName}{d.manifestCode ? ` · ${d.manifestCode}` : ""}</p>
             )}
@@ -791,6 +920,62 @@ function SelectedVehiclePanel({ data: d }: { data: any }) {
             )}
           </div>
         </div>
+
+        {/* Journey timing strip */}
+        {(d.departedAt || d.arrivedAt || avgSpeed != null) && (
+          <div className="pt-2 border-t grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {d.departedAt && (
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-2.5 w-2.5" /> Departed
+                </p>
+                <p className="text-xs font-medium tabular-nums">
+                  {new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            )}
+            {!d.arrivedAt && elapsed != null && (
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Timer className="h-2.5 w-2.5" /> In Transit
+                </p>
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  {formatDuration(elapsed)}
+                </p>
+              </div>
+            )}
+            {d.arrivedAt && (
+              <>
+                <div className="space-y-0.5">
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <CheckCircle2 className="h-2.5 w-2.5" /> Arrived
+                  </p>
+                  <p className="text-xs font-medium tabular-nums">
+                    {new Date(d.arrivedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+                {d.departedAt && (
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <Timer className="h-2.5 w-2.5" /> Journey Time
+                    </p>
+                    <p className="text-xs font-semibold tabular-nums">
+                      {formatDuration(Math.round((new Date(d.arrivedAt).getTime() - new Date(d.departedAt).getTime()) / 60000))}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            {avgSpeed != null && (
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Gauge className="h-2.5 w-2.5" /> Avg Speed
+                </p>
+                <p className="text-xs font-medium tabular-nums">{avgSpeed} km/h</p>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -947,7 +1132,15 @@ export default function GpsTracking() {
 
           {/* Journey info panel when vehicle selected */}
           {selectedVehicle && selectedData && (
-            <SelectedVehiclePanel data={selectedData} />
+            <SelectedVehiclePanel data={selectedData} trackPoints={trackPoints} />
+          )}
+
+          {/* Dispatch trip history */}
+          {selectedVehicle && selectedData && (
+            <TripHistoryPanel
+              vehicleId={selectedVehicle}
+              plateNumber={selectedData.plateNumber ?? `Vehicle #${selectedVehicle}`}
+            />
           )}
 
           {/* GPS track history */}
