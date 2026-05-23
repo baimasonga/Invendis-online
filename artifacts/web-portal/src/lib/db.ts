@@ -1659,9 +1659,9 @@ export async function importDistributionSites(rows: any[]) {
 
 // ── Input Items ───────────────────────────────────────────────────────────────
 export async function listInputItems() {
-  const { data, error } = await supabase.from("input_items").select("*, value_chains(name)").order("name");
+  const { data, error } = await supabase.from("input_items").select("*").order("name");
   if (error) throw new Error(error.message);
-  return cc((data ?? []).map((r: any) => ({ ...r, valueChainName: r.value_chains?.name ?? null, value_chains: undefined })));
+  return cc(data ?? []);
 }
 export async function createInputItem(payload: any) {
   return mdFetch("/api/master-data/input-items", { method: "POST", body: JSON.stringify(payload) });
