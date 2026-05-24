@@ -628,6 +628,10 @@ router.post(
     }
 
     // 3. Find or create a group beneficiary per community
+    // Fetch a fallback value_chain_id — farmers.value_chain_id is NOT NULL
+    const vcFallback = await pool.query<{ id: number }>("SELECT id FROM value_chains ORDER BY id LIMIT 1");
+    const defaultValueChainId: number = vcFallback.rows[0]?.id ?? 1;
+
     const communities: Array<{ community: string; district: string; farmerCode: string; barcodeToken: string }> = [];
     const farmerIds: number[] = [];
     let newFarmerCount = 0;
@@ -697,15 +701,16 @@ router.post(
         const insertRes = await pool.query<{ id: number }>(
           `INSERT INTO farmers
              (id, farmer_group, beneficiary_type, first_name, last_name,
+              gender, value_chain_id,
               district_id, chiefdom_id, phone, farmer_code, barcode_token,
-              status, registered_by, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+              status, registered_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
            RETURNING id`,
           [
             nextFarmerId, row.community.trim(), "group", firstName, lastName,
+            "unknown", defaultValueChainId,
             districtId ?? null, chiefdomId ?? null, phone ?? null,
             farmerCode, barcodeToken, "pending", createdBy ?? null,
-            "Auto-registered from dispatch import — complete profile via Farmer Registry",
           ]
         );
         farmerId = insertRes.rows[0].id;
