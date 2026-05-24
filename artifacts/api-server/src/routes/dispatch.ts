@@ -501,7 +501,8 @@ router.post(
         itemIdMap[col.colIndex] = col.itemId;
         continue;
       }
-      const itemName = col.name.trim();
+      // Strip Excel footnote markers (*, †, ‡, §) and normalise whitespace
+      const itemName = col.name.trim().replace(/[*†‡§]+$/, "").trim();
       const { data: existing } = await supa
         .from("input_items")
         .select("id")
@@ -512,10 +513,18 @@ router.post(
         itemIdMap[col.colIndex] = (existing as any).id;
         continue;
       }
+      // Compute next safe ID (sequence may be behind max after seed imports)
+      const { data: maxRow } = await supa
+        .from("input_items")
+        .select("id")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextId = ((maxRow as any)?.id ?? 0) + 1;
       const itemCode = "ITM-" + randomBytes(4).toString("hex").toUpperCase();
       const { data: newItem, error: itemErr } = await supa
         .from("input_items")
-        .insert({ name: itemName, item_code: itemCode, unit: col.unit || "pcs", category: "Tools", is_active: 1 })
+        .insert({ id: nextId, name: itemName, item_code: itemCode, unit: col.unit || "pcs", category: "Tools", is_active: 1 })
         .select()
         .single();
       if (itemErr || !newItem) {
@@ -678,9 +687,19 @@ router.post(
       const firstName    = nameParts[0] ?? "";
       const lastName     = nameParts.slice(1).join(" ") || "";
 
+      // Compute next safe farmer ID (sequence may be behind max after seed imports)
+      const { data: maxFarmerRow } = await supa
+        .from("farmers")
+        .select("id")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextFarmerId = ((maxFarmerRow as any)?.id ?? 0) + 1;
+
       const { data: newFarmer, error: farmerErr } = await supa
         .from("farmers")
         .insert({
+          id:              nextFarmerId,
           farmer_group:    row.community.trim(),
           beneficiary_type: "group",
           first_name:      firstName,
