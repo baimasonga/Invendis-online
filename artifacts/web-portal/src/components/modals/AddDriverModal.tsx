@@ -14,24 +14,16 @@ export function AddDriverModal({ open, onClose }: Props) {
   const { toast } = useToast();
   const create = useMutation({ mutationFn: createDriver });
 
-  const [fullName, setFullName]           = useState("");
-  const [phone, setPhone]                 = useState("");
-  const [licence, setLicence]             = useState("");
-  const [licenceExpiry, setLicenceExpiry] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone]       = useState("");
 
-  function reset() { setFullName(""); setPhone(""); setLicence(""); setLicenceExpiry(""); }
+  function reset() { setFullName(""); setPhone(""); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fullName) return;
     try {
-      await create.mutateAsync({
-        fullName,
-        phone: phone || undefined,
-        licenseNumber: licence || undefined,
-        licenseExpiry: licenceExpiry || undefined,
-        isActive: 1,
-      });
+      await create.mutateAsync({ fullName, phone: phone || undefined, isActive: 1 });
       await qc.invalidateQueries({ queryKey: KEYS.drivers() });
       toast({ title: "Driver registered", description: `${fullName} added to fleet.` });
       reset();
@@ -50,19 +42,9 @@ export function AddDriverModal({ open, onClose }: Props) {
             <Label>Full Name *</Label>
             <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Mohamed Sesay" required />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Phone</Label>
-              <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+232 76 000 000" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Licence No.</Label>
-              <Input value={licence} onChange={e => setLicence(e.target.value)} placeholder="SL-2024-0001" />
-            </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Licence Expiry</Label>
-              <Input type="date" value={licenceExpiry} onChange={e => setLicenceExpiry(e.target.value)} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Phone</Label>
+            <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+232 76 000 000" />
           </div>
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>

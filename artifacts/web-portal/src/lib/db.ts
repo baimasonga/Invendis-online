@@ -738,11 +738,11 @@ export async function updateDriver(id: number, payload: any) {
 }
 
 export async function createDriver(payload: any) {
+  const driver_code = `DRV-${Date.now().toString(36).toUpperCase()}`;
   const { data, error } = await supabase.from("drivers").insert({
+    driver_code,
     full_name: payload.fullName,
     phone: payload.phone ?? null,
-    license_number: payload.licenseNumber ?? null,
-    license_expiry: payload.licenseExpiry ? new Date(payload.licenseExpiry).toISOString() : null,
     is_active: 1,
   }).select().single();
   if (error) throw new Error(error.message);

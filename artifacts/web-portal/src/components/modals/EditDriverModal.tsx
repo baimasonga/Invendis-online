@@ -14,28 +14,19 @@ interface Props {
   driver: any;
 }
 
-function toDateInput(iso?: string | null) {
-  if (!iso) return "";
-  return new Date(iso).toISOString().slice(0, 10);
-}
-
 export function EditDriverModal({ open, onClose, driver }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const updateMutation = useMutation({ mutationFn: ({ id, payload }: { id: number; payload: any }) => updateDriver(id, payload) });
 
-  const [fullName, setFullName]           = useState("");
-  const [phone, setPhone]                 = useState("");
-  const [licence, setLicence]             = useState("");
-  const [licenceExpiry, setLicenceExpiry] = useState("");
-  const [isActive, setIsActive]           = useState("1");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone]       = useState("");
+  const [isActive, setIsActive] = useState("1");
 
   useEffect(() => {
     if (driver && open) {
       setFullName(driver.fullName ?? "");
       setPhone(driver.phone ?? "");
-      setLicence(driver.licenseNumber ?? "");
-      setLicenceExpiry(toDateInput(driver.licenseExpiry));
       setIsActive(driver.isActive ? "1" : "0");
     }
   }, [driver, open]);
@@ -46,13 +37,7 @@ export function EditDriverModal({ open, onClose, driver }: Props) {
     try {
       await updateMutation.mutateAsync({
         id: driver.id,
-        payload: {
-          fullName,
-          phone: phone || undefined,
-          licenseNumber: licence || undefined,
-          licenseExpiry: licenceExpiry || undefined,
-          isActive: Number(isActive),
-        },
+        payload: { fullName, phone: phone || undefined, isActive: Number(isActive) },
       });
       await qc.invalidateQueries({ queryKey: KEYS.drivers() });
       toast({ title: "Driver updated", description: `${fullName} updated successfully.` });
@@ -75,14 +60,6 @@ export function EditDriverModal({ open, onClose, driver }: Props) {
             <div className="space-y-1.5">
               <Label>Phone</Label>
               <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+232 76 000 000" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Licence No.</Label>
-              <Input value={licence} onChange={e => setLicence(e.target.value)} placeholder="SL-2024-0001" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Licence Expiry</Label>
-              <Input type="date" value={licenceExpiry} onChange={e => setLicenceExpiry(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Status</Label>
