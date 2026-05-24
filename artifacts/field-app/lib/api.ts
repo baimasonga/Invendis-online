@@ -306,6 +306,22 @@ export const findFarmerByFace = (token: string, photoKey: string) =>
     body: JSON.stringify({ photoKey }),
   });
 
+export interface IncidentSyncPayload {
+  type: string;
+  description: string;
+  location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  incidentCode?: string;
+  deviceId?: string;
+}
+
+export const bulkSyncIncidents = (token: string, incidents: IncidentSyncPayload[]) =>
+  apiFetch<{ synced: number }>("/incidents/bulk", token, {
+    method: "POST",
+    body: JSON.stringify({ incidents }),
+  });
+
 export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
   const response = await fetch(photoUri);
   const blob = await response.blob();

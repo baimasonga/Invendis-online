@@ -93,7 +93,8 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     photo_gps_coords:  Array.isArray(raw.photoGpsCoords) ? raw.photoGpsCoords : null,
     notes:             raw.notes           ?? null,
     override_reason:   raw.overrideReason  ?? null,
-    otp_verified:      raw.otpVerified     === true,
+    otp_status:        raw.otpStatus       ?? null,
+    otp_verified:      raw.otpVerified === true || raw.otpStatus === "Verified",
     otp_code:          raw.otpCode         ?? null,
   };
 

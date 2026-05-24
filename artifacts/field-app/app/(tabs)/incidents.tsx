@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
+import { bulkSyncIncidents } from "@/lib/api";
 
 export interface Incident {
   id: string;
@@ -72,39 +73,26 @@ export default function IncidentsScreen() {
     if (!unsynced.length || !token) return;
     setSyncing(true);
     setSyncResult(null);
-    const domain = process.env.EXPO_PUBLIC_DOMAIN;
 
     try {
-      const res = await fetch(`https://${domain}/api/incidents/bulk`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          incidents: unsynced.map((inc) => ({
-            type: inc.type,
-            description: inc.description,
-            location: inc.location || null,
-            latitude: inc.latitude ?? null,
-            longitude: inc.longitude ?? null,
-            incidentCode: inc.incidentCode,
-            deviceId: inc.id,
-          })),
-        }),
-      });
-
-      if (res.ok) {
-        const { synced: syncedCount } = await res.json() as { synced: number };
-        const updated = incidents.map((inc) =>
-          inc.synced ? inc : { ...inc, synced: true }
-        );
-        await saveIncidents(updated);
-        setIncidents(updated.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-        setSyncResult({ synced: syncedCount, failed: unsynced.length - syncedCount });
-      } else {
-        setSyncResult({ synced: 0, failed: unsynced.length });
-      }
+      const { synced: syncedCount } = await bulkSyncIncidents(
+        token,
+        unsynced.map((inc) => ({
+          type: inc.type,
+          description: inc.description,
+          location: inc.location || null,
+          latitude: inc.latitude ?? null,
+          longitude: inc.longitude ?? null,
+          incidentCode: inc.incidentCode,
+          deviceId: inc.id,
+        }))
+      );
+      const updated = incidents.map((inc) =>
+        inc.synced ? inc : { ...inc, synced: true }
+      );
+      await saveIncidents(updated);
+      setIncidents(updated.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setSyncResult({ synced: syncedCount, failed: unsynced.length - syncedCount });
     } catch {
       setSyncResult({ synced: 0, failed: unsynced.length });
     } finally {
