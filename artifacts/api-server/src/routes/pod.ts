@@ -391,7 +391,7 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
         const name = (farmer as any)?.farmer_group
           || `${(farmer as any)?.first_name ?? ""} ${(farmer as any)?.last_name ?? ""}`.trim()
           || "Beneficiary";
-        await sendSms(phone, `Dear ${name}, your delivery has been confirmed. Thank you. — Invendis SL`);
+        await sendSms(phone, `Dear ${name}, your delivery has been confirmed. Thank you. — AVDP PoD`);
       }
     } catch (smsErr: any) {
       req.log.warn({ err: smsErr.message }, "PoD approval SMS failed");

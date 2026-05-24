@@ -55,7 +55,7 @@ async function sendAllocationNotification(
     }
 
     const communityPart = communityName ? ` in ${communityName}` : "";
-    const msg = `Dear ${farmerName}, a delivery is coming to your community${communityPart} for ${campaignName}. You will receive: ${itemsText}. Please be available. — Invendis SL`;
+    const msg = `Dear ${farmerName}, a delivery is coming to your community${communityPart} for ${campaignName}. You will receive: ${itemsText}. Please be available. — AVDP PoD`;
     await sendSms(f.phone, msg);
   } catch (err: any) {
     log.warn({ err: err.message }, "Allocation announcement SMS failed");

@@ -26,7 +26,7 @@ function hashCode(code: string): string {
 async function sendSms(to: string, text: string): Promise<void> {
   const username = process.env.EASYSENDSMS_USERNAME;
   const password = process.env.EASYSENDSMS_PASSWORD;
-  const sender   = process.env.EASYSENDSMS_SENDER ?? "AgriPoD";
+  const sender   = process.env.EASYSENDSMS_SENDER ?? "AVDP PoD";
 
   if (!username || !password) {
     throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
@@ -138,9 +138,32 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     campaignId = (disp as any)?.campaign_id ?? null;
   }
 
-  // Build item list for SMS (from campaign_items)
+  // Build item list for SMS:
+  //   If we have a dispatchId → use dispatch_items (actual loaded quantities)
+  //   Fall back to campaign_items (planned quantities per farmer)
   let itemsText = "";
-  if (campaignId) {
+  if (rawDispatchId) {
+    const { data: dItems } = await supa
+      .from("dispatch_items")
+      .select("quantity_loaded, input_item_id")
+      .eq("dispatch_id", Number(rawDispatchId));
+    if (dItems?.length) {
+      const itemIds = (dItems as any[]).map(i => i.input_item_id).filter(Boolean);
+      const { data: inputItems } = itemIds.length
+        ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
+        : { data: [] };
+      const inputMap = Object.fromEntries((inputItems ?? []).map((ii: any) => [ii.id, ii]));
+      itemsText = (dItems as any[])
+        .map(i => {
+          const ii = inputMap[i.input_item_id];
+          if (!ii) return null;
+          const qty = i.quantity_loaded ?? 0;
+          return `${ii.name} ${qty}${ii.unit ? " " + ii.unit : ""}`;
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+  } else if (campaignId) {
     const { data: cItems } = await supa
       .from("campaign_items")
       .select("quantity_per_farmer, input_item_id")
@@ -156,7 +179,7 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
           const ii = inputMap[i.input_item_id];
           if (!ii) return null;
           const qty = i.quantity_per_farmer ?? 1;
-          return `${ii.name} x${qty}${ii.unit ? " " + ii.unit : ""}`;
+          return `${ii.name} ${qty}${ii.unit ? " " + ii.unit : ""}`;
         })
         .filter(Boolean)
         .join(", ");
@@ -166,8 +189,8 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   const code  = Math.floor(100000 + Math.random() * 900000).toString();
   const isDev = process.env.NODE_ENV === "development";
   const message = itemsText
-    ? `AgriPoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
-    : `AgriPoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
+    ? `AVDP PoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
+    : `AVDP PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
 
   let channel = "none";
 
