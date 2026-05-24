@@ -406,6 +406,13 @@ export interface TrackerLivePosition {
 
 export async function fetchAllLivePositions(): Promise<TrackerLivePosition[]> {
   const trackers = await fetchAllTrackers();
+
+  // Pre-populate the unit→token cache so each telemetry call's resolveTokenForUnit()
+  // finds it immediately — prevents a thundering herd of redundant fetchAllTrackers() calls.
+  for (const t of trackers) {
+    if (t._token) _unitTokenCache.set(Number(t.id), t._token as string);
+  }
+
   const results = await Promise.allSettled(
     trackers.map(async (t): Promise<TrackerLivePosition> => {
       let pos: { lat: number; lng: number; speed: number | null; heading: number | null; recordedAt: Date } | null = null;
