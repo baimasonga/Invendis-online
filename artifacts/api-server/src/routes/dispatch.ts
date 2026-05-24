@@ -642,31 +642,31 @@ router.post(
         : null;
       const phone = row.contactPhone?.trim() || null;
 
+      // Look up by farmer_group ONLY (no beneficiary_type filter) — on a failed retry the
+      // beneficiary_type UPDATE may not have fired, leaving the row as 'individual'.
+      // We always re-apply the beneficiary_type update below regardless.
       const { data: existing } = await supa
         .from("farmers")
         .select("id, farmer_code, barcode_token, farmer_group, phone, chiefdom_id")
-        .eq("beneficiary_type", "group")
         .eq("farmer_group", row.community.trim())
         .limit(1)
         .maybeSingle();
 
       if (existing) {
-        // Backfill phone / chiefdom if the record is missing them
-        const backfill: Record<string, unknown> = {};
-        if (!(existing as any).phone && phone)        backfill.phone       = phone;
+        // Backfill phone / chiefdom / beneficiary_type if missing
+        const backfill: Record<string, unknown> = { beneficiary_type: "group" };
+        if (!(existing as any).phone && phone)            backfill.phone       = phone;
         if (!(existing as any).chiefdom_id && chiefdomId) backfill.chiefdom_id = chiefdomId;
-        if (Object.keys(backfill).length > 0) {
-          await supa.from("farmers").update(backfill).eq("id", (existing as any).id);
-        }
+        await supa.from("farmers").update(backfill).eq("id", (existing as any).id);
 
         farmerIds.push((existing as any).id);
         communities.push({
-          community: row.community.trim(),
-          district: row.district.trim(),
-          farmerCode: (existing as any).farmer_code ?? "",
+          community:    row.community.trim(),
+          district:     row.district.trim(),
+          farmerCode:   (existing as any).farmer_code   ?? "",
           barcodeToken: (existing as any).barcode_token ?? "",
         });
-        // Ensure allocation exists for this campaign
+        // Ensure allocation exists for this campaign (insert minimal cols, update the rest)
         const { data: allocExists } = await supa
           .from("allocations")
           .select("id")
@@ -675,12 +675,15 @@ router.post(
           .limit(1)
           .maybeSingle();
         if (!allocExists) {
-          await supa.from("allocations").insert({
-            campaign_id: campaignId,
-            farmer_id: (existing as any).id,
-            notes: "Imported from Excel manifest",
-            allocated_by: createdBy,
-          });
+          const { data: newAlloc } = await supa
+            .from("allocations")
+            .insert({ campaign_id: campaignId, farmer_id: (existing as any).id })
+            .select("id").single();
+          if (newAlloc) {
+            await supa.from("allocations")
+              .update({ notes: "Imported from Excel manifest", allocated_by: createdBy })
+              .eq("id", (newAlloc as any).id);
+          }
         }
         continue;
       }
@@ -724,36 +727,38 @@ router.post(
 
       const farmerId = (newFarmer as any).id as number;
 
-      // Set beneficiary_type = 'group' in a separate UPDATE (avoids stale INSERT schema cache)
+      // Set beneficiary_type = 'group' via UPDATE (avoids stale PostgREST INSERT schema cache)
       await supa.from("farmers").update({ beneficiary_type: "group" }).eq("id", farmerId);
       farmerIds.push(farmerId);
       newFarmerCount++;
       communities.push({ community: row.community.trim(), district: row.district.trim(), farmerCode, barcodeToken });
 
-      await supa.from("allocations").insert({
-        campaign_id: campaignId,
-        farmer_id: farmerId,
-        notes: "Imported from Excel manifest",
-        allocated_by: createdBy,
-      });
+      // Allocation: minimal INSERT then UPDATE (notes/allocated_by may be stale in INSERT cache)
+      const { data: newAlloc } = await supa
+        .from("allocations")
+        .insert({ campaign_id: campaignId, farmer_id: farmerId })
+        .select("id").single();
+      if (newAlloc) {
+        await supa.from("allocations")
+          .update({ notes: "Imported from Excel manifest", allocated_by: createdBy })
+          .eq("id", (newAlloc as any).id);
+      }
     }
 
     // 4. Create the dispatch manifest
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    // Insert with only the original core columns — newer columns (hired_plate, hired_driver_name,
-    // field_officer_id, vehicle_id, driver_id) may be absent from PostgREST's INSERT schema cache.
-    // We UPDATE them immediately after to avoid "column not found in schema cache" errors.
+    // INSERT with only the three guaranteed NOT NULL / no-default columns.
+    // ALL other columns (vehicle_type, notes, created_by, vehicle_id, driver_id,
+    // hired_plate, hired_driver_name, field_officer_id) are absent from PostgREST's
+    // INSERT schema cache (added after cache was last populated) — we UPDATE them next.
     const { data: dispatchData, error: dispErr } = await supa
       .from("dispatches")
       .insert({
         manifest_code: manifestCode,
         campaign_id:   campaignId,
         warehouse_id:  warehouseId,
-        vehicle_type:  b.vehicleType ?? "office",
-        notes:         b.notes ?? null,
-        created_by:    createdBy,
       })
       .select("id")
       .single();
@@ -765,8 +770,12 @@ router.post(
 
     const dispatchId = (dispatchData as any).id as number;
 
-    // UPDATE the newer columns that PostgREST INSERT cache may not know about
-    const dispUpdate: Record<string, unknown> = {};
+    // UPDATE every other column in one shot (bypasses stale INSERT schema cache)
+    const dispUpdate: Record<string, unknown> = {
+      vehicle_type: b.vehicleType ?? "office",
+      notes:        b.notes ?? null,
+      created_by:   createdBy,
+    };
     if (isHired) {
       dispUpdate.hired_plate       = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
       dispUpdate.hired_driver_name = b.hiredDriverName ?? null;
@@ -775,11 +784,14 @@ router.post(
       dispUpdate.driver_id  = b.driverId  ?? null;
     }
     if (b.fieldOfficerId) dispUpdate.field_officer_id = Number(b.fieldOfficerId);
-    if (Object.keys(dispUpdate).length > 0) {
-      await supa.from("dispatches").update(dispUpdate).eq("id", dispatchId);
+
+    const { error: dispUpdErr } = await supa.from("dispatches").update(dispUpdate).eq("id", dispatchId);
+    if (dispUpdErr) {
+      res.status(500).json({ error: `Dispatch created but update failed: ${dispUpdErr.message}` });
+      return;
     }
 
-    let dispatchRow: Record<string, unknown> = { id: dispatchId, ...dispUpdate };
+    let dispatchRow: Record<string, unknown> = { id: dispatchId, manifest_code: manifestCode, ...dispUpdate };
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)
     let totalPackages = 0;
