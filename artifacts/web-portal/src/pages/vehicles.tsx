@@ -35,23 +35,6 @@ function DriverAvatar({ name }: { name?: string }) {
   );
 }
 
-function LicenceStatus({ expiry }: { expiry?: string | null }) {
-  if (!expiry) return <span className="text-sm text-muted-foreground">—</span>;
-  const d = new Date(expiry);
-  const daysLeft = Math.floor((d.getTime() - Date.now()) / 86400000);
-  const cls = daysLeft < 0
-    ? "text-red-700 dark:text-red-400"
-    : daysLeft < 30
-    ? "text-amber-700 dark:text-amber-400"
-    : "text-muted-foreground";
-  return (
-    <span className={`text-xs ${cls}`}>
-      {d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-      {daysLeft < 30 && daysLeft >= 0 && <span className="ml-1 font-medium">({daysLeft}d)</span>}
-      {daysLeft < 0 && <span className="ml-1 font-semibold">(Expired)</span>}
-    </span>
-  );
-}
 
 export default function Vehicles() {
   const can = usePermissions();
@@ -250,8 +233,6 @@ export default function Vehicles() {
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="pl-4">Name</TableHead>
                     <TableHead className="hidden md:table-cell">Phone</TableHead>
-                    <TableHead className="hidden lg:table-cell">Licence No.</TableHead>
-                    <TableHead className="hidden lg:table-cell">Expiry</TableHead>
                     <TableHead>Status</TableHead>
                     {can.manageFleet && <TableHead className="pr-4 text-right w-[110px]" />}
                   </TableRow>
@@ -262,8 +243,6 @@ export default function Vehicles() {
                         <TableRow key={i}>
                           <TableCell className="pl-4"><div className="flex items-center gap-2"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-4 w-28" /></div></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
-                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
                           <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
                           {can.manageFleet && <TableCell className="pr-4" />}
                         </TableRow>
@@ -273,8 +252,6 @@ export default function Vehicles() {
                         <TableRow key={d.id} className="hover:bg-muted/40">
                           <TableCell className="pl-4"><DriverAvatar name={d.fullName} /></TableCell>
                           <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{d.phone ?? "—"}</TableCell>
-                          <TableCell className="hidden lg:table-cell font-mono text-xs text-muted-foreground">{d.licenseNumber ?? "—"}</TableCell>
-                          <TableCell className="hidden lg:table-cell"><LicenceStatus expiry={d.licenseExpiry} /></TableCell>
                           <TableCell><StatusBadge status={d.isActive ? "Active" : "Inactive"} /></TableCell>
                           {can.manageFleet && (
                             <TableCell className="pr-4 text-right">

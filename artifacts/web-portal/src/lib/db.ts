@@ -728,8 +728,6 @@ export async function updateDriver(id: number, payload: any) {
   const { data, error } = await supabase.from("drivers").update({
     full_name: payload.fullName,
     phone: payload.phone ?? null,
-    license_number: payload.licenseNumber ?? null,
-    license_expiry: payload.licenseExpiry ? new Date(payload.licenseExpiry).toISOString() : null,
     is_active: payload.isActive ?? 1,
   }).eq("id", id).select().single();
   if (error) throw new Error(error.message);
