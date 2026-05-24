@@ -1,5 +1,10 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { RekognitionClient, CompareFacesCommand } from "@aws-sdk/client-rekognition";
+import {
+  RekognitionClient,
+  CompareFacesCommand,
+  DetectLabelsCommand,
+  DetectFacesCommand,
+} from "@aws-sdk/client-rekognition";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const region = (process.env.AWS_REGION ?? "eu-west-2").trim();
@@ -29,6 +34,102 @@ export interface FaceCompareResult {
   similarity: number | null;
   reason: "matched" | "no_match" | "no_face_in_source" | "no_face_in_target" | "no_reference_photo" | "error";
   detail?: string;
+}
+
+// Agricultural input labels Rekognition commonly detects
+const AGRI_LABELS = new Set([
+  "Bag", "Sack", "Gunny Sack", "Burlap", "Fertilizer", "Seed", "Seeds",
+  "Grain", "Grains", "Rice", "Maize", "Corn", "Wheat", "Crops", "Crop",
+  "Plant", "Plants", "Agriculture", "Farm", "Farming", "Harvest",
+  "Container", "Bucket", "Box", "Boxes", "Package", "Packaging", "Bottle",
+  "Jug", "Canister", "Barrel", "Crate", "Pallet", "Silo", "Warehouse",
+  "Tool", "Shovel", "Hoe", "Equipment", "Machine", "Machinery",
+  "Powder", "Chemical", "Pesticide", "Herbicide",
+]);
+
+export interface LabelAnalysisResult {
+  labels: { name: string; confidence: number; isAgri: boolean }[];
+  hasAgriContent: boolean;
+  topAgriLabels: string[];
+  confidence: number | null;
+}
+
+export async function detectLabels(s3Key: string): Promise<LabelAnalysisResult> {
+  const cmd = new DetectLabelsCommand({
+    Image: { S3Object: { Bucket: bucket, Name: s3Key } },
+    MaxLabels: 30,
+    MinConfidence: 50,
+  });
+  const result = await rekognition.send(cmd);
+  const labels = (result.Labels ?? []).map(l => ({
+    name: l.Name ?? "",
+    confidence: Math.round((l.Confidence ?? 0) * 10) / 10,
+    isAgri: AGRI_LABELS.has(l.Name ?? ""),
+  }));
+  const agriLabels = labels.filter(l => l.isAgri);
+  return {
+    labels,
+    hasAgriContent: agriLabels.length > 0,
+    topAgriLabels: agriLabels.slice(0, 5).map(l => l.name),
+    confidence: agriLabels.length > 0 ? Math.max(...agriLabels.map(l => l.confidence)) : null,
+  };
+}
+
+export interface FaceAttributeResult {
+  ageRangeLow: number | null;
+  ageRangeHigh: number | null;
+  gender: string | null;
+  genderConfidence: number | null;
+  smile: boolean | null;
+  smileConfidence: number | null;
+  eyesOpen: boolean | null;
+  primaryEmotion: string | null;
+  primaryEmotionConfidence: number | null;
+  faceQuality: number | null;
+  brightness: number | null;
+  sharpness: number | null;
+  faceCount: number;
+}
+
+export async function detectFaces(s3Key: string): Promise<FaceAttributeResult> {
+  const cmd = new DetectFacesCommand({
+    Image: { S3Object: { Bucket: bucket, Name: s3Key } },
+    Attributes: ["ALL"],
+  });
+  const result = await rekognition.send(cmd);
+  const faces = result.FaceDetails ?? [];
+  const faceCount = faces.length;
+  if (faceCount === 0) {
+    return {
+      ageRangeLow: null, ageRangeHigh: null, gender: null, genderConfidence: null,
+      smile: null, smileConfidence: null, eyesOpen: null,
+      primaryEmotion: null, primaryEmotionConfidence: null,
+      faceQuality: null, brightness: null, sharpness: null, faceCount: 0,
+    };
+  }
+  // Use the face with highest confidence
+  const face = faces.sort((a, b) => (b.Confidence ?? 0) - (a.Confidence ?? 0))[0];
+  const emotions = (face.Emotions ?? []).sort((a, b) => (b.Confidence ?? 0) - (a.Confidence ?? 0));
+  const brightness = face.Quality?.Brightness ?? null;
+  const sharpness  = face.Quality?.Sharpness ?? null;
+  const faceQuality = (brightness != null && sharpness != null)
+    ? Math.round((brightness + sharpness) / 2 * 10) / 10
+    : null;
+  return {
+    ageRangeLow:               face.AgeRange?.Low ?? null,
+    ageRangeHigh:              face.AgeRange?.High ?? null,
+    gender:                    face.Gender?.Value ?? null,
+    genderConfidence:          face.Gender?.Confidence != null ? Math.round(face.Gender.Confidence * 10) / 10 : null,
+    smile:                     face.Smile?.Value ?? null,
+    smileConfidence:           face.Smile?.Confidence != null ? Math.round(face.Smile.Confidence * 10) / 10 : null,
+    eyesOpen:                  face.EyesOpen?.Value ?? null,
+    primaryEmotion:            emotions[0]?.Type ?? null,
+    primaryEmotionConfidence:  emotions[0]?.Confidence != null ? Math.round(emotions[0].Confidence * 10) / 10 : null,
+    faceQuality,
+    brightness:                brightness != null ? Math.round(brightness * 10) / 10 : null,
+    sharpness:                 sharpness  != null ? Math.round(sharpness  * 10) / 10 : null,
+    faceCount,
+  };
 }
 
 export async function compareFaces(

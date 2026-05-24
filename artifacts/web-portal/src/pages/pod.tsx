@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, KEYS } from "@/lib/db";
+import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,7 @@ import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
   ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet, ImageIcon,
+  Microscope, Leaf, Loader2, XCircle,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";

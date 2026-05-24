@@ -2014,6 +2014,49 @@ export async function getPhotoUrl(key: string): Promise<string | null> {
   try { return await getFaceViewUrl(key); } catch { return null; }
 }
 
+export async function analysePhotoLabels(s3Key: string): Promise<{
+  labels: { name: string; confidence: number; isAgri: boolean }[];
+  hasAgriContent: boolean;
+  topAgriLabels: string[];
+  confidence: number | null;
+}> {
+  const token = await getApiToken();
+  if (!token) throw new Error("Not authenticated");
+  const res = await fetch(`${API_BASE}/face/analyse-labels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ s3Key }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Label analysis failed"); }
+  return res.json();
+}
+
+export async function analyseFarmerFace(s3Key: string, farmerId: number): Promise<{
+  ageRangeLow: number | null;
+  ageRangeHigh: number | null;
+  gender: string | null;
+  genderConfidence: number | null;
+  smile: boolean | null;
+  smileConfidence: number | null;
+  eyesOpen: boolean | null;
+  primaryEmotion: string | null;
+  primaryEmotionConfidence: number | null;
+  faceQuality: number | null;
+  brightness: number | null;
+  sharpness: number | null;
+  faceCount: number;
+}> {
+  const token = await getApiToken();
+  if (!token) throw new Error("Not authenticated");
+  const res = await fetch(`${API_BASE}/face/analyse-farmer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ s3Key, farmerId }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Face analysis failed"); }
+  return res.json();
+}
+
 export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendingPod: number; openIncidents: number }> {
   const [farmers, pod, incidents] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),

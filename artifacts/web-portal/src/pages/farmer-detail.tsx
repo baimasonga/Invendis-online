@@ -3,7 +3,7 @@ import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl,
-  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, farmerDisplayName, KEYS,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, analyseFarmerFace, farmerDisplayName, KEYS,
 } from "@/lib/db";
 import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, User, Users, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2, Pencil } from "lucide-react";
+import { ArrowLeft, User, Users, MapPin, Sprout, Hash, Phone, IdCard, CheckCircle2, XCircle, Camera, Upload, Loader2, Pencil, ScanFace, Star, Eye, Smile, Zap, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FarmerIdCard } from "@/components/FarmerIdCard";
 import { StatusBadge } from "@/components/StatusBadge";

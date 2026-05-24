@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
-import { getPresignedUploadUrl, getPresignedViewUrl, compareFaces, bucket } from "../lib/aws.js";
+import { getPresignedUploadUrl, getPresignedViewUrl, compareFaces, detectLabels, detectFaces, bucket } from "../lib/aws.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -53,6 +53,32 @@ router.post("/api/face/compare", requireAnyAuth, async (req, res) => {
     const faceStatus = result.matched ? "Verified" : result.reason === "no_face_in_target" ? "NoFace" : result.reason === "no_reference_photo" ? "NoReference" : "Failed";
     await logAudit(req, "FACE_COMPARE", "PoD", `Face compare farmer ${farmerId}: ${faceStatus} (${result.similarity ?? "n/a"}%)`, "farmer", farmerId);
     res.json({ ...result, faceStatus });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.post("/api/face/analyse-labels", requireAnyAuth, async (req, res) => {
+  const { s3Key } = req.body as { s3Key?: string };
+  if (!s3Key) { res.status(400).json({ error: "s3Key is required" }); return; }
+  try {
+    const result = await detectLabels(s3Key);
+    await logAudit(req, "ANALYSE", "PoD", `Label analysis on photo: ${s3Key} — agri=${result.hasAgriContent}`, "pod", null);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.post("/api/face/analyse-farmer", requireAnyAuth, async (req, res) => {
+  const { s3Key, farmerId } = req.body as { s3Key?: string; farmerId?: number };
+  if (!s3Key) { res.status(400).json({ error: "s3Key is required" }); return; }
+  try {
+    const result = await detectFaces(s3Key);
+    await logAudit(req, "ANALYSE", "Farmers", `Face attribute analysis for farmer ${farmerId ?? "unknown"}: ${result.faceCount} face(s) detected`, "farmer", farmerId ?? null);
+    res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
