@@ -7,3 +7,4 @@
 - [GIS Road Mapping exports](gis-road-mapping.md) — GeoJSON/KML/GPX export requires authenticated fetch + blob download (not direct <a href>) since /api/gis/export/* uses requireAnyAuth.
 - [Stuck PK sequences](stuck-pk-sequences.md) — Every table insert must compute MAX(id)+1 explicitly; never rely on the PG sequence (stuck after seed imports).
 - [PostgREST stale INSERT cache](pgrst-insert-cache.md) — If supa INSERT fails "column not found in schema cache" but SELECT works, omit the column (use DB default) then UPDATE immediately after.
+- [EAS build setup](eas-build-setup.md) — Expo account is `medbangs`; EAS project ID `624b5084-c650-4a8f-92a2-f35cf24b3e81`; git shim required to bypass Replit git-archive restriction.
