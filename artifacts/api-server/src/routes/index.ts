@@ -17,6 +17,7 @@ import auditRouter from "./audit";
 import usersRouter from "./users";
 import faceRouter from "./face";
 import incidentsRouter from "./incidents";
+import gisRouter from "./gis";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(auditRouter);
 router.use(usersRouter);
 router.use(faceRouter);
 router.use(incidentsRouter);
+router.use(gisRouter);
 
 export default router;

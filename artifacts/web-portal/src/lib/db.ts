@@ -930,6 +930,47 @@ export async function addDispatchItem(payload: any) {
   return resp.json();
 }
 
+// ── GIS ───────────────────────────────────────────────────────────────────────
+async function gisToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return session.access_token;
+}
+
+export async function listGpsRoutes(params?: {
+  vehicleId?: number;
+  dispatchId?: number;
+  from?: string;
+  to?: string;
+  limit?: number;
+}): Promise<any[]> {
+  const token = await gisToken();
+  const qs = new URLSearchParams();
+  if (params?.vehicleId)  qs.set("vehicleId",  String(params.vehicleId));
+  if (params?.dispatchId) qs.set("dispatchId", String(params.dispatchId));
+  if (params?.from)       qs.set("from",       params.from);
+  if (params?.to)         qs.set("to",         params.to);
+  if (params?.limit)      qs.set("limit",      String(params.limit));
+  const resp = await fetch(`/api/gis/routes?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to fetch GIS routes");
+  }
+  return resp.json();
+}
+
+export function buildGisExportUrl(format: "geojson" | "kml" | "gpx", params?: {
+  vehicleId?: number;
+  from?: string;
+  to?: string;
+}): string {
+  const qs = new URLSearchParams();
+  if (params?.vehicleId) qs.set("vehicleId", String(params.vehicleId));
+  if (params?.from)      qs.set("from",      params.from);
+  if (params?.to)        qs.set("to",        params.to);
+  return `/api/gis/export/${format}?${qs}`;
+}
+
 // ── GPS ───────────────────────────────────────────────────────────────────────
 async function gpsToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();

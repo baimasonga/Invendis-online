@@ -4,3 +4,4 @@
 - [PoD approval chain](pod-approval-chain.md) — approving a PoD must update allocations, campaigns.delivered_count, dispatch_items.quantity_delivered, and dispatches.delivered_packages.
 - [Allocation counter](allocation-counter.md) — campaigns.allocated_farmers must be recounted after every allocation insert/bulk-insert.
 - [Beneficiary types](beneficiary-types.md) — farmers table supports individual/group via beneficiary_type + group_size; group name stored in farmer_group column.
+- [GIS Road Mapping exports](gis-road-mapping.md) — GeoJSON/KML/GPX export requires authenticated fetch + blob download (not direct <a href>) since /api/gis/export/* uses requireAnyAuth.

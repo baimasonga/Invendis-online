@@ -27,6 +27,7 @@ import Users from "@/pages/users";
 import Settings from "@/pages/settings";
 import Incidents from "@/pages/incidents";
 import SupervisorView from "@/pages/supervisor";
+import RoadMapping from "@/pages/road-mapping";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +79,7 @@ function Router() {
       <ProtectedRoute path="/settings"         component={Settings} />
       <ProtectedRoute path="/incidents"        component={Incidents} />
       <ProtectedRoute path="/supervisor"       component={SupervisorView} />
+      <ProtectedRoute path="/road-mapping"    component={RoadMapping} />
 
       <Route path="/">
         <Redirect to="/dashboard" />
