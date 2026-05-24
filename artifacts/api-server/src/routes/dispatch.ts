@@ -742,38 +742,44 @@ router.post(
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    const dispObj: Record<string, unknown> = {
-      manifest_code: manifestCode,
-      campaign_id:   campaignId,
-      warehouse_id:  warehouseId,
-      vehicle_type:  b.vehicleType ?? "office",
-      notes:         b.notes ?? null,
-      created_by:    createdBy,
-    };
-    if (isHired) {
-      dispObj.hired_plate        = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
-      dispObj.hired_driver_name  = b.hiredDriverName ?? null;
-    } else {
-      dispObj.vehicle_id = b.vehicleId ?? null;
-      dispObj.driver_id  = b.driverId  ?? null;
-    }
-    if (b.fieldOfficerId) {
-      dispObj.field_officer_id = Number(b.fieldOfficerId);
-    }
-
+    // Insert with only the original core columns — newer columns (hired_plate, hired_driver_name,
+    // field_officer_id, vehicle_id, driver_id) may be absent from PostgREST's INSERT schema cache.
+    // We UPDATE them immediately after to avoid "column not found in schema cache" errors.
     const { data: dispatchData, error: dispErr } = await supa
       .from("dispatches")
-      .insert(dispObj)
-      .select()
+      .insert({
+        manifest_code: manifestCode,
+        campaign_id:   campaignId,
+        warehouse_id:  warehouseId,
+        vehicle_type:  b.vehicleType ?? "office",
+        notes:         b.notes ?? null,
+        created_by:    createdBy,
+      })
+      .select("id")
       .single();
 
     if (dispErr || !dispatchData) {
       res.status(500).json({ error: dispErr?.message ?? "Failed to create dispatch manifest" });
       return;
     }
-    let dispatchRow: Record<string, unknown> = dispatchData as Record<string, unknown>;
 
-    const dispatchId = dispatchRow.id as number;
+    const dispatchId = (dispatchData as any).id as number;
+
+    // UPDATE the newer columns that PostgREST INSERT cache may not know about
+    const dispUpdate: Record<string, unknown> = {};
+    if (isHired) {
+      dispUpdate.hired_plate       = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
+      dispUpdate.hired_driver_name = b.hiredDriverName ?? null;
+    } else {
+      dispUpdate.vehicle_id = b.vehicleId ?? null;
+      dispUpdate.driver_id  = b.driverId  ?? null;
+    }
+    if (b.fieldOfficerId) dispUpdate.field_officer_id = Number(b.fieldOfficerId);
+    if (Object.keys(dispUpdate).length > 0) {
+      await supa.from("dispatches").update(dispUpdate).eq("id", dispatchId);
+    }
+
+    let dispatchRow: Record<string, unknown> = { id: dispatchId, ...dispUpdate };
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)
     let totalPackages = 0;
