@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { useQuery } from "@tanstack/react-query";
 import {
   getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport,
-  getConsolidatedDistributionReport, listAllCampaigns,
+  getConsolidatedDistributionReport, listAllCampaigns, getMEReport,
   listIncidents, type ConsolidatedDispatch, KEYS,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Users, MapPin, TrendingUp, Download, Truck, Package, CalendarDays, X,
   AlertTriangle, CheckCircle2, Clock, Printer, ChevronDown, ChevronUp,
-  FileText, Filter, RotateCcw, FileSpreadsheet,
+  FileText, Filter, RotateCcw, FileSpreadsheet, ShieldCheck, Target,
+  Leaf, UserCheck, BarChart2, Sprout,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -318,8 +319,9 @@ export default function Reports() {
   const [selectedIds,   setSelectedIds]   = useState<Set<number>>(new Set());
   const [expandedId,    setExpandedId]    = useState<number | null>(null);
 
-  // ── Existing queries ────────────────────────────────────────────────────────
+  // ── Queries ─────────────────────────────────────────────────────────────────
 
+  const { data: meData, isLoading: loadingMe } = useQuery({ queryKey: KEYS.meReport(), queryFn: getMEReport });
   const { data: benReport,  isLoading: loadingBen }   = useQuery({ queryKey: KEYS.reports("beneficiary"), queryFn: getFarmerBeneficiaryReport });
   const { data: stockRows,  isLoading: loadingStock }  = useQuery({ queryKey: KEYS.reports("stock", stockFrom || undefined, stockTo || undefined), queryFn: () => getStockMovementReport(stockFrom || undefined, stockTo || undefined) });
   const { data: distRows,   isLoading: loadingDist }   = useQuery({ queryKey: KEYS.reports("distribution", distFrom || undefined, distTo || undefined), queryFn: () => getDistributionReport(distFrom || undefined, distTo || undefined) });
@@ -342,7 +344,13 @@ export default function Reports() {
 
   const beneficiaryCols = [
     { key: "district", label: "District" }, { key: "total", label: "Total" },
-    { key: "approved", label: "Approved" }, { key: "pending", label: "Pending" }, { key: "female", label: "Female" },
+    { key: "approved", label: "Approved" }, { key: "pending", label: "Pending" },
+    { key: "female", label: "Female" }, { key: "femalePct", label: "Female %" },
+    { key: "farmSize", label: "Farm Size (ha)" },
+  ];
+  const vcBenCols = [
+    { key: "valueChain", label: "Value Chain" }, { key: "total", label: "Total" },
+    { key: "approved", label: "Approved" }, { key: "female", label: "Female" }, { key: "femalePct", label: "Female %" },
   ];
   const stockCols = [
     { key: "createdAt", label: "Date" }, { key: "txnType", label: "Type" },
@@ -381,7 +389,12 @@ export default function Reports() {
   }
 
   const benRows: any[]  = (benReport as any)?.rows ?? [];
+  const vcRows: any[]   = (benReport as any)?.vcRows ?? [];
+  const ageRows: any[]  = (benReport as any)?.ageRows ?? [];
   const summary: any    = (benReport as any)?.summary ?? {};
+  const meVerif: any    = (meData as any)?.verification ?? {};
+  const meCampaigns: any[] = (meData as any)?.campaigns ?? [];
+  const meByVc: any[]   = (meData as any)?.byValueChain ?? [];
   const stockList       = Array.isArray(stockRows) ? stockRows : [];
   const distList        = Array.isArray(distRows)  ? distRows  : [];
   const incList         = incData?.data ?? [];
@@ -489,8 +502,9 @@ export default function Reports() {
     <div className="space-y-5">
       <PageHeader title="Reports & Analytics" subtitle="Comprehensive operational data across all modules." />
 
-      <Tabs defaultValue="beneficiary">
-        <TabsList className="h-8">
+      <Tabs defaultValue="me">
+        <TabsList className="h-8 flex-wrap">
+          <TabsTrigger value="me"             className="text-xs">M&amp;E Summary</TabsTrigger>
           <TabsTrigger value="beneficiary"    className="text-xs">Beneficiaries</TabsTrigger>
           <TabsTrigger value="stock"          className="text-xs">Stock Movement</TabsTrigger>
           <TabsTrigger value="distribution"   className="text-xs">Distribution</TabsTrigger>
@@ -498,18 +512,202 @@ export default function Reports() {
           <TabsTrigger value="incidents"      className="text-xs">Incidents</TabsTrigger>
         </TabsList>
 
+        {/* ── M&E Summary tab ────────────────────────────────────────────────── */}
+        <TabsContent value="me" className="mt-4 space-y-4">
+
+          {/* Verification KPIs */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Proof of Delivery Verification Rates</p>
+            {loadingMe ? (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {Array.from({ length: 5 }).map((_, i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-full" /></CardContent></Card>)}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <KpiCard label="Total PoDs"       value={meVerif.podCount ?? 0}             icon={FileText}     color="bg-slate-100 text-slate-700" />
+                <KpiCard label="OTP Verified"     value={`${meVerif.otpRate ?? 0}%`}        icon={ShieldCheck}  color="bg-blue-100 text-blue-700" />
+                <KpiCard label="Face Verified"    value={`${meVerif.faceRate ?? 0}%`}       icon={UserCheck}    color="bg-violet-100 text-violet-700" />
+                <KpiCard label="GPS Captured"     value={`${meVerif.gpsRate ?? 0}%`}        icon={MapPin}       color="bg-teal-100 text-teal-700" />
+                <KpiCard label="Female Recipients" value={`${meVerif.femaleRate ?? 0}%`}   icon={Users}        color="bg-pink-100 text-pink-700" />
+              </div>
+            )}
+          </div>
+
+          {/* Campaign reach */}
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Target className="h-4 w-4 text-green-700" />
+                Campaign Reach &amp; Delivery Performance
+              </CardTitle>
+              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!meCampaigns.length}
+                onClick={() => downloadXLSX(meCampaigns.map((c: any) => ({
+                  name: c.name, code: c.campaignCode, season: c.season, status: c.status,
+                  targetFarmers: c.targetFarmers, allocatedFarmers: c.allocatedFarmers, allocationRate: `${c.allocationRate}%`,
+                  deliveredCount: c.deliveredCount, deliveryRate: `${c.deliveryRate}%`,
+                  femaleDelivered: c.femaleDelivered, femalePct: `${c.femalePct}%`,
+                })), [
+                  { key: "name", label: "Campaign" }, { key: "code", label: "Code" }, { key: "season", label: "Season" },
+                  { key: "status", label: "Status" }, { key: "targetFarmers", label: "Target" },
+                  { key: "allocatedFarmers", label: "Allocated" }, { key: "allocationRate", label: "Allocation Rate" },
+                  { key: "deliveredCount", label: "Delivered" }, { key: "deliveryRate", label: "Delivery Rate" },
+                  { key: "femaleDelivered", label: "Female" }, { key: "femalePct", label: "Female %" },
+                ], `me-campaigns-${today}.xlsx`)}>
+                <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Export
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4">Campaign</TableHead>
+                    <TableHead className="hidden md:table-cell">Season</TableHead>
+                    <TableHead className="hidden md:table-cell">Status</TableHead>
+                    <TableHead className="text-right">Target</TableHead>
+                    <TableHead className="text-right">Allocated</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Alloc. Rate</TableHead>
+                    <TableHead className="text-right">Delivered</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Delivery Rate</TableHead>
+                    <TableHead className="text-right pr-4 hidden xl:table-cell">Female %</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingMe
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                          <TableCell className="hidden xl:table-cell pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                        </TableRow>
+                      ))
+                    : meCampaigns.length > 0
+                    ? meCampaigns.map((c: any) => (
+                        <TableRow key={c.id} className="hover:bg-muted/40">
+                          <TableCell className="pl-4">
+                            <div>
+                              <p className="text-sm font-medium">{c.name}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{c.campaignCode}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{c.season}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${DIST_STATUS_STYLES[c.status?.toLowerCase()] ?? "bg-slate-100 text-slate-600"}`}>{c.status}</span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm">{c.targetFarmers.toLocaleString()}</TableCell>
+                          <TableCell className="text-right tabular-nums text-sm">{c.allocatedFarmers.toLocaleString()}</TableCell>
+                          <TableCell className="text-right hidden lg:table-cell">
+                            <CompletionBar pct={c.allocationRate} />
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm font-semibold text-emerald-700">{c.deliveredCount.toLocaleString()}</TableCell>
+                          <TableCell className="text-right hidden lg:table-cell">
+                            <CompletionBar pct={c.deliveryRate} />
+                          </TableCell>
+                          <TableCell className="text-right pr-4 hidden xl:table-cell text-sm text-pink-700 font-medium tabular-nums">{c.femalePct}%</TableCell>
+                        </TableRow>
+                      ))
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={9} className="h-24 text-center text-sm text-muted-foreground">No campaign data</TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Value chain delivery breakdown */}
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Leaf className="h-4 w-4 text-green-700" />
+                Delivery by Value Chain
+              </CardTitle>
+              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!meByVc.length}
+                onClick={() => downloadCSV(meByVc, [
+                  { key: "valueChain", label: "Value Chain" }, { key: "deliveries", label: "Deliveries" },
+                  { key: "female", label: "Female" }, { key: "femalePct", label: "Female %" },
+                  { key: "verified", label: "Verified" }, { key: "verifiedPct", label: "Verified %" },
+                  { key: "qty", label: "Qty Delivered" },
+                ], `me-value-chains-${today}.csv`)}>
+                <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="pl-4">Value Chain</TableHead>
+                    <TableHead className="text-right">Deliveries</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Female</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Female %</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Verified</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Verified %</TableHead>
+                    <TableHead className="text-right pr-4 hidden xl:table-cell">Qty Delivered</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingMe
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="pl-4"><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-10 ml-auto" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-10 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-10 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-10 ml-auto" /></TableCell>
+                          <TableCell className="hidden xl:table-cell pr-4"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                        </TableRow>
+                      ))
+                    : meByVc.length > 0
+                    ? meByVc.map((row: any, i: number) => (
+                        <TableRow key={i} className="hover:bg-muted/40">
+                          <TableCell className="pl-4">
+                            <div className="flex items-center gap-2">
+                              <Sprout className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                              <span className="text-sm font-medium">{row.valueChain}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-semibold tabular-nums">{row.deliveries.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-sm text-pink-700 hidden md:table-cell tabular-nums">{row.female.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-sm font-medium hidden md:table-cell tabular-nums">{row.femalePct}%</TableCell>
+                          <TableCell className="text-right text-sm text-emerald-700 hidden lg:table-cell tabular-nums">{row.verified.toLocaleString()}</TableCell>
+                          <TableCell className="text-right hidden lg:table-cell">
+                            <CompletionBar pct={row.verifiedPct} />
+                          </TableCell>
+                          <TableCell className="text-right pr-4 text-sm text-muted-foreground hidden xl:table-cell tabular-nums">{row.qty.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))
+                    : (
+                        <TableRow>
+                          <TableCell colSpan={7} className="h-20 text-center text-sm text-muted-foreground">No delivery data yet</TableCell>
+                        </TableRow>
+                      )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ── Beneficiary tab ────────────────────────────────────────────────── */}
         <TabsContent value="beneficiary" className="mt-4 space-y-4">
           {loadingBen ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {Array.from({ length: 4 }).map((_, i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-full" /></CardContent></Card>)}
+              {Array.from({ length: 6 }).map((_, i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-full" /></CardContent></Card>)}
             </div>
           ) : benReport ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard label="Total Farmers" value={summary.total ?? 0}              icon={Users}     color="bg-green-100 text-green-700" />
-              <KpiCard label="Approved"       value={summary.approved ?? 0}           icon={TrendingUp} color="bg-emerald-100 text-emerald-700" />
-              <KpiCard label="Female Farmers" value={summary.female ?? 0}             icon={Users}     color="bg-pink-100 text-pink-700" />
-              <KpiCard label="Approval Rate"  value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp} color="bg-blue-100 text-blue-700" />
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <KpiCard label="Total Farmers"     value={summary.total ?? 0}              icon={Users}       color="bg-green-100 text-green-700" />
+              <KpiCard label="Approved"           value={summary.approved ?? 0}           icon={CheckCircle2} color="bg-emerald-100 text-emerald-700" />
+              <KpiCard label="Approval Rate"      value={`${summary.pctApproved ?? 0}%`} icon={TrendingUp}   color="bg-blue-100 text-blue-700" />
+              <KpiCard label="Female Farmers"     value={summary.female ?? 0}             icon={Users}       color="bg-pink-100 text-pink-700" />
+              <KpiCard label="Individual"         value={summary.individual ?? 0}         icon={UserCheck}   color="bg-indigo-100 text-indigo-700" />
+              <KpiCard label="Group Beneficiaries" value={summary.group ?? 0}            icon={Users}       color="bg-amber-100 text-amber-700" />
             </div>
           ) : null}
 
@@ -548,7 +746,9 @@ export default function Reports() {
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right hidden md:table-cell">Approved</TableHead>
                     <TableHead className="text-right hidden md:table-cell">Pending</TableHead>
-                    <TableHead className="text-right pr-4 hidden lg:table-cell">Female</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Female</TableHead>
+                    <TableHead className="text-right hidden lg:table-cell">Female %</TableHead>
+                    <TableHead className="text-right pr-4 hidden xl:table-cell">Farm Size (ha)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -559,7 +759,9 @@ export default function Reports() {
                           <TableCell><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
                           <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
-                          <TableCell className="hidden lg:table-cell pr-4"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-12 ml-auto" /></TableCell>
+                          <TableCell className="hidden xl:table-cell pr-4"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
                         </TableRow>
                       ))
                     : benRows.length > 0
@@ -574,18 +776,85 @@ export default function Reports() {
                           <TableCell className="text-right text-sm font-semibold tabular-nums">{row.total}</TableCell>
                           <TableCell className="text-right text-sm text-emerald-700 hidden md:table-cell tabular-nums">{row.approved}</TableCell>
                           <TableCell className="text-right text-sm text-amber-700 hidden md:table-cell tabular-nums">{row.pending}</TableCell>
-                          <TableCell className="text-right text-sm text-muted-foreground pr-4 hidden lg:table-cell tabular-nums">{row.female}</TableCell>
+                          <TableCell className="text-right text-sm text-pink-700 hidden lg:table-cell tabular-nums">{row.female}</TableCell>
+                          <TableCell className="text-right text-sm font-medium hidden lg:table-cell tabular-nums">{row.femalePct}%</TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground pr-4 hidden xl:table-cell tabular-nums">{row.farmSize > 0 ? `${row.farmSize} ha` : "—"}</TableCell>
                         </TableRow>
                       ))
                     : (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">No beneficiary data</TableCell>
+                          <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">No beneficiary data</TableCell>
                         </TableRow>
                       )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
+
+          {/* Value chain breakdown */}
+          {vcRows.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Leaf className="h-4 w-4 text-green-700" />
+                  Farmers by Value Chain
+                </CardTitle>
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!vcRows.length}
+                  onClick={() => downloadCSV(vcRows, vcBenCols, `beneficiaries-by-valuechain-${today}.csv`)}>
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="pl-4">Value Chain</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right hidden md:table-cell">Approved</TableHead>
+                      <TableHead className="text-right hidden md:table-cell">Female</TableHead>
+                      <TableHead className="text-right pr-4">Female %</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {vcRows.map((row: any, i: number) => (
+                      <TableRow key={i} className="hover:bg-muted/40">
+                        <TableCell className="pl-4">
+                          <div className="flex items-center gap-2">
+                            <Sprout className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                            <span className="text-sm font-medium">{row.valueChain}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right text-sm font-semibold tabular-nums">{row.total}</TableCell>
+                        <TableCell className="text-right text-sm text-emerald-700 hidden md:table-cell tabular-nums">{row.approved}</TableCell>
+                        <TableCell className="text-right text-sm text-pink-700 hidden md:table-cell tabular-nums">{row.female}</TableCell>
+                        <TableCell className="text-right text-sm font-medium pr-4 tabular-nums">{row.femalePct}%</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Age group breakdown */}
+          {ageRows.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <BarChart2 className="h-4 w-4 text-indigo-600" />
+                  Beneficiaries by Age Group
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 space-y-2.5">
+                {(() => {
+                  const maxAge = Math.max(1, ...ageRows.map((r: any) => r.count));
+                  return ageRows.map((row: any, i: number) => (
+                    <DistrictBar key={i} district={row.ageGroup} value={row.count} max={maxAge} />
+                  ));
+                })()}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Stock movement tab ─────────────────────────────────────────────── */}

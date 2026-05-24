@@ -99,6 +99,7 @@ export const KEYS = {
   auditStats:         (days?: number) => ["audit-stats", days],
   auditSiem:          () => ["audit-siem-events"],
   consolidation:      (opts?: Record<string, any>) => ["consolidation-report", opts],
+  meReport:           () => ["me-report"],
   allCampaigns:       () => ["all-campaigns"],
   users:         () => ["users"],
   fieldOfficers: () => ["field-officers"],
@@ -1232,8 +1233,8 @@ export async function deleteReconciliation(id: number) {
 export async function getFarmerBeneficiaryReport() {
   const { data, error } = await supabase
     .from("farmers")
-    .select("status, district_id, value_chain_id, gender")
-    .limit(500);
+    .select("status, district_id, value_chain_id, gender, beneficiary_type, age_group, farm_size")
+    .limit(5000);
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   const [districtMap, vcMap] = await Promise.all([
@@ -1241,20 +1242,159 @@ export async function getFarmerBeneficiaryReport() {
     lookupMap("value_chains", [...new Set(rows.map((r: any) => r.value_chain_id).filter(Boolean))], "id,name"),
   ]);
 
+  // District breakdown
   const byDistrict: Record<string, any> = {};
   for (const f of rows) {
     const d = districtMap[(f as any).district_id]?.name ?? "Unknown";
-    if (!byDistrict[d]) byDistrict[d] = { district: d, total: 0, approved: 0, pending: 0, female: 0 };
+    if (!byDistrict[d]) byDistrict[d] = { district: d, total: 0, approved: 0, pending: 0, female: 0, farmSize: 0 };
     byDistrict[d].total++;
     if ((f as any).status === "approved") byDistrict[d].approved++;
     if ((f as any).status === "pending") byDistrict[d].pending++;
     if ((f as any).gender === "Female") byDistrict[d].female++;
+    if ((f as any).farm_size) byDistrict[d].farmSize += (f as any).farm_size;
   }
-  const reportRows = Object.values(byDistrict).sort((a, b) => b.total - a.total);
+  const reportRows = Object.values(byDistrict).sort((a, b) => b.total - a.total).map((r: any) => ({
+    ...r,
+    femalePct: r.total > 0 ? Math.round((r.female / r.total) * 100) : 0,
+    farmSize: Math.round(r.farmSize * 10) / 10,
+  }));
+
+  // Value chain breakdown
+  const byVc: Record<string, any> = {};
+  for (const f of rows) {
+    const vc = vcMap[(f as any).value_chain_id]?.name ?? "Unknown";
+    if (!byVc[vc]) byVc[vc] = { valueChain: vc, total: 0, approved: 0, female: 0 };
+    byVc[vc].total++;
+    if ((f as any).status === "approved") byVc[vc].approved++;
+    if ((f as any).gender === "Female") byVc[vc].female++;
+  }
+  const vcRows = Object.values(byVc).sort((a, b) => b.total - a.total).map((r: any) => ({
+    ...r,
+    femalePct: r.total > 0 ? Math.round((r.female / r.total) * 100) : 0,
+  }));
+
+  // Age group breakdown
+  const byAge: Record<string, number> = {};
+  for (const f of rows) {
+    const ag = (f as any).age_group ?? "Not Specified";
+    byAge[ag] = (byAge[ag] ?? 0) + 1;
+  }
+  const ageRows = Object.entries(byAge)
+    .map(([ageGroup, count]) => ({ ageGroup, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Beneficiary type
+  const individual = rows.filter((r: any) => !r.beneficiary_type || r.beneficiary_type === "individual").length;
+  const group = rows.filter((r: any) => r.beneficiary_type === "group").length;
+
   const total = reportRows.reduce((s, r) => s + r.total, 0);
   const approved = reportRows.reduce((s, r) => s + r.approved, 0);
   const female = reportRows.reduce((s, r) => s + r.female, 0);
-  return { rows: reportRows, summary: { total, approved, female, pctApproved: total ? Math.round((approved / total) * 100) : 0 } };
+  const totalFarmSize = Math.round(reportRows.reduce((s, r) => s + (r.farmSize ?? 0), 0) * 10) / 10;
+  return {
+    rows: reportRows,
+    vcRows,
+    ageRows,
+    summary: {
+      total, approved, female,
+      pctApproved: total ? Math.round((approved / total) * 100) : 0,
+      pctFemale: total ? Math.round((female / total) * 100) : 0,
+      individual, group, totalFarmSize,
+    },
+  };
+}
+
+// ── M&E REPORT ────────────────────────────────────────────────────────────────
+export async function getMEReport() {
+  const [campaignsRes, podsRes] = await Promise.all([
+    supabase.from("campaigns")
+      .select("id,name,campaign_code,season,total_farmers,allocated_farmers,delivered_count,status")
+      .order("created_at", { ascending: false }).limit(200),
+    supabase.from("pod")
+      .select("farmer_id,campaign_id,otp_status,face_status,gps_status,status,quantity_delivered")
+      .limit(5000),
+  ]);
+  if (campaignsRes.error) throw new Error(campaignsRes.error.message);
+  if (podsRes.error) throw new Error(podsRes.error.message);
+
+  const campaigns = campaignsRes.data ?? [];
+  const pods = podsRes.data ?? [];
+
+  const farmerIds = [...new Set(pods.map((p: any) => p.farmer_id).filter(Boolean))] as number[];
+  const farmerMap: Record<number, any> = farmerIds.length
+    ? await lookupMap("farmers", farmerIds, "id,gender,value_chain_id")
+    : {};
+
+  const vcIds = [...new Set(Object.values(farmerMap).map((f: any) => f.value_chain_id).filter(Boolean))] as number[];
+  const vcMap: Record<number, any> = vcIds.length
+    ? await lookupMap("value_chains", vcIds, "id,name")
+    : {};
+
+  // Campaign reach table
+  const campaignRows = campaigns.map((c: any) => {
+    const cPods = pods.filter((p: any) => p.campaign_id === c.id);
+    const femalePods = cPods.filter((p: any) => farmerMap[p.farmer_id]?.gender === "Female");
+    const allocated = c.allocated_farmers ?? 0;
+    const delivered = c.delivered_count ?? 0;
+    const target = c.total_farmers ?? 0;
+    return {
+      id: c.id,
+      name: c.name,
+      campaignCode: c.campaign_code,
+      season: c.season ?? "—",
+      status: c.status,
+      targetFarmers: target,
+      allocatedFarmers: allocated,
+      deliveredCount: delivered,
+      podCount: cPods.length,
+      allocationRate: target > 0 ? Math.round((allocated / target) * 100) : 0,
+      deliveryRate: allocated > 0 ? Math.round((delivered / allocated) * 100) : 0,
+      femaleDelivered: femalePods.length,
+      femalePct: cPods.length > 0 ? Math.round((femalePods.length / cPods.length) * 100) : 0,
+    };
+  });
+
+  // Overall verification rates
+  const podCount = pods.length;
+  const otpVerified  = pods.filter((p: any) => p.otp_status === "Verified").length;
+  const faceVerified = pods.filter((p: any) => p.face_status === "Verified").length;
+  const gpsCaptured  = pods.filter((p: any) => p.gps_status && p.gps_status !== "None" && p.gps_status !== "Pending").length;
+  const podVerified  = pods.filter((p: any) => p.status === "Verified" || p.status === "Approved").length;
+  const femaleDeliveries = pods.filter((p: any) => farmerMap[p.farmer_id]?.gender === "Female").length;
+
+  // Value chain delivery breakdown
+  const byVc: Record<string, any> = {};
+  for (const p of pods) {
+    const farmer  = farmerMap[p.farmer_id] as any;
+    const vcId    = farmer?.value_chain_id;
+    const vcName  = vcId ? (vcMap[vcId]?.name ?? "Unknown") : "Unknown";
+    if (!byVc[vcName]) byVc[vcName] = { valueChain: vcName, deliveries: 0, female: 0, verified: 0, qty: 0 };
+    byVc[vcName].deliveries++;
+    if (farmer?.gender === "Female") byVc[vcName].female++;
+    if (p.status === "Verified" || p.status === "Approved") byVc[vcName].verified++;
+    byVc[vcName].qty += p.quantity_delivered ?? 0;
+  }
+  const vcDeliveryRows = Object.values(byVc)
+    .sort((a, b) => b.deliveries - a.deliveries)
+    .map((r: any) => ({
+      ...r,
+      qty: Math.round(r.qty * 10) / 10,
+      femalePct:   r.deliveries > 0 ? Math.round((r.female   / r.deliveries) * 100) : 0,
+      verifiedPct: r.deliveries > 0 ? Math.round((r.verified / r.deliveries) * 100) : 0,
+    }));
+
+  return {
+    campaigns: campaignRows,
+    verification: {
+      podCount,
+      otpVerified,  otpRate:      podCount > 0 ? Math.round((otpVerified  / podCount) * 100) : 0,
+      faceVerified, faceRate:     podCount > 0 ? Math.round((faceVerified / podCount) * 100) : 0,
+      gpsCaptured,  gpsRate:      podCount > 0 ? Math.round((gpsCaptured  / podCount) * 100) : 0,
+      podVerified,  verifiedRate: podCount > 0 ? Math.round((podVerified  / podCount) * 100) : 0,
+      femaleDeliveries, femaleRate: podCount > 0 ? Math.round((femaleDeliveries / podCount) * 100) : 0,
+    },
+    byValueChain: vcDeliveryRows,
+  };
 }
 
 export async function getStockMovementReport(from?: string, to?: string) {
