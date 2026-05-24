@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
   ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet, ImageIcon,
-  Microscope, Leaf, Loader2, XCircle,
+  Microscope, Leaf, Loader2, XCircle, Truck,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -139,7 +139,47 @@ function SimilarityMeter({ similarity }: { similarity?: number | null }) {
 
 const EVIDENCE_LABELS = ["Inputs Only", "Inputs + Beneficiary", "Farmer Receiving", "Community / Group", "Additional Evidence"];
 
-function EvidencePhotoCard({ photoKey, label }: { photoKey: string; label: string }) {
+type PhotoGps = { lat: number; lng: number; accuracy?: number } | null;
+type VehicleSnapshot = { lat: number; lng: number; plateNumber?: string; distanceM?: number } | null;
+
+function fmtDist(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+}
+
+function GpsBadge({ gps, vehicleSnapshot }: { gps: PhotoGps; vehicleSnapshot: VehicleSnapshot }) {
+  if (!gps) return (
+    <div className="flex items-center gap-1 text-[9px] text-amber-600">
+      <MapPin className="h-2.5 w-2.5 shrink-0" />
+      <span>No GPS on photo</span>
+    </div>
+  );
+
+  const vDist = vehicleSnapshot?.distanceM;
+  const vColor = vDist == null ? "text-muted-foreground" : vDist <= 500 ? "text-emerald-600" : vDist <= 2000 ? "text-amber-600" : "text-red-600";
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1 text-[9px] text-emerald-600">
+        <MapPin className="h-2.5 w-2.5 shrink-0" />
+        <span className="font-medium">
+          {gps.lat.toFixed(5)}, {gps.lng.toFixed(5)}
+          {gps.accuracy != null && <span className="text-muted-foreground"> ±{Math.round(gps.accuracy)}m</span>}
+        </span>
+      </div>
+      {vehicleSnapshot && (
+        <div className={`flex items-center gap-1 text-[9px] ${vColor}`}>
+          <Truck className="h-2.5 w-2.5 shrink-0" />
+          <span>
+            {vDist != null ? `${fmtDist(vDist)} from vehicle` : "Vehicle GPS available"}
+            {vehicleSnapshot.plateNumber && <span className="text-muted-foreground"> · {vehicleSnapshot.plateNumber}</span>}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidencePhotoCard({ photoKey, label, gps, vehicleSnapshot }: { photoKey: string; label: string; gps?: PhotoGps; vehicleSnapshot?: VehicleSnapshot }) {
   const [analysing, setAnalysing] = useState(false);
   const [result, setResult] = useState<{
     hasAgriContent: boolean;
@@ -167,6 +207,7 @@ function EvidencePhotoCard({ photoKey, label }: { photoKey: string; label: strin
       <div className="rounded-md overflow-hidden border">
         <PodDetailPhoto photoKey={photoKey} />
       </div>
+      <GpsBadge gps={gps ?? null} vehicleSnapshot={vehicleSnapshot ?? null} />
       {result ? (
         <div className={`rounded-md p-1.5 text-[9px] space-y-1 ${result.hasAgriContent ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"}`}>
           <div className="flex items-center gap-1">
@@ -205,11 +246,17 @@ function EvidencePhotoCard({ photoKey, label }: { photoKey: string; label: strin
   );
 }
 
-function EvidencePhotoGrid({ photoKeys }: { photoKeys: string[] }) {
+function EvidencePhotoGrid({ photoKeys, photoGpsCoords, vehicleSnapshot }: { photoKeys: string[]; photoGpsCoords?: (PhotoGps | null)[]; vehicleSnapshot?: VehicleSnapshot }) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {photoKeys.map((key, i) => (
-        <EvidencePhotoCard key={key} photoKey={key} label={EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`} />
+        <EvidencePhotoCard
+          key={key}
+          photoKey={key}
+          label={EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`}
+          gps={photoGpsCoords?.[i] ?? null}
+          vehicleSnapshot={vehicleSnapshot}
+        />
       ))}
     </div>
   );
@@ -272,7 +319,11 @@ function PodDetailBody({
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <ImageIcon className="h-3 w-3" /> Delivery Evidence ({pod.photoKeys.length} photo{pod.photoKeys.length !== 1 ? "s" : ""})
           </p>
-          <EvidencePhotoGrid photoKeys={pod.photoKeys} />
+          <EvidencePhotoGrid
+            photoKeys={pod.photoKeys}
+            photoGpsCoords={pod.photoGpsCoords}
+            vehicleSnapshot={pod.vehicleGpsSnapshot}
+          />
         </div>
       )}
 
