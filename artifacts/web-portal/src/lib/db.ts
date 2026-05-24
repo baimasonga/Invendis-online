@@ -308,6 +308,24 @@ function generateFarmerCode() {
 function generateBarcode() {
   return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
 }
+function generateVehicleCode() {
+  return `VHL-${Date.now().toString(36).toUpperCase()}`;
+}
+function generateCampaignCode() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `CMP-${ts}${rnd}`;
+}
+function generateOrderCode() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `PO-${ts}${rnd}`;
+}
+function generatePodCode() {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `POD-${ts}${rnd}`;
+}
 
 export async function createFarmer(payload: any) {
   const userId = await intUid();
@@ -426,7 +444,9 @@ export async function getCampaign(id: number) {
 
 export async function createCampaign(payload: any) {
   const userId = await intUid();
+  const campaignCode = generateCampaignCode();
   const { data, error } = await supabase.from("campaigns").insert({
+    campaign_code: campaignCode,
     name: payload.name,
     season: payload.season ?? null,
     district_id: payload.districtId ?? null,
@@ -636,7 +656,9 @@ export async function listProcurementOrders() {
 
 export async function createProcurementOrder(payload: any) {
   const userId = await intUid();
+  const orderCode = generateOrderCode();
   const { data, error } = await supabase.from("procurement_orders").insert({
+    order_code: orderCode,
     supplier_name: payload.supplierName,
     warehouse_id: payload.warehouseId,
     status: payload.status ?? "Draft",
@@ -681,7 +703,9 @@ export async function listVehicles(page = 1, limit = 50) {
 }
 
 export async function createVehicle(payload: any) {
+  const vehicleCode = generateVehicleCode();
   const { data, error } = await supabase.from("vehicles").insert({
+    vehicle_code: vehicleCode,
     plate_number: payload.plateNumber,
     vehicle_type: payload.vehicleType,
     make: payload.make ?? null,
@@ -1105,7 +1129,9 @@ export async function getPodStats() {
 
 export async function createPod(payload: any) {
   const userId = await intUid();
+  const podCode = generatePodCode();
   const { data, error } = await supabase.from("pod").insert({
+    pod_code: podCode,
     farmer_id: payload.farmerId,
     campaign_id: payload.campaignId ?? null,
     dispatch_id: payload.dispatchId ?? null,
