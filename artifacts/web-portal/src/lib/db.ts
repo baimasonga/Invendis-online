@@ -4,13 +4,14 @@ import { supabase } from "./supabase";
 
 export function farmerDisplayName(farmer: any): string {
   if (!farmer) return "—";
+  const group = farmer.farmer_group || farmer.farmerGroup || "";
   if (farmer.beneficiary_type === "group" || farmer.beneficiaryType === "group") {
-    return farmer.farmer_group || farmer.farmerGroup || "—";
+    return group || "—";
   }
   const first = farmer.first_name ?? farmer.firstName ?? "";
   const last  = farmer.last_name  ?? farmer.lastName  ?? "";
   const name  = `${first} ${last}`.trim();
-  return name || "—";
+  return name || group || "—";
 }
 
 function cc<T = any>(obj: any): T {
