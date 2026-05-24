@@ -194,8 +194,9 @@ export const pingGps = (
 export interface OtpSendResult {
   sent: boolean;
   smsSent?: boolean;
+  whatsappSent?: boolean;
   deliveryFailed?: boolean;
-  channel?: "whatsapp" | "sms" | "none";
+  channel?: "sms+whatsapp" | "whatsapp" | "sms" | "none";
   maskedPhone: string;
   farmerName: string;
   devCode?: string;

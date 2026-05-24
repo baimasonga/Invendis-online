@@ -49,6 +49,40 @@ async function sendSms(to: string, text: string): Promise<void> {
   }
 }
 
+async function sendWhatsApp(to: string, text: string): Promise<void> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken  = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
+  }
+
+  const e164 = "+" + normalisePhone(to);
+  const formBody = new URLSearchParams({
+    From: `whatsapp:${fromNumber}`,
+    To:   `whatsapp:${e164}`,
+    Body: text,
+  });
+
+  const resp = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formBody.toString(),
+    }
+  );
+
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({})) as any;
+    throw new Error(`Twilio WhatsApp error ${resp.status}: ${errBody.message ?? resp.statusText}`);
+  }
+}
+
 async function dbGetActive(farmerId: number) {
   const { data, error } = await supa
     .from("otp_codes")
@@ -192,29 +226,37 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     ? `AVDP PoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
     : `AVDP PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
 
-  let channel = "none";
+  const [smsResult, waResult] = await Promise.allSettled([
+    sendSms(f.phone, message),
+    sendWhatsApp(f.phone, message),
+  ]);
 
-  let deliveryFailed = false;
+  const smsSent = smsResult.status === "fulfilled";
+  const waSent  = waResult.status  === "fulfilled";
 
-  try {
-    await sendSms(f.phone, message);
-    channel = "sms";
-    req.log.info({ to: f.phone }, "OTP sent via EasySendSMS");
-  } catch (err: any) {
-    req.log.warn({ err: err.message }, "EasySendSMS delivery failed");
-    if (isDev) {
-      req.log.info("Dev mode: OTP not sent to handset, devCode returned instead");
-    } else {
-      deliveryFailed = true;
-      req.log.info("Production: SMS delivery failed — OTP stored, bypass option enabled for client");
-    }
+  if (smsSent) {
+    req.log.info({ to: f.phone }, "OTP sent via SMS");
+  } else {
+    req.log.warn({ err: (smsResult as PromiseRejectedResult).reason?.message }, "SMS delivery failed");
   }
+  if (waSent) {
+    req.log.info({ to: f.phone }, "OTP sent via WhatsApp");
+  } else {
+    req.log.warn({ err: (waResult as PromiseRejectedResult).reason?.message }, "WhatsApp delivery failed");
+  }
+
+  const deliveryFailed = !smsSent && !waSent && !isDev;
+  let channel = "none";
+  if (smsSent && waSent) channel = "sms+whatsapp";
+  else if (smsSent)       channel = "sms";
+  else if (waSent)        channel = "whatsapp";
 
   await dbInsert(Number(farmerId), hashCode(code), channel);
 
   res.json({
     sent:          true,
-    smsSent:       channel === "sms",
+    smsSent,
+    whatsappSent:  waSent,
     deliveryFailed,
     channel,
     maskedPhone:   maskPhone(f.phone),
