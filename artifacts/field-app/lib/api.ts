@@ -124,6 +124,7 @@ export interface PoD {
   farmerLastName: string | null;
   farmerGroup: string | null;
   farmerBeneficiaryType: string | null;
+  communityName: string | null;
 }
 
 export const listDispatches = (token: string, params?: Record<string, string>) => {
@@ -200,10 +201,14 @@ export interface OtpSendResult {
   devCode?: string;
 }
 
-export const sendOtp = (token: string, farmerId: number) =>
+export const sendOtp = (
+  token: string,
+  farmerId: number,
+  opts?: { campaignId?: number; dispatchId?: number }
+) =>
   apiFetch<OtpSendResult>("/pod/otp/send", token, {
     method: "POST",
-    body: JSON.stringify({ farmerId }),
+    body: JSON.stringify({ farmerId, ...opts }),
   });
 
 export const verifyOtp = (token: string, farmerId: number, code: string) =>

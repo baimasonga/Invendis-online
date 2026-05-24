@@ -171,6 +171,21 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }
   }
 
+  // Look up farmer's community name (for result screen display)
+  let communityName: string | null = null;
+  if (body.farmer_id) {
+    const { data: farmerComm } = await supa
+      .from("farmers")
+      .select("community_id")
+      .eq("id", body.farmer_id)
+      .single();
+    const commId = (farmerComm as any)?.community_id;
+    if (commId) {
+      const { data: comm } = await supa.from("communities").select("name").eq("id", commId).single();
+      communityName = (comm as any)?.name ?? null;
+    }
+  }
+
   // Use direct pg to bypass PostgREST schema cache (same pattern as dispatch insert)
   const insertFields: Record<string, unknown> = {
     ...body,
@@ -206,7 +221,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   }
 
   await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);
-  res.status(201).json(snakeToCamel(podRow));
+  res.status(201).json({ ...snakeToCamel(podRow), communityName });
 });
 
 router.post("/api/pod/:id/override-face", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {

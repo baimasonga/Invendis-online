@@ -2,8 +2,65 @@ import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
 import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { sendSms } from "../lib/sms.js";
 
 const router = Router();
+
+async function sendAllocationNotification(
+  farmerId: number,
+  campaignId: number,
+  log: { warn: (obj: object, msg: string) => void }
+): Promise<void> {
+  try {
+    const [
+      { data: farmer },
+      { data: campaign },
+      { data: cItems },
+    ] = await Promise.all([
+      supa.from("farmers").select("first_name, last_name, farmer_group, phone, community_id").eq("id", farmerId).single(),
+      supa.from("campaigns").select("name").eq("id", campaignId).single(),
+      supa.from("campaign_items").select("quantity_per_farmer, input_item_id").eq("campaign_id", campaignId),
+    ]);
+
+    const f = farmer as any;
+    if (!f?.phone) return;
+
+    const farmerName = f.farmer_group || `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "Beneficiary";
+    const campaignName = (campaign as any)?.name ?? "an upcoming campaign";
+
+    // Resolve community name
+    let communityName = "";
+    if (f.community_id) {
+      const { data: comm } = await supa.from("communities").select("name").eq("id", f.community_id).single();
+      communityName = (comm as any)?.name ?? "";
+    }
+
+    // Build items list
+    let itemsText = "inputs";
+    if (cItems?.length) {
+      const itemIds = (cItems as any[]).map(i => i.input_item_id).filter(Boolean);
+      const { data: inputItems } = itemIds.length
+        ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
+        : { data: [] };
+      const inputMap = Object.fromEntries((inputItems ?? []).map((ii: any) => [ii.id, ii]));
+      const parts = (cItems as any[])
+        .map(i => {
+          const ii = inputMap[i.input_item_id];
+          if (!ii) return null;
+          const qty = i.quantity_per_farmer ?? 1;
+          return `${ii.name} x${qty}${ii.unit ? " " + ii.unit : ""}`;
+        })
+        .filter(Boolean);
+      if (parts.length) itemsText = parts.join(", ");
+    }
+
+    const communityPart = communityName ? ` in ${communityName}` : "";
+    const msg = `Dear ${farmerName}, a delivery is coming to your community${communityPart} for ${campaignName}. You will receive: ${itemsText}. Please be available. — Invendis SL`;
+    await sendSms(f.phone, msg);
+  } catch (err: any) {
+    log.warn({ err: err.message }, "Allocation announcement SMS failed");
+  }
+}
 
 router.get("/api/campaigns", requireAuth, async (req, res) => {
   const { status, districtId, page = "1", limit = "20" } = req.query as Record<string, string>;
@@ -113,6 +170,10 @@ router.post("/api/allocations", requireAuth, requireRoles("Admin", "ProjectManag
     await supa.from("campaigns").update({ allocated_farmers: count ?? 0, updated_at: new Date().toISOString() }).eq("id", Number(cid));
   }
   await logAudit(req, "CREATE", "Allocations", `Allocated farmer ${req.body.farmerId} to campaign ${req.body.campaignId}`, "allocation", (data as any).id);
+  // Send campaign announcement SMS to farmer (non-fatal)
+  if (req.body.farmerId && cid) {
+    sendAllocationNotification(Number(req.body.farmerId), Number(cid), req.log);
+  }
   res.status(201).json(snakeToCamel(data));
 });
 
@@ -129,6 +190,10 @@ router.post("/api/allocations/bulk", requireAuth, requireRoles("Admin", "Project
   const { count } = await supa.from("allocations").select("*", { count: "exact", head: true }).eq("campaign_id", campaignId);
   await supa.from("campaigns").update({ allocated_farmers: count ?? 0, updated_at: new Date().toISOString() }).eq("id", campaignId);
   await logAudit(req, "BULK_ALLOCATE", "Allocations", `Bulk allocated ${farmerIds.length} farmers to campaign ${campaignId}`, "allocation", campaignId);
+  // Send campaign announcement SMS to each farmer (non-fatal, fire-and-forget)
+  for (const fid of farmerIds) {
+    sendAllocationNotification(fid, campaignId, req.log);
+  }
   res.status(201).json(snakeToCamel(data));
 });
 

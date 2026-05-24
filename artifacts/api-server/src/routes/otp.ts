@@ -86,7 +86,11 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
-  const { farmerId } = req.body as { farmerId: number };
+  const { farmerId, campaignId: rawCampaignId, dispatchId: rawDispatchId } = req.body as {
+    farmerId: number;
+    campaignId?: number;
+    dispatchId?: number;
+  };
   if (!farmerId) {
     res.status(400).json({ error: "farmerId is required" });
     return;
@@ -123,9 +127,47 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
     }
   }
 
-  const code    = Math.floor(100000 + Math.random() * 900000).toString();
-  const isDev   = process.env.NODE_ENV === "development";
-  const message = `Agri-PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
+  // Resolve campaignId (from body or via dispatch lookup)
+  let campaignId: number | null = rawCampaignId ? Number(rawCampaignId) : null;
+  if (!campaignId && rawDispatchId) {
+    const { data: disp } = await supa
+      .from("dispatches")
+      .select("campaign_id")
+      .eq("id", Number(rawDispatchId))
+      .single();
+    campaignId = (disp as any)?.campaign_id ?? null;
+  }
+
+  // Build item list for SMS (from campaign_items)
+  let itemsText = "";
+  if (campaignId) {
+    const { data: cItems } = await supa
+      .from("campaign_items")
+      .select("quantity_per_farmer, input_item_id")
+      .eq("campaign_id", campaignId);
+    if (cItems?.length) {
+      const itemIds = (cItems as any[]).map(i => i.input_item_id).filter(Boolean);
+      const { data: inputItems } = itemIds.length
+        ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
+        : { data: [] };
+      const inputMap = Object.fromEntries((inputItems ?? []).map((ii: any) => [ii.id, ii]));
+      itemsText = (cItems as any[])
+        .map(i => {
+          const ii = inputMap[i.input_item_id];
+          if (!ii) return null;
+          const qty = i.quantity_per_farmer ?? 1;
+          return `${ii.name} x${qty}${ii.unit ? " " + ii.unit : ""}`;
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+  }
+
+  const code  = Math.floor(100000 + Math.random() * 900000).toString();
+  const isDev = process.env.NODE_ENV === "development";
+  const message = itemsText
+    ? `AgriPoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
+    : `AgriPoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
 
   let channel = "none";
 

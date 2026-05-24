@@ -247,7 +247,7 @@ export default function ConfirmPodScreen() {
     setOtpError(null);
     setSmsDeliveryFailed(false);
     try {
-      const result = await sendOtp(token!, Number(farmerId));
+      const result = await sendOtp(token!, Number(farmerId), dispatchId ? { dispatchId: Number(dispatchId) } : undefined);
       setOtpResult(result);
       setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
@@ -364,7 +364,7 @@ export default function ConfirmPodScreen() {
     setSendingOtp(true);
     setOtpError(null);
     try {
-      const result = await sendOtp(token!, Number(farmerId));
+      const result = await sendOtp(token!, Number(farmerId), dispatchId ? { dispatchId: Number(dispatchId) } : undefined);
       setOtpResult(result);
       setDevCode(result.devCode ?? null);
       setDigits(Array(OTP_LENGTH).fill(""));
@@ -602,12 +602,17 @@ export default function ConfirmPodScreen() {
           <Text style={[resultStyles.contactLabel, { color: colors.mutedForeground }]}>Contact: {contactName}</Text>
         )}
 
-        {/* GPS status card */}
+        {/* GPS / community status card */}
         <View style={[resultStyles.gpsCard, { backgroundColor: gpsColor + "14", borderColor: gpsColor + "35", borderRadius: colors.radius, width: "100%" }]}>
           <View style={[resultStyles.gpsIconWrap, { backgroundColor: gpsColor + "22" }]}>
             <Feather name={cfg.icon} size={26} color={gpsColor} />
           </View>
           <Text style={[resultStyles.gpsTitle, { color: gpsColor }]}>{cfg.title}</Text>
+          {submittedPod.communityName ? (
+            <Text style={[resultStyles.gpsDesc, { color: colors.foreground, fontWeight: "600", marginBottom: 2 }]}>
+              Community: {submittedPod.communityName}
+            </Text>
+          ) : null}
           <Text style={[resultStyles.gpsDesc, { color: colors.mutedForeground }]}>{cfg.desc}</Text>
           {submittedPod.farmerLatitude != null && submittedPod.farmerLongitude != null && (
             <Text style={[resultStyles.gpsCoords, { color: colors.mutedForeground }]}>
