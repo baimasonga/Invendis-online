@@ -1,26 +1,29 @@
 ---
-name: PostgREST stale INSERT schema cache
-description: Workaround when supa.from().insert() fails with "column not found in schema cache" but the column works fine in SELECT/UPDATE.
+name: PostgREST stale schema cache — dispatches (and other tables)
+description: When supa.from().insert() OR .update() fails "column not found in schema cache", use pool.query() with raw SQL instead. pool connects to Supabase directly, not Replit local PG.
 ---
 
 ## Rule
-If a Supabase client INSERT fails with "Could not find the '{column}' column of '{table}' in the schema cache" but SELECT queries using that same column work fine, the PostgREST INSERT schema cache is stale.
+If a Supabase client INSERT **or UPDATE** fails with "Could not find the '{column}' column of '{table}' in the schema cache", the PostgREST schema cache is stale for that column. This affects **both** INSERT and UPDATE code paths independently — a column stale in INSERT is often also stale in UPDATE.
 
-**Do NOT use `pool` (DATABASE_URL) to bypass this — pool connects to Replit's local PostgreSQL, not Supabase.**
+**The correct fix: use `pool.query()` with raw SQL.** `pool` uses `DATABASE_URL` which is the direct Supabase PostgreSQL connection — it bypasses PostgREST entirely and all columns work.
 
-## Workaround
-Two-step approach:
-1. INSERT without the problematic column — the column must have a DB-level DEFAULT so the row is valid.
-2. Immediately UPDATE to set the column to the desired value.
+## Pattern
 
 ```ts
-const { data, error } = await supa.from("farmers")
-  .insert({ /* all cols except beneficiary_type */ })
-  .select("id").single();
-// beneficiary_type defaults to 'individual' via DB default
-await supa.from("farmers").update({ beneficiary_type: "group" }).eq("id", data.id);
+// Instead of supa.from('dispatches').insert({...}).update({...}):
+const cols = ["manifest_code", "campaign_id", "vehicle_type", "field_officer_id", ...];
+const vals: unknown[] = [manifestCode, campaignId, vehicleType, fieldOfficerId, ...];
+const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
+const sql = `INSERT INTO dispatches (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`;
+const result = await pool.query(sql, vals);
+const row = result.rows[0];
 ```
 
-**Why:** PostgREST maintains separate schema cache entries for readable vs insertable columns. A newly-added column may appear in reads before the INSERT cache is refreshed (default refresh ~33 min). UPDATE goes through a different code path and is not affected.
+**Why:** PostgREST maintains a schema cache for each table. Newly-added columns may not appear in this cache until the next PostgREST reload (~33 min default). Both INSERT (POST) and UPDATE (PATCH) routes use separate cache entries; adding a column may leave both stale. `pool.query()` bypasses PostgREST entirely since it connects directly to PostgreSQL.
 
-**How to apply:** Any time a supa INSERT fails with "schema cache" for a column that clearly exists (you can SELECT it). Also applies when adding new columns to tables with existing PostgREST cache.
+**Why pool = Supabase:** `DATABASE_URL` env var in api-server points to Supabase's PostgreSQL connection pooler, not Replit's built-in PG. The comment in `supabase.ts` confirms: "Direct pg pool — bypasses PostgREST schema cache entirely. Supabase requires SSL; rejectUnauthorized:false".
+
+**How to apply:** Any supa INSERT or UPDATE that fails with "schema cache". Affects dispatches columns: `vehicle_type`, `field_officer_id`, `hired_plate`, `hired_driver_name`, `notes`. Farmers table has separate stale columns (`beneficiary_type`).
+
+**Do NOT use the two-step INSERT+UPDATE workaround** — if INSERT cache is stale, UPDATE cache is likely stale too for the same columns.

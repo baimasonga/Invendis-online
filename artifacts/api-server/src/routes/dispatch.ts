@@ -749,51 +749,49 @@ router.post(
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    // INSERT with core columns + vehicle_id/driver_id (original schema columns, safe in cache).
-    // Newer columns (vehicle_type, notes, hired_plate, hired_driver_name, field_officer_id)
-    // go in a follow-up UPDATE to avoid stale PostgREST INSERT schema cache errors.
-    const dispInsert: Record<string, unknown> = {
-      manifest_code: manifestCode,
-      campaign_id:   campaignId,
-      warehouse_id:  warehouseId,
-    };
-    if (!isHired) {
-      dispInsert.vehicle_id = b.vehicleId ? Number(b.vehicleId) : null;
-      dispInsert.driver_id  = b.driverId  ? Number(b.driverId)  : null;
-    }
+    // Use direct pg pool (bypasses PostgREST schema cache entirely — same pattern as POST /api/dispatch)
+    const cols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
+    const vals: unknown[] = [
+      manifestCode,
+      campaignId,
+      warehouseId,
+      b.vehicleType ?? "office",
+      b.notes ?? null,
+      createdBy,
+    ];
 
-    const { data: dispatchData, error: dispErr } = await supa
-      .from("dispatches")
-      .insert(dispInsert)
-      .select("id")
-      .single();
-
-    if (dispErr || !dispatchData) {
-      res.status(500).json({ error: dispErr?.message ?? "Failed to create dispatch manifest" });
-      return;
-    }
-
-    const dispatchId = (dispatchData as any).id as number;
-
-    // UPDATE newer/stale columns that PostgREST INSERT cache doesn't know about
-    const dispUpdate: Record<string, unknown> = {
-      vehicle_type: b.vehicleType ?? "office",
-      notes:        b.notes ?? null,
-      created_by:   createdBy,
-    };
     if (isHired) {
-      dispUpdate.hired_plate       = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
-      dispUpdate.hired_driver_name = b.hiredDriverName ?? null;
+      cols.push("hired_plate", "hired_driver_name");
+      vals.push(
+        b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
+        b.hiredDriverName ? String(b.hiredDriverName)          : null,
+      );
+    } else {
+      cols.push("vehicle_id", "driver_id");
+      vals.push(
+        b.vehicleId ? Number(b.vehicleId) : null,
+        b.driverId  ? Number(b.driverId)  : null,
+      );
     }
-    if (b.fieldOfficerId) dispUpdate.field_officer_id = Number(b.fieldOfficerId);
 
-    const { error: dispUpdErr } = await supa.from("dispatches").update(dispUpdate).eq("id", dispatchId);
-    if (dispUpdErr) {
-      res.status(500).json({ error: `Dispatch created but update failed: ${dispUpdErr.message}` });
+    if (b.fieldOfficerId) {
+      cols.push("field_officer_id");
+      vals.push(Number(b.fieldOfficerId));
+    }
+
+    const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
+    const dispSql = `INSERT INTO dispatches (${cols.join(", ")}) VALUES (${placeholders}) RETURNING id`;
+
+    let dispatchId: number;
+    let dispatchRow: Record<string, unknown>;
+    try {
+      const pgResult = await pool.query(dispSql, vals);
+      dispatchId = pgResult.rows[0].id as number;
+      dispatchRow = { id: dispatchId, manifest_code: manifestCode, ...Object.fromEntries(cols.slice(1).map((c, i) => [c, vals[i + 1]])) };
+    } catch (pgErr: any) {
+      res.status(500).json({ error: pgErr.message ?? "Failed to create dispatch manifest" });
       return;
     }
-
-    let dispatchRow: Record<string, unknown> = { id: dispatchId, manifest_code: manifestCode, ...dispInsert, ...dispUpdate };
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)
     let totalPackages = 0;
