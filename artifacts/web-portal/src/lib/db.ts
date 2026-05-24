@@ -518,10 +518,13 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
+  const farmerIds = [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))];
   const [farmerMap, campaignMap] = await Promise.all([
-    lookupMap("farmers", [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))], "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group,group_size"),
+    lookupMap("farmers", farmerIds, "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group,group_size,district_id"),
     lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
   ]);
+  const districtIds = [...new Set(Object.values(farmerMap).map((f: any) => f.district_id).filter(Boolean))];
+  const districtMap = districtIds.length ? await lookupMap("districts", districtIds, "id,name") : {};
   return {
     data: rows.map((r: any) => ({
       ...cc(r),
@@ -529,6 +532,7 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       beneficiaryType: farmerMap[r.farmer_id]?.beneficiary_type ?? null,
       groupSize: farmerMap[r.farmer_id]?.group_size ?? null,
+      districtName: districtMap[farmerMap[r.farmer_id]?.district_id]?.name ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
     })),
     total: count ?? 0,

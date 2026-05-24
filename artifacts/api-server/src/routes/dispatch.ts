@@ -203,10 +203,16 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
 router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
 
-  const { data: r, error } = await supa.from("dispatches").select("*").eq("id", id).single();
-  if (error || !r) { res.status(404).json({ error: "Not found" }); return; }
-
-  const row = r as any;
+  // Use pool (raw SQL) so ALL columns are returned, including newer ones that
+  // PostgREST SELECT schema cache may not expose (field_officer_id, vehicle_type, etc.)
+  let row: any;
+  try {
+    const pgResult = await pool.query(`SELECT * FROM dispatches WHERE id = $1`, [id]);
+    if (!pgResult.rows.length) { res.status(404).json({ error: "Not found" }); return; }
+    row = pgResult.rows[0];
+  } catch (pgErr: any) {
+    res.status(500).json({ error: pgErr.message }); return;
+  }
   const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap, officerMap }] = await Promise.all([
     supa.from("dispatch_items").select("*").eq("dispatch_id", id),
     fetchLookups(
