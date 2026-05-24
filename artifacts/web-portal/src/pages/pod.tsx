@@ -358,7 +358,13 @@ function PodDetailBody({
         )}
         <div className="grid grid-cols-3 gap-3 text-sm">
           <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{pod.quantityDelivered ?? "—"}</p></div>
-          <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={pod.otpStatus} /></div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">OTP</p>
+            <OtpPill status={pod.otpStatus} />
+            {pod.otpCode && (
+              <p className="text-xs font-mono tracking-widest text-foreground mt-0.5 bg-muted px-1.5 py-0.5 rounded inline-block">{pod.otpCode}</p>
+            )}
+          </div>
           <div>
             <p className="text-xs text-muted-foreground mb-0.5">GPS</p>
             {pod.farmerLatitude

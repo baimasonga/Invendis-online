@@ -158,6 +158,7 @@ export default function ConfirmPodScreen() {
   const [verifying, setVerifying] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(0);
+  const [verifiedOtpCode, setVerifiedOtpCode] = useState<string | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [otpBypassed, setOtpBypassed] = useState(false);
 
@@ -348,6 +349,7 @@ export default function ConfirmPodScreen() {
       const result = await verifyOtp(token!, Number(farmerId), enteredCode);
       if (result.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setVerifiedOtpCode(result.code ?? enteredCode);
         setFacePhotoUri(null);
         setFaceResult(null);
         setFaceError(null);
@@ -495,6 +497,7 @@ export default function ConfirmPodScreen() {
     ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
+    ...(verifiedOtpCode ? { otpCode: verifiedOtpCode } : {}),
     photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
     photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
     ...(facePhotoKey ? { facePhotoKey } : {}),

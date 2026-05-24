@@ -213,7 +213,7 @@ export const sendOtp = (
   });
 
 export const verifyOtp = (token: string, farmerId: number, code: string) =>
-  apiFetch<{ verified: boolean; error?: string }>("/pod/otp/verify", token, {
+  apiFetch<{ verified: boolean; code?: string; error?: string }>("/pod/otp/verify", token, {
     method: "POST",
     body: JSON.stringify({ farmerId, code }),
   });

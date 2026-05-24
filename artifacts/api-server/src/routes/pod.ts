@@ -94,6 +94,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     notes:             raw.notes           ?? null,
     override_reason:   raw.overrideReason  ?? null,
     otp_verified:      raw.otpVerified     === true,
+    otp_code:          raw.otpCode         ?? null,
   };
 
   // Resolve input item from scanned barcode if not already supplied
