@@ -298,7 +298,7 @@ router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
   }
 
   await dbDeleteCode(e.id);
-  res.json({ verified: true, code: code.trim() });
+  res.json({ verified: true });
 });
 
 router.get("/api/pod/otp/status", requireAnyAuth, async (req, res) => {

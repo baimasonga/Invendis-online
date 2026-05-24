@@ -349,7 +349,7 @@ export default function ConfirmPodScreen() {
       const result = await verifyOtp(token!, Number(farmerId), enteredCode);
       if (result.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setVerifiedOtpCode(result.code ?? enteredCode);
+        setVerifiedOtpCode(enteredCode);
         setFacePhotoUri(null);
         setFaceResult(null);
         setFaceError(null);
