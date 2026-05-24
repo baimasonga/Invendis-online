@@ -4,25 +4,18 @@
 
 | Field | Value |
 |-------|-------|
-| Build ID | `b3b10169-181f-41fd-9550-eb78d6545001` |
+| Build ID | `96313f0b-ec40-4f35-a778-1fe06449136f` |
 | Platform | Android |
 | Profile | `preview` (APK, internal distribution) |
-| Status | **FINISHED** |
-| Completed | 2026-05-13 18:07 UTC |
+| Status | **IN PROGRESS** (started 2026-05-24) |
 | API endpoint | `invendisapp.com` |
-| Keystore | Build Credentials EvxP9FVVgT (default) |
-
-### APK Download Link
-
-```
-https://expo.dev/artifacts/eas/obY1z6QeFFi9MjMsUYwAJ6.apk
-```
-
-> EAS artifacts expire after 30 days. Trigger a new build before **2026-06-12**.
+| Keystore | Build Credentials 74nqzrBtWR (default) |
 
 ### Build Dashboard
 
-https://expo.dev/accounts/medbangz/projects/field-app/builds/b3b10169-181f-41fd-9550-eb78d6545001
+https://expo.dev/accounts/medbangs/projects/field-app/builds/96313f0b-ec40-4f35-a778-1fe06449136f
+
+> APK download link will appear on the build dashboard above once the build finishes (10–15 min). EAS artifacts expire after 30 days.
 
 ---
 
