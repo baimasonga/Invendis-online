@@ -1,4 +1,4 @@
-name: EAS Build — Android
+name: EAS Build — Android (Manual)
 
 on:
   workflow_dispatch:
@@ -11,11 +11,18 @@ on:
         options:
           - preview
           - production
+      wait_for_build:
+        description: "Wait for build to complete and fetch APK URL"
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build:
     name: Build Android (${{ github.event.inputs.profile }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: artifacts/field-app
@@ -44,7 +51,37 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Run Expo Doctor (pre-build check)
+        run: npx expo-doctor || true
+
       - name: Build Android
-        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive
+        id: eas_build
+        run: |
+          WAIT_FLAG=""
+          if [ "${{ github.event.inputs.wait_for_build }}" = "true" ]; then
+            WAIT_FLAG="--wait"
+          else
+            WAIT_FLAG="--no-wait"
+          fi
+
+          eas build \
+            --platform android \
+            --profile ${{ github.event.inputs.profile }} \
+            --non-interactive \
+            $WAIT_FLAG
         env:
-          EXPO_PUBLIC_DOMAIN: ${{ secrets.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+
+      - name: Get latest build URL
+        if: github.event.inputs.wait_for_build == 'true'
+        run: |
+          echo "## Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List recent builds
+          eas build:list --platform android --limit 1 --json | tee build-info.json
+
+          echo "### Latest Build Info" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat build-info.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
