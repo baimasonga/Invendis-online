@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, Circle } from "react-leaflet";
 import L from "leaflet";
@@ -19,8 +19,10 @@ import {
   Truck, MapPin, Radio, Clock, Gauge, Navigation,
   ChevronRight, RefreshCw, Wifi, WifiOff, Target,
   AlertTriangle, CheckCircle2, RouteOff, Link2, Link2Off,
-  Signal, Settings2, ArrowRight, Warehouse, History, Timer,
+  Signal, Settings2, ArrowRight, Warehouse, History, Timer, Map as MapIcon,
 } from "lucide-react";
+
+const RoadMapping = lazy(() => import("@/pages/road-mapping"));
 
 // ── Nominatim reverse-geocoding ───────────────────────────────────────────────
 
@@ -1112,7 +1114,7 @@ export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
   const [selectedTracker, setSelectedTracker] = useState<number | null>(null);
   const [showSetup, setShowSetup] = useState(false);
-  const [viewMode, setViewMode] = useState<"vehicles" | "trackers">("trackers");
+  const [viewMode, setViewMode] = useState<"vehicles" | "trackers" | "road-mapping">("trackers");
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
     queryKey: KEYS.vehicles(),
@@ -1220,9 +1222,27 @@ export default function GpsTracking() {
             <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">{vehicleList.length}</span>
           )}
         </button>
+        <button
+          onClick={() => { setViewMode("road-mapping"); setSelectedVehicle(null); setSelectedTracker(null); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            viewMode === "road-mapping"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <MapIcon className="h-3.5 w-3.5" />
+          Road Mapping
+        </button>
       </div>
 
-      {showSetup && <GpsTracePanel />}
+      {showSetup && viewMode !== "road-mapping" && <GpsTracePanel />}
+
+      {/* ── ROAD MAPPING MODE ─────────────────────────────────────────────── */}
+      {viewMode === "road-mapping" && (
+        <Suspense fallback={<div className="h-[560px] w-full rounded-xl bg-muted animate-pulse" />}>
+          <RoadMapping />
+        </Suspense>
+      )}
 
       {/* ── ALL TRACKERS MODE ─────────────────────────────────────────────── */}
       {viewMode === "trackers" && (
