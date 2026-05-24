@@ -959,7 +959,7 @@ export async function listGpsRoutes(params?: {
   return resp.json();
 }
 
-export function buildGisExportUrl(format: "geojson" | "kml" | "gpx", params?: {
+export function buildGisExportUrl(format: "geojson" | "kml" | "gpx" | "csv", params?: {
   vehicleId?: number;
   from?: string;
   to?: string;
