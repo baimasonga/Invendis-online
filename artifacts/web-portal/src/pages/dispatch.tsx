@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Upload, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X } from "lucide-react";
+import { Plus, Upload, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X, Map } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { ImportManifestModal } from "@/components/modals/ImportManifestModal";
@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+
+const RoadMapping = lazy(() => import("@/pages/road-mapping"));
 
 function DeliveryProgress({ delivered, total }: { delivered: number; total: number }) {
   if (!total) return <span className="text-xs text-muted-foreground">—</span>;
@@ -139,6 +141,8 @@ export default function Dispatch() {
     } finally { setCancelTarget(null); setCancelReason(""); }
   }
 
+  const [activeTab, setActiveTab] = useState<"manifests" | "road-mapping">("manifests");
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -146,19 +150,50 @@ export default function Dispatch() {
         subtitle="Manage delivery manifests and track dispatch status."
         actions={
           <div className="flex gap-2">
-            {can.manageDispatch && (
+            {activeTab === "manifests" && can.manageDispatch && (
               <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
                 <Upload className="h-3.5 w-3.5 mr-1.5" />
                 Import from Excel
               </Button>
             )}
-            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Create Manifest
-            </Button>
+            {activeTab === "manifests" && (
+              <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Create Manifest
+              </Button>
+            )}
           </div>
         }
       />
+
+      {/* Tab bar */}
+      <div className="flex border-b -mt-1">
+        {([
+          ["manifests",    "Manifests",   null],
+          ["road-mapping", "Road Mapping", Map],
+        ] as [string, string, any][]).map(([id, label, Icon]) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id as any)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === id
+                ? "border-green-600 text-green-700"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {Icon && <Icon className="h-3.5 w-3.5" />}
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "road-mapping" && (
+        <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+          <RoadMapping />
+        </Suspense>
+      )}
+
+      {activeTab === "manifests" && (
 
       <Card>
         <CardHeader className="pb-0 pt-4 px-4">
@@ -368,6 +403,7 @@ export default function Dispatch() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Dialog open={!!cancelTarget} onOpenChange={(v) => { if (!v) { setCancelTarget(null); setCancelReason(""); } }}>
         <DialogContent className="sm:max-w-md">
