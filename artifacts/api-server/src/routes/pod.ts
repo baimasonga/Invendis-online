@@ -90,6 +90,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     face_similarity:   raw.faceSimilarity  != null ? Number(raw.faceSimilarity)  : null,
     face_photo_key:    raw.facePhotoKey    ?? null,
     photo_keys:        Array.isArray(raw.photoKeys) ? raw.photoKeys : null,
+    photo_gps_coords:  Array.isArray(raw.photoGpsCoords) ? raw.photoGpsCoords : null,
     notes:             raw.notes           ?? null,
     override_reason:   raw.overrideReason  ?? null,
     otp_verified:      raw.otpVerified     === true,
@@ -171,6 +172,26 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }
   }
 
+  // Capture vehicle GPS snapshot (linked via dispatch → vehicle)
+  let vehicleGpsSnapshot: { lat: number; lng: number; plateNumber: string; distanceM?: number } | null = null;
+  if (body.dispatch_id) {
+    const { data: dispVeh } = await supa.from("dispatches").select("vehicle_id").eq("id", Number(body.dispatch_id)).single();
+    const vehicleId = (dispVeh as any)?.vehicle_id;
+    if (vehicleId) {
+      const { data: vehicle } = await supa.from("vehicles").select("plate_number, last_latitude, last_longitude").eq("id", vehicleId).single();
+      const vLat = (vehicle as any)?.last_latitude != null ? Number((vehicle as any).last_latitude) : null;
+      const vLng = (vehicle as any)?.last_longitude != null ? Number((vehicle as any).last_longitude) : null;
+      if (vLat != null && vLng != null) {
+        vehicleGpsSnapshot = {
+          lat: vLat,
+          lng: vLng,
+          plateNumber: (vehicle as any)?.plate_number ?? "",
+          ...(farmerLat != null && farmerLng != null ? { distanceM: Math.round(haversineMeters(farmerLat, farmerLng, vLat, vLng)) } : {}),
+        };
+      }
+    }
+  }
+
   // Look up farmer's community name (for result screen display)
   let communityName: string | null = null;
   if (body.farmer_id) {
@@ -192,9 +213,10 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     campaign_id:      campaignId,
     pod_code:         podCode,
     status:           "Pending",
-    gps_status:       gpsStatus,
-    submitted_at:     new Date().toISOString(),
-    field_officer_id: req.user!.userId,
+    gps_status:           gpsStatus,
+    vehicle_gps_snapshot: vehicleGpsSnapshot,
+    submitted_at:         new Date().toISOString(),
+    field_officer_id:     req.user!.userId,
   };
   // Remove undefined values; keep null (explicit nulls are fine for pg)
   const cols = Object.keys(insertFields).filter(k => insertFields[k] !== undefined);

@@ -108,6 +108,7 @@ interface DeliveryPhoto {
   key: string | null;
   uploading: boolean;
   error: string | null;
+  gps: GPSCoords | null;
 }
 
 const PHOTO_SLOTS = [
@@ -162,7 +163,7 @@ export default function ConfirmPodScreen() {
 
   // Delivery photos
   const [deliveryPhotos, setDeliveryPhotos] = useState<DeliveryPhoto[]>(
-    PHOTO_SLOTS.map(label => ({ label, uri: null, key: null, uploading: false, error: null }))
+    PHOTO_SLOTS.map(label => ({ label, uri: null, key: null, uploading: false, error: null, gps: null }))
   );
 
   // Face
@@ -463,10 +464,10 @@ export default function ConfirmPodScreen() {
   };
 
   const handleTakeDeliveryPhoto = async (index: number) => {
-    const uri = await takeCameraPhoto();
+    const [uri, photoGps] = await Promise.all([takeCameraPhoto(), getLocation()]);
     if (!uri) return;
     setDeliveryPhotos(prev => prev.map((p, i) =>
-      i === index ? { ...p, uri, key: null, uploading: true, error: null } : p
+      i === index ? { ...p, uri, key: null, uploading: true, error: null, gps: photoGps } : p
     ));
     try {
       const uploadInfo = await getPodPhotoUploadUrl(token!, Number(farmerId), index);
@@ -495,6 +496,7 @@ export default function ConfirmPodScreen() {
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
     photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
+    photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
     ...(facePhotoKey ? { facePhotoKey } : {}),
     ...(faceResult?.similarity != null ? { faceSimilarity: faceResult.similarity } : {}),
     ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
@@ -1327,6 +1329,18 @@ export default function ConfirmPodScreen() {
                       {photo.key && (
                         <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: colors.success, borderRadius: 12, padding: 4 }}>
                           <Feather name="check" size={12} color="#fff" />
+                        </View>
+                      )}
+                      {photo.key && photo.gps && (
+                        <View style={{ position: "absolute", bottom: 6, left: 6, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 2 }}>
+                          <Feather name="map-pin" size={9} color="#4ade80" />
+                          <Text style={{ color: "#4ade80", fontSize: 8, fontFamily: "Inter_600SemiBold" }}>GPS</Text>
+                        </View>
+                      )}
+                      {photo.key && !photo.gps && (
+                        <View style={{ position: "absolute", bottom: 6, left: 6, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 2 }}>
+                          <Feather name="map-pin" size={9} color="#fbbf24" />
+                          <Text style={{ color: "#fbbf24", fontSize: 8, fontFamily: "Inter_600SemiBold" }}>No GPS</Text>
                         </View>
                       )}
                       {photo.uploading && (
