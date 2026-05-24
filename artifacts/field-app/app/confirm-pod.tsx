@@ -167,6 +167,7 @@ export default function ConfirmPodScreen() {
 
   // Face
   const [facePhotoUri, setFacePhotoUri] = useState<string | null>(null);
+  const [facePhotoKey, setFacePhotoKey] = useState<string | null>(null);
   const [faceResult, setFaceResult] = useState<FaceCompareResult | null>(null);
   const [faceLoading, setFaceLoading] = useState(false);
   const [faceError, setFaceError] = useState<string | null>(null);
@@ -391,6 +392,7 @@ export default function ConfirmPodScreen() {
     try {
       const uploadInfo = await getFaceUploadUrl(token!, Number(farmerId), "delivery");
       await uploadPhotoToS3(uploadInfo.uploadUrl, uri);
+      setFacePhotoKey(uploadInfo.key);
       const result = await compareFace(token!, Number(farmerId), uploadInfo.key);
 
       // When no reference photo exists, save this delivery photo as the reference
@@ -493,6 +495,8 @@ export default function ConfirmPodScreen() {
     ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
     ...(notes.trim() ? { notes: notes.trim() } : {}),
     photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
+    ...(facePhotoKey ? { facePhotoKey } : {}),
+    ...(faceResult?.similarity != null ? { faceSimilarity: faceResult.similarity } : {}),
     ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
   });
 
@@ -1487,9 +1491,41 @@ export default function ConfirmPodScreen() {
               : faceResult?.faceStatus === "NoFace"
               ? "No face detected — please retake the photo"
               : faceFailed
-              ? `Face did not match${faceResult?.similarity != null ? ` (${faceResult.similarity}% similarity)` : ""}`
+              ? "Face did not match the reference photo"
               : "Take a clear photo of the farmer's face for identity check"}
           </Text>
+
+          {/* Similarity gauge — shown after a comparison is made */}
+          {faceResult?.similarity != null && (
+            <View style={{ width: "100%", marginTop: 10, gap: 5 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
+                  Similarity score
+                </Text>
+                <Text style={{
+                  fontSize: 13, fontFamily: "Inter_700Bold",
+                  color: faceVerified ? colors.success : faceResult.similarity >= 50 ? colors.warning : colors.destructive,
+                }}>
+                  {faceResult.similarity}%
+                </Text>
+              </View>
+              <View style={{ height: 7, borderRadius: 4, backgroundColor: colors.border, overflow: "hidden" }}>
+                <View style={{
+                  width: `${Math.min(100, faceResult.similarity)}%` as any,
+                  height: "100%",
+                  borderRadius: 4,
+                  backgroundColor: faceVerified ? colors.success : faceResult.similarity >= 50 ? colors.warning : colors.destructive,
+                }} />
+              </View>
+              <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.mutedForeground, textAlign: "center" }}>
+                {faceVerified
+                  ? "✓ Match confirmed — above 80% threshold"
+                  : faceResult.similarity >= 50
+                  ? "Below match threshold (need ≥ 80%)"
+                  : "Poor match — likely different person"}
+              </Text>
+            </View>
+          )}
 
           {facePhotoUri ? (
             <View style={styles.photoWrap}>

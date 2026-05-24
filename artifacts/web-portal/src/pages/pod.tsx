@@ -15,7 +15,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
-  ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet,
+  ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet, ImageIcon,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -104,6 +104,210 @@ function PodDetailPhoto({ photoKey }: { photoKey: string }) {
   if (isLoading) return <Skeleton className="w-full h-40 rounded-lg" />;
   if (!url) return <div className="w-full h-40 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">Photo unavailable</div>;
   return <img src={url} alt="Delivery photo" className="w-full h-40 object-cover rounded-lg border" />;
+}
+
+function NoPhotoBox({ label = "No photo" }: { label?: string }) {
+  return (
+    <div className="w-full h-40 rounded-lg bg-muted border border-dashed flex flex-col items-center justify-center gap-1 text-muted-foreground">
+      <ImageIcon className="h-8 w-8 opacity-30" />
+      <span className="text-xs">{label}</span>
+    </div>
+  );
+}
+
+function SimilarityMeter({ similarity }: { similarity?: number | null }) {
+  if (similarity == null) return null;
+  const pct = Math.min(100, Math.max(0, Number(similarity)));
+  const color = pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-400" : "bg-red-500";
+  const textColor = pct >= 80 ? "text-emerald-700" : pct >= 50 ? "text-amber-600" : "text-red-600";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground">Similarity score</span>
+        <span className={`text-xs font-bold tabular-nums ${textColor}`}>{pct.toFixed(0)}%</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        {pct >= 80 ? "Match confirmed — above 80% threshold" : pct >= 50 ? "Below threshold — manual review recommended" : "Poor match — likely different person"}
+      </p>
+    </div>
+  );
+}
+
+const EVIDENCE_LABELS = ["Inputs Only", "Inputs + Beneficiary", "Farmer Receiving", "Community / Group", "Additional Evidence"];
+
+function EvidencePhotoGrid({ photoKeys }: { photoKeys: string[] }) {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {photoKeys.map((key, i) => (
+        <div key={key} className="space-y-1">
+          <p className="text-[9px] font-medium text-muted-foreground text-center leading-tight">
+            {EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`}
+          </p>
+          <div className="rounded-md overflow-hidden border">
+            <PodDetailPhoto photoKey={key} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Shared pod detail body (used in both dialogs) ──────────────────────────────
+
+function PodDetailBody({
+  pod,
+  approveMutation,
+  flagMutation,
+  overrideMutation,
+  onApprove,
+  onFlag,
+  onOverride,
+}: {
+  pod: any;
+  approveMutation: any;
+  flagMutation?: any;
+  overrideMutation?: any;
+  onApprove: () => void;
+  onFlag?: () => void;
+  onOverride: () => void;
+}) {
+  const deliveryFacePhotoKey = pod.facePhotoKey ?? pod.photoUrl;
+  const faceStatusKey = (pod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "");
+  const canOverride = pod.status === "Pending" && ["failed", "noface"].includes(faceStatusKey);
+
+  return (
+    <div className="space-y-5">
+      {/* ── Face Analysis ──────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <ShieldCheck className="h-3 w-3" /> Face Analysis
+        </p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Delivery Photo</p>
+            {deliveryFacePhotoKey ? <PodDetailPhoto photoKey={deliveryFacePhotoKey} /> : <NoPhotoBox />}
+          </div>
+          <div>
+            <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Reference Photo</p>
+            {pod.referencePhotoKey ? <PodDetailPhoto photoKey={pod.referencePhotoKey} /> : <NoPhotoBox label="No reference on file" />}
+          </div>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-1">
+            <FaceStatusPill status={pod.faceStatus} />
+            {pod.overrideReason && (
+              <span className="text-[10px] text-muted-foreground italic truncate max-w-[60%]">"{pod.overrideReason}"</span>
+            )}
+          </div>
+          <SimilarityMeter similarity={pod.faceSimilarity} />
+        </div>
+      </div>
+
+      {/* ── Delivery Evidence ──────────────────────────────────────── */}
+      {pod.photoKeys?.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ImageIcon className="h-3 w-3" /> Delivery Evidence ({pod.photoKeys.length} photo{pod.photoKeys.length !== 1 ? "s" : ""})
+          </p>
+          <EvidencePhotoGrid photoKeys={pod.photoKeys} />
+        </div>
+      )}
+
+      {/* ── Delivery Details ───────────────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Delivery Details</p>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="font-medium">{pod.farmerName ?? "—"}</p>
+              {pod.beneficiaryType === "group" && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
+                  <UsersRound className="h-2.5 w-2.5" />
+                  Group{pod.groupSize ? ` · ${pod.groupSize}` : ""}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground font-mono">{pod.farmerCode}</p>
+          </div>
+          <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{pod.campaignName ?? "—"}</p></div>
+        </div>
+        {(pod.inputItemName || pod.inputBarcode) && (
+          <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2.5">
+            <Package className="h-4 w-4 text-emerald-700 shrink-0" />
+            <div>
+              <p className="text-xs text-emerald-700 font-semibold">{pod.inputItemName ?? "Input Scanned"}</p>
+              {pod.inputBarcode && <p className="text-xs text-emerald-600 font-mono">{pod.inputBarcode}</p>}
+              {pod.inputItemCategory && <p className="text-xs text-emerald-600">{pod.inputItemCategory}</p>}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{pod.quantityDelivered ?? "—"}</p></div>
+          <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={pod.otpStatus} /></div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">GPS</p>
+            {pod.farmerLatitude
+              ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium"><MapPin className="h-3 w-3" />Captured</span>
+              : <span className="text-xs text-muted-foreground">—</span>}
+          </div>
+        </div>
+        {(pod.farmerLatitude && pod.farmerLongitude) ? (
+          <a href={`https://www.google.com/maps?q=${pod.farmerLatitude},${pod.farmerLongitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            {Number(pod.farmerLatitude).toFixed(5)}, {Number(pod.farmerLongitude).toFixed(5)} — View on map
+          </a>
+        ) : null}
+        {pod.notes && <div><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p className="text-sm bg-muted/50 rounded-lg px-3 py-2">{pod.notes}</p></div>}
+        <p className="text-[11px] text-muted-foreground">
+          Submitted {pod.submittedAt
+            ? new Date(pod.submittedAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+            : "—"}
+        </p>
+      </div>
+
+      {/* ── Actions ────────────────────────────────────────────────── */}
+      {pod.status === "Pending" && (
+        <div className="space-y-2 pt-1">
+          <div className="flex gap-2">
+            <Button
+              className="flex-1 bg-green-700 hover:bg-green-800 text-white"
+              disabled={approveMutation.isPending}
+              onClick={onApprove}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              {approveMutation.isPending ? "Approving…" : "Approve"}
+            </Button>
+            {onFlag && flagMutation && (
+              <Button
+                variant="outline"
+                className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
+                disabled={flagMutation.isPending}
+                onClick={onFlag}
+              >
+                <Flag className="h-4 w-4 mr-2" />
+                {flagMutation.isPending ? "Flagging…" : "Flag Exception"}
+              </Button>
+            )}
+          </div>
+          {canOverride && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-900/20"
+              onClick={onOverride}
+            >
+              <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
+              Supervisor Override
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Review Queue ──────────────────────────────────────────────────────────────
@@ -350,7 +554,7 @@ function ReviewQueue() {
 
       {/* Detail dialog */}
       <Dialog open={!!selectedPod} onOpenChange={(v) => { if (!v) setSelectedPod(null); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-green-700" />
@@ -359,112 +563,20 @@ function ReviewQueue() {
             </DialogTitle>
           </DialogHeader>
           {selectedPod && (
-            <div className="space-y-4">
-              {(() => {
-                const faceKey = (selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "");
-                const isFailed = faceKey === "failed" || faceKey === "noface";
-                return isFailed ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Delivery Photo</p>
-                      {selectedPod.photoUrl ? <PodDetailPhoto photoKey={selectedPod.photoUrl} /> : <div className="h-32 bg-muted rounded-lg flex items-center justify-center text-xs text-muted-foreground">No photo</div>}
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-medium text-muted-foreground mb-1 text-center">Reference Photo</p>
-                      {selectedPod.referencePhotoKey ? <PodDetailPhoto photoKey={selectedPod.referencePhotoKey} /> : <div className="h-32 bg-muted rounded-lg flex items-center justify-center text-xs text-muted-foreground">No reference</div>}
-                    </div>
-                  </div>
-                ) : (
-                  selectedPod.photoUrl
-                    ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
-                    : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>
-                );
-              })()}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="font-medium">{selectedPod.farmerName ?? "—"}</p>
-                    {selectedPod.beneficiaryType === "group" && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
-                        <UsersRound className="h-2.5 w-2.5" />
-                        Group{selectedPod.groupSize ? ` · ${selectedPod.groupSize}` : ""}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p>
-                </div>
-                <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{selectedPod.campaignName ?? "—"}</p></div>
-              </div>
-              {(selectedPod.inputItemName || selectedPod.inputBarcode) && (
-                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2.5">
-                  <Package className="h-4 w-4 text-emerald-700 shrink-0" />
-                  <div>
-                    <p className="text-xs text-emerald-700 font-semibold">{selectedPod.inputItemName ?? "Input Scanned"}</p>
-                    {selectedPod.inputBarcode && <p className="text-xs text-emerald-600 font-mono">{selectedPod.inputBarcode}</p>}
-                    {selectedPod.inputItemCategory && <p className="text-xs text-emerald-600">{selectedPod.inputItemCategory}</p>}
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{selectedPod.quantityDelivered ?? "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={selectedPod.otpStatus} /></div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Face</p>
-                  <FaceStatusPill status={selectedPod.faceStatus} />
-                  {selectedPod.faceSimilarity != null && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{Number(selectedPod.faceSimilarity).toFixed(0)}% match</p>
-                  )}
-                </div>
-              </div>
-              {(selectedPod.farmerLatitude && selectedPod.farmerLongitude) ? (
-                <a href={`https://www.google.com/maps?q=${selectedPod.farmerLatitude},${selectedPod.farmerLongitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  {Number(selectedPod.farmerLatitude).toFixed(5)}, {Number(selectedPod.farmerLongitude).toFixed(5)} — View on map
-                </a>
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" />No GPS</div>
-              )}
-              {selectedPod.notes && <div><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p className="text-sm bg-muted/50 rounded-lg px-3 py-2">{selectedPod.notes}</p></div>}
-              {selectedPod.status === "Pending" && (
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    className="flex-1 bg-green-700 hover:bg-green-800 text-white"
-                    disabled={approveMutation.isPending}
-                    onClick={() => approveMutation.mutate(selectedPod.id, {
-                      onSuccess: () => { toast({ title: "PoD approved" }); setSelectedPod(null); },
-                      onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
-                    })}
-                  >
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    {approveMutation.isPending ? "Approving…" : "Approve"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
-                    disabled={flagMutation.isPending}
-                    onClick={() => flagMutation.mutate(selectedPod.id, {
-                      onSuccess: () => { toast({ title: "Flagged as exception" }); setSelectedPod(null); },
-                      onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
-                    })}
-                  >
-                    <Flag className="h-4 w-4 mr-2" />
-                    {flagMutation.isPending ? "Flagging…" : "Flag Exception"}
-                  </Button>
-                </div>
-              )}
-              {selectedPod.status === "Pending" && ["failed", "noface"].includes((selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "")) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-900/20"
-                  onClick={() => { setOverrideOpen(true); setOverrideReason(""); }}
-                >
-                  <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
-                  Supervisor Override
-                </Button>
-              )}
-            </div>
+            <PodDetailBody
+              pod={selectedPod}
+              approveMutation={approveMutation}
+              flagMutation={flagMutation}
+              onApprove={() => approveMutation.mutate(selectedPod.id, {
+                onSuccess: () => { toast({ title: "PoD approved" }); setSelectedPod(null); },
+                onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+              })}
+              onFlag={() => flagMutation.mutate(selectedPod.id, {
+                onSuccess: () => { toast({ title: "Flagged as exception" }); setSelectedPod(null); },
+                onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+              })}
+              onOverride={() => { setOverrideOpen(true); setOverrideReason(""); }}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -776,7 +888,7 @@ export default function ProofOfDelivery() {
 
       {/* Detail dialog (list view) */}
       <Dialog open={!!selectedPod} onOpenChange={(v) => { if (!v) setSelectedPod(null); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-green-700" />
@@ -785,75 +897,15 @@ export default function ProofOfDelivery() {
             </DialogTitle>
           </DialogHeader>
           {selectedPod && (
-            <div className="space-y-4">
-              {selectedPod.photoUrl
-                ? <PodDetailPhoto photoKey={selectedPod.photoUrl} />
-                : <div className="w-full h-32 rounded-lg bg-muted flex items-center justify-center text-xs text-muted-foreground">No delivery photo</div>}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Farmer</p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="font-medium">{selectedPod.farmerName ?? "—"}</p>
-                    {selectedPod.beneficiaryType === "group" && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
-                        <UsersRound className="h-2.5 w-2.5" />
-                        Group{selectedPod.groupSize ? ` · ${selectedPod.groupSize}` : ""}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono">{selectedPod.farmerCode}</p>
-                </div>
-                <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{selectedPod.campaignName ?? "—"}</p></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-muted-foreground mb-0.5">Quantity Delivered</p><p className="font-semibold text-lg leading-none">{selectedPod.quantityDelivered ?? "—"}</p></div>
-                <div><p className="text-xs text-muted-foreground mb-0.5">OTP</p><OtpPill status={selectedPod.otpStatus} /></div>
-              </div>
-              <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 text-sm">
-                <span className="text-xs text-muted-foreground">Face Verification</span>
-                <div className="flex items-center gap-2">
-                  <FaceStatusPill status={selectedPod.faceStatus} />
-                  {selectedPod.faceSimilarity != null && (
-                    <span className="text-[10px] text-muted-foreground">{Number(selectedPod.faceSimilarity).toFixed(0)}%</span>
-                  )}
-                </div>
-              </div>
-              {(selectedPod.farmerLatitude && selectedPod.farmerLongitude) ? (
-                <a href={`https://www.google.com/maps?q=${selectedPod.farmerLatitude},${selectedPod.farmerLongitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  {Number(selectedPod.farmerLatitude).toFixed(5)}, {Number(selectedPod.farmerLongitude).toFixed(5)} — View on map
-                </a>
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5 shrink-0" /> No GPS coordinates</div>
-              )}
-              {selectedPod.notes && <div><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p className="text-sm bg-muted/50 rounded-lg px-3 py-2">{selectedPod.notes}</p></div>}
-              <p className="text-[11px] text-muted-foreground">
-                Submitted {selectedPod.submittedAt
-                  ? new Date(selectedPod.submittedAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-                  : "—"}
-              </p>
-              {selectedPod.status === "Pending" && (
-                <Button
-                  className="w-full bg-green-700 hover:bg-green-800 text-white"
-                  disabled={approveMutation.isPending}
-                  onClick={() => approveMutation.mutate(selectedPod.id)}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                  {approveMutation.isPending ? "Approving…" : "Approve Delivery"}
-                </Button>
-              )}
-              {selectedPod.status === "Pending" && ["failed", "noface"].includes((selectedPod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "")) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 dark:border-amber-700 dark:hover:bg-amber-900/20"
-                  onClick={() => { setOverrideOpen(true); setOverrideReason(""); }}
-                >
-                  <ShieldAlert className="h-3.5 w-3.5 mr-1.5" />
-                  Supervisor Override
-                </Button>
-              )}
-            </div>
+            <PodDetailBody
+              pod={selectedPod}
+              approveMutation={approveMutation}
+              onApprove={() => approveMutation.mutate(selectedPod.id, {
+                onSuccess: () => { toast({ title: "PoD approved" }); setSelectedPod(null); },
+                onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+              })}
+              onOverride={() => { setOverrideOpen(true); setOverrideReason(""); }}
+            />
           )}
         </DialogContent>
       </Dialog>
