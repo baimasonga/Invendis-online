@@ -629,8 +629,8 @@ router.post(
 
     // 3. Find or create a group beneficiary per community
     // Fetch a fallback value_chain_id — farmers.value_chain_id is NOT NULL
-    const vcFallback = await pool.query<{ id: number }>("SELECT id FROM value_chains ORDER BY id LIMIT 1");
-    const defaultValueChainId: number = vcFallback.rows[0]?.id ?? 1;
+    const { data: vcFallbackRow } = await supa.from("value_chains").select("id").order("id", { ascending: true }).limit(1).maybeSingle();
+    const defaultValueChainId: number = (vcFallbackRow as any)?.id ?? 1;
 
     const communities: Array<{ community: string; district: string; farmerCode: string; barcodeToken: string }> = [];
     const farmerIds: number[] = [];
@@ -691,33 +691,41 @@ router.post(
       const firstName    = nameParts[0] ?? "";
       const lastName     = nameParts.slice(1).join(" ") || "";
 
-      // Use direct pg pool to bypass PostgREST schema cache (avoids "column not found" errors)
-      // Compute next safe ID — PG sequence may be behind max after seed imports
-      const maxIdRes = await pool.query<{ id: number }>("SELECT MAX(id) AS id FROM farmers");
-      const nextFarmerId = (maxIdRes.rows[0]?.id ?? 0) + 1;
+      // Compute next safe farmer ID (PG sequence may be behind max after seed imports with explicit IDs)
+      const { data: maxFarmerRow } = await supa.from("farmers").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
+      const nextFarmerId = ((maxFarmerRow as any)?.id ?? 0) + 1;
 
-      let farmerId: number;
-      try {
-        const insertRes = await pool.query<{ id: number }>(
-          `INSERT INTO farmers
-             (id, farmer_group, beneficiary_type, first_name, last_name,
-              gender, value_chain_id,
-              district_id, chiefdom_id, phone, farmer_code, barcode_token,
-              status, registered_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-           RETURNING id`,
-          [
-            nextFarmerId, row.community.trim(), "group", firstName, lastName,
-            "unknown", defaultValueChainId,
-            districtId ?? null, chiefdomId ?? null, phone ?? null,
-            farmerCode, barcodeToken, "pending", createdBy ?? null,
-          ]
-        );
-        farmerId = insertRes.rows[0].id;
-      } catch (pgErr: any) {
-        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${pgErr.message}` });
+      // Insert WITHOUT beneficiary_type — PostgREST INSERT schema cache may be stale for that column.
+      // It defaults to 'individual'; we UPDATE immediately after to set 'group'.
+      const { data: newFarmer, error: farmerErr } = await supa
+        .from("farmers")
+        .insert({
+          id:             nextFarmerId,
+          farmer_group:   row.community.trim(),
+          first_name:     firstName,
+          last_name:      lastName,
+          gender:         "unknown",
+          value_chain_id: defaultValueChainId,
+          district_id:    districtId ?? null,
+          chiefdom_id:    chiefdomId ?? null,
+          phone:          phone ?? null,
+          farmer_code:    farmerCode,
+          barcode_token:  barcodeToken,
+          status:         "pending",
+          registered_by:  createdBy ?? null,
+        })
+        .select("id")
+        .single();
+
+      if (farmerErr || !newFarmer) {
+        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${farmerErr?.message}` });
         return;
       }
+
+      const farmerId = (newFarmer as any).id as number;
+
+      // Set beneficiary_type = 'group' in a separate UPDATE (avoids stale INSERT schema cache)
+      await supa.from("farmers").update({ beneficiary_type: "group" }).eq("id", farmerId);
       farmerIds.push(farmerId);
       newFarmerCount++;
       communities.push({ community: row.community.trim(), district: row.district.trim(), farmerCode, barcodeToken });
@@ -733,32 +741,37 @@ router.post(
     // 4. Create the dispatch manifest
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
     const isHired = b.vehicleType === "hired";
-    const dispCols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
-    const dispVals: unknown[] = [manifestCode, campaignId, warehouseId, b.vehicleType ?? "office", b.notes ?? null, createdBy];
 
+    const dispObj: Record<string, unknown> = {
+      manifest_code: manifestCode,
+      campaign_id:   campaignId,
+      warehouse_id:  warehouseId,
+      vehicle_type:  b.vehicleType ?? "office",
+      notes:         b.notes ?? null,
+      created_by:    createdBy,
+    };
     if (isHired) {
-      dispCols.push("hired_plate", "hired_driver_name");
-      dispVals.push(b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null, b.hiredDriverName ?? null);
+      dispObj.hired_plate        = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
+      dispObj.hired_driver_name  = b.hiredDriverName ?? null;
     } else {
-      dispCols.push("vehicle_id", "driver_id");
-      dispVals.push(b.vehicleId ?? null, b.driverId ?? null);
+      dispObj.vehicle_id = b.vehicleId ?? null;
+      dispObj.driver_id  = b.driverId  ?? null;
     }
     if (b.fieldOfficerId) {
-      dispCols.push("field_officer_id");
-      dispVals.push(Number(b.fieldOfficerId));
+      dispObj.field_officer_id = Number(b.fieldOfficerId);
     }
 
-    const dispPH = dispVals.map((_, i) => `$${i + 1}`).join(", ");
-    let dispatchRow: Record<string, unknown>;
-    try {
-      const r = await pool.query(
-        `INSERT INTO dispatches (${dispCols.join(", ")}) VALUES (${dispPH}) RETURNING *`,
-        dispVals,
-      );
-      dispatchRow = r.rows[0];
-    } catch (pgErr: any) {
-      res.status(500).json({ error: pgErr.message }); return;
+    const { data: dispatchData, error: dispErr } = await supa
+      .from("dispatches")
+      .insert(dispObj)
+      .select()
+      .single();
+
+    if (dispErr || !dispatchData) {
+      res.status(500).json({ error: dispErr?.message ?? "Failed to create dispatch manifest" });
+      return;
     }
+    let dispatchRow: Record<string, unknown> = dispatchData as Record<string, unknown>;
 
     const dispatchId = dispatchRow.id as number;
 

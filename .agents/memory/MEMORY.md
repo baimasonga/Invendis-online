@@ -6,3 +6,4 @@
 - [Beneficiary types](beneficiary-types.md) — farmers table supports individual/group via beneficiary_type + group_size; group name stored in farmer_group column.
 - [GIS Road Mapping exports](gis-road-mapping.md) — GeoJSON/KML/GPX export requires authenticated fetch + blob download (not direct <a href>) since /api/gis/export/* uses requireAnyAuth.
 - [Stuck PK sequences](stuck-pk-sequences.md) — Every table insert must compute MAX(id)+1 explicitly; never rely on the PG sequence (stuck after seed imports).
+- [PostgREST stale INSERT cache](pgrst-insert-cache.md) — If supa INSERT fails "column not found in schema cache" but SELECT works, omit the column (use DB default) then UPDATE immediately after.
