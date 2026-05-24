@@ -277,6 +277,35 @@ export const getPodPhotoUploadUrl = (token: string, farmerId: number, photoIndex
     body: JSON.stringify({ farmerId, photoIndex }),
   });
 
+export const getIdentifyUploadUrl = (token: string) =>
+  apiFetch<FaceUploadResult>("/face/upload-url", token, {
+    method: "POST",
+    body: JSON.stringify({ purpose: "identify" }),
+  });
+
+export interface FaceIdentifyResult {
+  matched: boolean;
+  similarity: number | null;
+  reason?: string;
+  farmer: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    farmerCode: string;
+    gender?: string | null;
+    ageGroup?: string | null;
+    beneficiaryType?: string | null;
+    groupSize?: number | null;
+    farmerGroup?: string | null;
+  } | null;
+}
+
+export const findFarmerByFace = (token: string, photoKey: string) =>
+  apiFetch<FaceIdentifyResult>("/face/find-farmer", token, {
+    method: "POST",
+    body: JSON.stringify({ photoKey }),
+  });
+
 export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Promise<void> {
   const response = await fetch(photoUri);
   const blob = await response.blob();

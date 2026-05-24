@@ -8,10 +8,11 @@ const router = Router();
 
 router.post("/api/face/upload-url", requireAnyAuth, async (req, res) => {
   const { farmerId, purpose } = req.body as { farmerId?: number; purpose?: string };
-  if (!farmerId) { res.status(400).json({ error: "farmerId is required" }); return; }
 
-  const safeP = purpose === "reference" ? "reference" : "delivery";
-  const key = `farmers/${farmerId}/${safeP}/${Date.now()}.jpg`;
+  const safeP = purpose === "reference" ? "reference" : purpose === "identify" ? "identify" : "delivery";
+  const key = farmerId
+    ? `farmers/${farmerId}/${safeP}/${Date.now()}.jpg`
+    : `identify/${Date.now()}.jpg`;
   try {
     const url = await getPresignedUploadUrl(key, "image/jpeg");
     res.json({ uploadUrl: url, key, bucket });
@@ -83,6 +84,66 @@ router.post("/api/face/analyse-farmer", requireAnyAuth, async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
   }
+});
+
+router.post("/api/face/find-farmer", requireAnyAuth, async (req, res) => {
+  const { photoKey } = req.body as { photoKey?: string };
+  if (!photoKey) { res.status(400).json({ error: "photoKey is required" }); return; }
+
+  const { data: farmers } = await supa
+    .from("farmers")
+    .select("id, first_name, last_name, farmer_code, gender, age_group, beneficiary_type, group_size, farmer_group, photo_url")
+    .not("photo_url", "is", null)
+    .limit(100);
+
+  if (!farmers || farmers.length === 0) {
+    res.json({ matched: false, farmer: null, similarity: null, reason: "no_reference_photos" });
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    (farmers as any[]).map(async (f) => ({
+      farmer: f,
+      compare: await compareFaces(f.photo_url, photoKey),
+    }))
+  );
+
+  type Resolved = { farmer: any; compare: { similarity: number | null } };
+  const matches: Resolved[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.compare.similarity != null && r.value.compare.similarity >= 70) {
+      matches.push(r.value);
+    }
+  }
+  matches.sort((a, b) => (b.compare.similarity ?? 0) - (a.compare.similarity ?? 0));
+
+  if (matches.length === 0) {
+    res.json({ matched: false, farmer: null, similarity: null, reason: "no_match" });
+    return;
+  }
+
+  const best = matches[0];
+  const f = best.farmer;
+  const similarity = best.compare.similarity;
+
+  await logAudit(req, "FACE_IDENTIFY", "Farmers",
+    `Face identification matched farmer ${f.id} at ${similarity}% similarity`, "farmer", f.id);
+
+  res.json({
+    matched: true,
+    similarity,
+    farmer: {
+      id: f.id,
+      firstName: f.first_name,
+      lastName: f.last_name,
+      farmerCode: f.farmer_code,
+      gender: f.gender,
+      ageGroup: f.age_group,
+      beneficiaryType: f.beneficiary_type,
+      groupSize: f.group_size,
+      farmerGroup: f.farmer_group,
+    },
+  });
 });
 
 router.post("/api/face/save-reference", requireAnyAuth, async (req, res) => {
