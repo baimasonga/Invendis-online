@@ -749,17 +749,22 @@ router.post(
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    // INSERT with only the three guaranteed NOT NULL / no-default columns.
-    // ALL other columns (vehicle_type, notes, created_by, vehicle_id, driver_id,
-    // hired_plate, hired_driver_name, field_officer_id) are absent from PostgREST's
-    // INSERT schema cache (added after cache was last populated) — we UPDATE them next.
+    // INSERT with core columns + vehicle_id/driver_id (original schema columns, safe in cache).
+    // Newer columns (vehicle_type, notes, hired_plate, hired_driver_name, field_officer_id)
+    // go in a follow-up UPDATE to avoid stale PostgREST INSERT schema cache errors.
+    const dispInsert: Record<string, unknown> = {
+      manifest_code: manifestCode,
+      campaign_id:   campaignId,
+      warehouse_id:  warehouseId,
+    };
+    if (!isHired) {
+      dispInsert.vehicle_id = b.vehicleId ? Number(b.vehicleId) : null;
+      dispInsert.driver_id  = b.driverId  ? Number(b.driverId)  : null;
+    }
+
     const { data: dispatchData, error: dispErr } = await supa
       .from("dispatches")
-      .insert({
-        manifest_code: manifestCode,
-        campaign_id:   campaignId,
-        warehouse_id:  warehouseId,
-      })
+      .insert(dispInsert)
       .select("id")
       .single();
 
@@ -770,7 +775,7 @@ router.post(
 
     const dispatchId = (dispatchData as any).id as number;
 
-    // UPDATE every other column in one shot (bypasses stale INSERT schema cache)
+    // UPDATE newer/stale columns that PostgREST INSERT cache doesn't know about
     const dispUpdate: Record<string, unknown> = {
       vehicle_type: b.vehicleType ?? "office",
       notes:        b.notes ?? null,
@@ -779,9 +784,6 @@ router.post(
     if (isHired) {
       dispUpdate.hired_plate       = b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null;
       dispUpdate.hired_driver_name = b.hiredDriverName ?? null;
-    } else {
-      dispUpdate.vehicle_id = b.vehicleId ?? null;
-      dispUpdate.driver_id  = b.driverId  ?? null;
     }
     if (b.fieldOfficerId) dispUpdate.field_officer_id = Number(b.fieldOfficerId);
 
@@ -791,7 +793,7 @@ router.post(
       return;
     }
 
-    let dispatchRow: Record<string, unknown> = { id: dispatchId, manifest_code: manifestCode, ...dispUpdate };
+    let dispatchRow: Record<string, unknown> = { id: dispatchId, manifest_code: manifestCode, ...dispInsert, ...dispUpdate };
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)
     let totalPackages = 0;
