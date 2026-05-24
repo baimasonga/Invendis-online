@@ -118,6 +118,9 @@ const PHOTO_SLOTS = [
   "Additional Evidence",
 ];
 
+// Indices of photos that MUST be captured before proceeding to Face ID
+const REQUIRED_PHOTO_INDICES = [0, 2]; // "Inputs Only" + "Farmer Receiving"
+
 export default function ConfirmPodScreen() {
   const { farmerId, farmerName, farmerCode, dispatchId, beneficiaryType, groupSize, contactName } = useLocalSearchParams<{
     farmerId: string;
@@ -1216,6 +1219,7 @@ export default function ConfirmPodScreen() {
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "photos") {
     const uploadedCount = deliveryPhotos.filter(p => p.key).length;
+    const requiredUploaded = REQUIRED_PHOTO_INDICES.every(i => !!deliveryPhotos[i]?.key);
     const allUploaded = uploadedCount === PHOTO_SLOTS.length;
     const anyUploading = deliveryPhotos.some(p => p.uploading);
 
@@ -1230,7 +1234,7 @@ export default function ConfirmPodScreen() {
 
           <TouchableOpacity
             style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-            onPress={() => setStep("otp")}
+            onPress={() => setStep(otpBypassed ? "scan" : "otp")}
           >
             <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
             <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
@@ -1245,7 +1249,7 @@ export default function ConfirmPodScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Delivery Photos</Text>
                 <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
-                  Capture all 5 photos documenting this delivery — inputs, beneficiaries, and community setting.
+                  Capture photos documenting this delivery. Photos marked <Text style={{ fontFamily: "Inter_600SemiBold", color: colors.destructive }}>Required</Text> must be taken before continuing.
                 </Text>
               </View>
             </View>
@@ -1254,16 +1258,17 @@ export default function ConfirmPodScreen() {
               <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                 <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
                   {uploadedCount} of {PHOTO_SLOTS.length} photos captured
+                  {" · "}{REQUIRED_PHOTO_INDICES.filter(i => deliveryPhotos[i]?.key).length}/{REQUIRED_PHOTO_INDICES.length} required
                 </Text>
-                {allUploaded && (
-                  <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.success }}>✓ Complete</Text>
+                {requiredUploaded && (
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.success }}>✓ Ready</Text>
                 )}
               </View>
               <View style={{ height: 5, borderRadius: 3, backgroundColor: colors.border, overflow: "hidden" }}>
                 <View style={{
                   width: `${(uploadedCount / PHOTO_SLOTS.length) * 100}%` as any,
                   height: "100%",
-                  backgroundColor: allUploaded ? colors.success : colors.primary,
+                  backgroundColor: requiredUploaded ? colors.success : colors.primary,
                   borderRadius: 3,
                 }} />
               </View>
@@ -1297,74 +1302,89 @@ export default function ConfirmPodScreen() {
 
           {/* 2-column photo grid */}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {deliveryPhotos.map((photo, index) => (
-              <View
-                key={index}
-                style={{
-                  width: "47.5%",
-                  borderRadius: colors.radius,
-                  borderWidth: 1.5,
-                  borderColor: photo.key ? colors.success + "80" : photo.error ? colors.destructive + "60" : colors.border,
-                  backgroundColor: colors.card,
-                  overflow: "hidden",
-                }}
-              >
-                {/* Thumbnail or placeholder */}
-                {photo.uri ? (
-                  <View style={{ position: "relative" }}>
-                    <Image source={{ uri: photo.uri }} style={{ width: "100%", height: 120 }} resizeMode="cover" />
-                    {photo.key && (
-                      <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: colors.success, borderRadius: 12, padding: 4 }}>
-                        <Feather name="check" size={12} color="#fff" />
-                      </View>
-                    )}
-                    {photo.uploading && (
-                      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" }}>
-                        <ActivityIndicator color="#fff" size="small" />
-                        <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 4 }}>Uploading…</Text>
-                      </View>
-                    )}
-                  </View>
-                ) : (
-                  <View style={{ height: 120, alignItems: "center", justifyContent: "center", backgroundColor: colors.muted }}>
-                    <Feather name="image" size={28} color={colors.mutedForeground} />
-                  </View>
-                )}
-
-                {/* Label + button */}
-                <View style={{ padding: 8, gap: 6 }}>
-                  <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.foreground }} numberOfLines={1}>
-                    {index + 1}. {photo.label}
-                  </Text>
-                  {photo.error && (
-                    <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.destructive }} numberOfLines={2}>
-                      {photo.error}
-                    </Text>
+            {deliveryPhotos.map((photo, index) => {
+              const isRequired = REQUIRED_PHOTO_INDICES.includes(index);
+              return (
+                <View
+                  key={index}
+                  style={{
+                    width: "47.5%",
+                    borderRadius: colors.radius,
+                    borderWidth: 1.5,
+                    borderColor: photo.key ? colors.success + "80" : photo.error ? colors.destructive + "60" : isRequired ? colors.destructive + "40" : colors.border,
+                    backgroundColor: colors.card,
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Thumbnail or placeholder */}
+                  {photo.uri ? (
+                    <View style={{ position: "relative" }}>
+                      <Image source={{ uri: photo.uri }} style={{ width: "100%", height: 120 }} resizeMode="cover" />
+                      {photo.key && (
+                        <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: colors.success, borderRadius: 12, padding: 4 }}>
+                          <Feather name="check" size={12} color="#fff" />
+                        </View>
+                      )}
+                      {photo.uploading && (
+                        <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" }}>
+                          <ActivityIndicator color="#fff" size="small" />
+                          <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 4 }}>Uploading…</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{ height: 120, alignItems: "center", justifyContent: "center", backgroundColor: colors.muted }}>
+                      <Feather name="image" size={28} color={isRequired ? colors.destructive + "80" : colors.mutedForeground} />
+                    </View>
                   )}
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 4,
-                      paddingVertical: 7,
-                      borderRadius: colors.radius,
-                      backgroundColor: photo.key ? colors.success + "14" : colors.primary + "14",
-                      borderWidth: 1,
-                      borderColor: photo.key ? colors.success + "80" : colors.primary + "80",
-                    }}
-                    onPress={() => handleTakeDeliveryPhoto(index)}
-                    disabled={photo.uploading}
-                    activeOpacity={0.8}
-                  >
-                    <Feather name="camera" size={13} color={photo.key ? colors.success : colors.primary} />
-                    <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: photo.key ? colors.success : colors.primary }}>
-                      {photo.key ? "Retake" : photo.error ? "Retry" : "Take Photo"}
-                    </Text>
-                  </TouchableOpacity>
+
+                  {/* Label + badge + button */}
+                  <View style={{ padding: 8, gap: 6 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.foreground, flex: 1 }} numberOfLines={1}>
+                        {index + 1}. {photo.label}
+                      </Text>
+                      <View style={{
+                        paddingHorizontal: 5,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        backgroundColor: isRequired ? colors.destructive + "18" : colors.muted,
+                      }}>
+                        <Text style={{ fontSize: 9, fontFamily: "Inter_600SemiBold", color: isRequired ? colors.destructive : colors.mutedForeground }}>
+                          {isRequired ? "Required" : "Optional"}
+                        </Text>
+                      </View>
+                    </View>
+                    {photo.error && (
+                      <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.destructive }} numberOfLines={2}>
+                        {photo.error}
+                      </Text>
+                    )}
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
+                        paddingVertical: 7,
+                        borderRadius: colors.radius,
+                        backgroundColor: photo.key ? colors.success + "14" : colors.primary + "14",
+                        borderWidth: 1,
+                        borderColor: photo.key ? colors.success + "80" : colors.primary + "80",
+                      }}
+                      onPress={() => handleTakeDeliveryPhoto(index)}
+                      disabled={photo.uploading}
+                      activeOpacity={0.8}
+                    >
+                      <Feather name="camera" size={13} color={photo.key ? colors.success : colors.primary} />
+                      <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: photo.key ? colors.success : colors.primary }}>
+                        {photo.key ? "Retake" : photo.error ? "Retry" : "Take Photo"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           {/* Summary */}
@@ -1392,17 +1412,17 @@ export default function ConfirmPodScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.submitBtn, {
-                backgroundColor: allUploaded ? colors.primary : colors.muted,
+                backgroundColor: requiredUploaded ? colors.primary : colors.muted,
                 borderRadius: colors.radius,
                 opacity: (anyUploading || submitting) ? 0.7 : 1,
               }]}
               onPress={() => { setFacePhotoUri(null); setFaceResult(null); setFaceError(null); setStep("face"); }}
-              disabled={!allUploaded || anyUploading}
+              disabled={!requiredUploaded || anyUploading}
               activeOpacity={0.85}
             >
-              <Feather name="camera" size={18} color={allUploaded ? "#fff" : colors.mutedForeground} />
-              <Text style={[styles.submitBtnText, { color: allUploaded ? "#fff" : colors.mutedForeground }]}>
-                Next: Face ID
+              <Feather name="camera" size={18} color={requiredUploaded ? "#fff" : colors.mutedForeground} />
+              <Text style={[styles.submitBtnText, { color: requiredUploaded ? "#fff" : colors.mutedForeground }]}>
+                {allUploaded ? "Next: Face ID" : `Next: Face ID (${PHOTO_SLOTS.length - uploadedCount} optional left)`}
               </Text>
             </TouchableOpacity>
           </View>

@@ -114,14 +114,26 @@ export default function DashboardScreen() {
     enabled: !!token,
   });
 
-  const dispatchQ = useQuery({
-    queryKey: ["dispatches"],
+  const inTransitQ = useQuery({
+    queryKey: ["dispatches", "in-transit"],
     queryFn: () => listDispatches(token!, { status: "In Transit", limit: "3" }),
     enabled: !!token,
   });
+  const arrivedQ = useQuery({
+    queryKey: ["dispatches", "arrived"],
+    queryFn: () => listDispatches(token!, { status: "Arrived", limit: "3" }),
+    enabled: !!token,
+  });
 
-  const isLoading = podStatsQ.isLoading || dispatchQ.isLoading;
-  const refetch = () => { podStatsQ.refetch(); dispatchQ.refetch(); };
+  const dispatchQ = inTransitQ; // keep refetch reference for pull-to-refresh
+
+  const isLoading = podStatsQ.isLoading || inTransitQ.isLoading || arrivedQ.isLoading;
+  const refetch = () => { podStatsQ.refetch(); inTransitQ.refetch(); arrivedQ.refetch(); };
+
+  const activeDispatches = [
+    ...(inTransitQ.data?.data ?? []),
+    ...(arrivedQ.data?.data ?? []),
+  ].slice(0, 4);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -184,6 +196,39 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Record Delivery CTA */}
+      <TouchableOpacity
+        style={[styles.recordDeliveryCard, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
+        onPress={() => router.push("/(tabs)/scan")}
+        activeOpacity={0.87}
+      >
+        <View style={styles.recordDeliveryLeft}>
+          <Text style={styles.recordDeliveryTitle}>Record Delivery</Text>
+          <Text style={styles.recordDeliverySub}>Scan farmer · Capture GPS · Take photos · OTP verify</Text>
+          <View style={styles.recordDeliveryIcons}>
+            <View style={styles.recordDeliveryIconChip}>
+              <Feather name="user" size={12} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.recordDeliveryIconText}>Scan</Text>
+            </View>
+            <View style={styles.recordDeliveryIconChip}>
+              <Feather name="map-pin" size={12} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.recordDeliveryIconText}>GPS</Text>
+            </View>
+            <View style={styles.recordDeliveryIconChip}>
+              <Feather name="camera" size={12} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.recordDeliveryIconText}>Photos</Text>
+            </View>
+            <View style={styles.recordDeliveryIconChip}>
+              <Feather name="shield" size={12} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.recordDeliveryIconText}>OTP</Text>
+            </View>
+          </View>
+        </View>
+        <View style={styles.recordDeliveryArrow}>
+          <Feather name="arrow-right" size={20} color="#fff" />
+        </View>
+      </TouchableOpacity>
+
       {/* Active dispatches */}
       <View style={styles.section}>
         <View style={styles.sectionRow}>
@@ -192,34 +237,47 @@ export default function DashboardScreen() {
             <Text style={[styles.seeAll, { color: colors.primary }]}>See all</Text>
           </TouchableOpacity>
         </View>
-        {dispatchQ.isLoading ? (
+        {(inTransitQ.isLoading || arrivedQ.isLoading) ? (
           <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
-        ) : !dispatchQ.data?.data?.length ? (
+        ) : activeDispatches.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+            <Feather name="truck" size={20} color={colors.mutedForeground} style={{ opacity: 0.4, marginBottom: 6 }} />
             <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No active dispatches</Text>
+            <Text style={[styles.emptySubText, { color: colors.mutedForeground }]}>
+              Use the Distributions tab to see all manifests
+            </Text>
           </View>
         ) : (
-          dispatchQ.data.data.map((d) => (
-            <TouchableOpacity
-              key={d.id}
-              style={[styles.dispatchCard, { backgroundColor: colors.card, borderRadius: colors.radius, borderColor: colors.border }]}
-              onPress={() => router.push(`/distribution/${d.id}`)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.dispatchLeft}>
-                <Text style={[styles.manifestCode, { color: colors.primary }]}>{d.manifestCode}</Text>
-                <Text style={[styles.dispatchDest, { color: colors.mutedForeground }]}>
-                  {d.destinationCommunity ?? d.destinationDistrict ?? "—"}
-                </Text>
-              </View>
-              <View style={styles.dispatchRight}>
-                <View style={[styles.statusPill, { backgroundColor: colors.info + "18" }]}>
-                  <Text style={[styles.statusText, { color: colors.info }]}>{d.status}</Text>
+          activeDispatches.map((d) => {
+            const isArrived = d.status === "Arrived";
+            return (
+              <TouchableOpacity
+                key={d.id}
+                style={[styles.dispatchCard, { backgroundColor: colors.card, borderRadius: colors.radius, borderColor: isArrived ? colors.success + "60" : colors.border }]}
+                onPress={() => router.push(`/distribution/${d.id}`)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.dispatchLeft}>
+                  <Text style={[styles.manifestCode, { color: colors.primary }]}>{d.manifestCode}</Text>
+                  <Text style={[styles.dispatchDest, { color: colors.mutedForeground }]}>
+                    {d.destinationCommunity ?? d.destinationDistrict ?? "—"}
+                  </Text>
                 </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </View>
-            </TouchableOpacity>
-          ))
+                <View style={styles.dispatchRight}>
+                  <View style={[styles.statusPill, { backgroundColor: (isArrived ? colors.success : colors.info) + "18" }]}>
+                    <Text style={[styles.statusText, { color: isArrived ? colors.success : colors.info }]}>{d.status}</Text>
+                  </View>
+                  {isArrived && (
+                    <View style={[styles.recordChip, { backgroundColor: colors.success + "20" }]}>
+                      <Feather name="camera" size={11} color={colors.success} />
+                      <Text style={[styles.recordChipText, { color: colors.success }]}>Record</Text>
+                    </View>
+                  )}
+                  <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+                </View>
+              </TouchableOpacity>
+            );
+          })
         )}
       </View>
 
@@ -227,12 +285,12 @@ export default function DashboardScreen() {
       <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Quick Actions</Text>
       <View style={styles.actionsRow}>
         <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
+          style={[styles.actionBtn, { backgroundColor: colors.card, borderRadius: colors.radius, borderWidth: 1, borderColor: colors.border }]}
           onPress={() => router.push("/(tabs)/scan")}
           activeOpacity={0.85}
         >
-          <Feather name="camera" size={22} color="#fff" />
-          <Text style={styles.actionBtnText}>Scan Farmer</Text>
+          <Feather name="search" size={22} color={colors.primary} />
+          <Text style={[styles.actionBtnText, { color: colors.foreground }]}>Scan Farmer</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, { backgroundColor: colors.card, borderRadius: colors.radius, borderWidth: 1, borderColor: colors.border }]}
@@ -265,16 +323,28 @@ const styles = StyleSheet.create({
   syncBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1 },
   syncText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   section: { gap: 0 },
-  emptyCard: { padding: 20, alignItems: "center" },
+  emptyCard: { padding: 20, alignItems: "center", gap: 4 },
   emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  emptySubText: { fontSize: 12, fontFamily: "Inter_400Regular", opacity: 0.7, textAlign: "center" },
   dispatchCard: { flexDirection: "row", alignItems: "center", padding: 14, marginBottom: 8, borderWidth: 1, justifyContent: "space-between" },
-  dispatchLeft: { gap: 3 },
+  dispatchLeft: { gap: 3, flex: 1, marginRight: 8 },
   manifestCode: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   dispatchDest: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  dispatchRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  dispatchRight: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  recordChip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  recordChipText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   actionsRow: { flexDirection: "row", gap: 12 },
   actionBtn: { flex: 1, padding: 16, alignItems: "center", gap: 8 },
   actionBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#ffffff" },
+  // Record Delivery CTA
+  recordDeliveryCard: { flexDirection: "row", alignItems: "center", padding: 18, gap: 12 },
+  recordDeliveryLeft: { flex: 1, gap: 6 },
+  recordDeliveryTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#fff" },
+  recordDeliverySub: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.8)", lineHeight: 17 },
+  recordDeliveryIcons: { flexDirection: "row", gap: 6, marginTop: 2 },
+  recordDeliveryIconChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.18)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  recordDeliveryIconText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.95)" },
+  recordDeliveryArrow: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
 });

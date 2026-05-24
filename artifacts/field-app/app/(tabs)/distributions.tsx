@@ -26,10 +26,20 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
   const district = item.destinationDistrict ?? null;
   const community = item.destinationCommunity ?? null;
   const fallbackLabel = !district ? (item.campaignName ?? null) : null;
+  const canRecord = item.status === "In Transit" || item.status === "Arrived";
+  const accentColor = item.status === "Arrived" ? colors.success : colors.info;
 
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: colors.card, borderRadius: colors.radius, borderColor: colors.border }]}
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          borderRadius: colors.radius,
+          borderColor: canRecord ? accentColor + "50" : colors.border,
+          borderWidth: canRecord ? 1.5 : 1,
+        },
+      ]}
       onPress={onPress}
       activeOpacity={0.8}
     >
@@ -62,7 +72,15 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
             </View>
           ) : null}
         </View>
-        <StatusBadge status={item.status} />
+        <View style={{ alignItems: "flex-end", gap: 6 }}>
+          <StatusBadge status={item.status} />
+          {canRecord && (
+            <View style={[styles.recordChip, { backgroundColor: accentColor + "18", borderColor: accentColor + "50" }]}>
+              <Feather name="camera" size={10} color={accentColor} />
+              <Text style={[styles.recordChipText, { color: accentColor }]}>Record Delivery</Text>
+            </View>
+          )}
+        </View>
       </View>
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
       <View style={styles.cardBottom}>
@@ -80,7 +98,14 @@ function DispatchCard({ item, onPress }: { item: Dispatch; onPress: () => void }
             </Text>
           </View>
         )}
-        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+        {canRecord ? (
+          <View style={[styles.tapHint, { backgroundColor: accentColor + "12" }]}>
+            <Feather name="arrow-right" size={13} color={accentColor} />
+            <Text style={[styles.tapHintText, { color: accentColor }]}>Tap to record</Text>
+          </View>
+        ) : (
+          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -102,7 +127,7 @@ export default function DistributionsScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  const statusOptions = ["all", "Approved", "In Transit", "Delivered"];
+  const statusOptions = ["all", "Approved", "In Transit", "Arrived", "Delivered"];
 
   const filtered = (data?.data ?? []).filter((d) => {
     const matchSearch =
@@ -190,7 +215,7 @@ const styles = StyleSheet.create({
   filterPill: { paddingHorizontal: 14, paddingVertical: 6 },
   filterText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   list: { padding: 16, gap: 10 },
-  card: { padding: 14, borderWidth: 1, marginBottom: 8 },
+  card: { padding: 14, marginBottom: 8 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 },
   manifest: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   districtBadgeRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
@@ -204,4 +229,8 @@ const styles = StyleSheet.create({
   cardBottom: { flexDirection: "row", alignItems: "center", gap: 14 },
   meta: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1 },
   metaText: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  recordChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  recordChipText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  tapHint: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  tapHintText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 });
