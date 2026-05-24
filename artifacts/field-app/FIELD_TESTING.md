@@ -105,3 +105,4 @@ Complete this checklist on at least one real Android device before signing off o
 |------|----------|--------|-------|
 | 2026-05-13 | `98bd4d93-07ff-495a-8456-69409c204b18` | ERRORED | EAS platform outage (high Android error rate) |
 | 2026-05-13 | `b3b10169-181f-41fd-9550-eb78d6545001` | FINISHED | Replacement build — current release |
+| 2026-05-24 | — | BLOCKED | Free plan monthly Android build quota exhausted; resets 2026-06-01. Project re-linked to `medbangz` account (ID: 38af30b8-d718-443c-8d26-5e527ea4049c). Fixed `app.json` owner typo `medbangs` → `medbangz`. Bundle uploaded OK (57.3 MB). |
