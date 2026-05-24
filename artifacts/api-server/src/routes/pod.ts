@@ -233,6 +233,22 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     res.status(500).json({ error: pgErr.message }); return;
   }
 
+  // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
+  if (body.farmer_id && campaignId) {
+    const { data: dupCheck } = await supa
+      .from("pod")
+      .select("id")
+      .eq("farmer_id", body.farmer_id)
+      .eq("campaign_id", campaignId)
+      .in("status", ["Verified", "Pending"])
+      .neq("id", podRow.id as number)
+      .limit(1);
+    if (dupCheck && dupCheck.length > 0) {
+      await pool.query("UPDATE pod SET duplicate_flag = true WHERE id = $1", [podRow.id]);
+      podRow = { ...podRow, duplicate_flag: true };
+    }
+  }
+
   // Update farmer's group_size if field officer adjusted it
   const actualGroupSizeVal = (req.body as any).actualGroupSize;
   if (actualGroupSizeVal && body.farmer_id) {
@@ -351,11 +367,29 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
 
     const { data: pod, error: podErr } = await supa
       .from("pod")
-      .select("farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered")
+      .select("farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered, duplicate_flag")
       .eq("id", podId)
       .single();
     if (podErr || !pod) { res.status(404).json({ error: "PoD not found" }); return; }
-    const { farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered } = pod as any;
+    const { farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered, duplicate_flag } = pod as any;
+
+    // Block approval if duplicate detected — unless supervisor forces through
+    if (duplicate_flag && !(req.body as any)?.forceApprove) {
+      const { data: existingPods } = await supa
+        .from("pod")
+        .select("id, pod_code, submitted_at, status")
+        .eq("farmer_id", farmer_id)
+        .eq("campaign_id", campaign_id)
+        .eq("status", "Verified")
+        .neq("id", podId)
+        .limit(1);
+      res.status(409).json({
+        error: "Duplicate delivery detected — this farmer has already received inputs in this campaign.",
+        duplicate: true,
+        existingPod: existingPods?.[0] ?? null,
+      });
+      return;
+    }
 
     const { error: updateErr } = await supa
       .from("pod")

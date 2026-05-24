@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
   ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet, ImageIcon,
-  Microscope, Leaf, Loader2, XCircle, Truck,
+  Microscope, Leaf, Loader2, XCircle, Truck, AlertTriangle,
 } from "lucide-react";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
@@ -287,6 +287,19 @@ function PodDetailBody({
 
   return (
     <div className="space-y-5">
+      {/* ── Duplicate Delivery Warning ─────────────────────────────── */}
+      {pod.duplicateFlag && (
+        <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-700 px-4 py-3">
+          <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">Duplicate Delivery Detected</p>
+            <p className="text-xs text-orange-700 dark:text-orange-400 mt-0.5">
+              This farmer already has a PoD on record for this campaign. Supervisor approval is required to override.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Face Analysis ──────────────────────────────────────────── */}
       <div>
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -437,6 +450,8 @@ function ReviewQueue() {
   const [selectedPod, setSelectedPod] = useState<any>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  const [duplicateDialogPodId, setDuplicateDialogPodId] = useState<number | null>(null);
+  const [duplicateExistingPod, setDuplicateExistingPod] = useState<any>(null);
   const limit = 25;
 
   const { data: podData, isLoading } = useQuery({
@@ -466,12 +481,31 @@ function ReviewQueue() {
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => approvePod(id),
-    onSuccess: async () => {
+    onSuccess: async (result, id) => {
+      if (result.duplicate) {
+        setDuplicateDialogPodId(id);
+        setDuplicateExistingPod(result.existingPod ?? null);
+        return;
+      }
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
       await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
       setSelectedPod(null);
     },
+  });
+
+  const forceApproveMutation = useMutation({
+    mutationFn: (id: number) => approvePod(id, true),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.pod() });
+      await qc.invalidateQueries({ queryKey: KEYS.podStats() });
+      await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
+      setDuplicateDialogPodId(null);
+      setDuplicateExistingPod(null);
+      setSelectedPod(null);
+      toast({ title: "Duplicate delivery approved — supervisor override recorded" });
+    },
+    onError: (err: any) => toast({ title: "Override failed", description: err.message, variant: "destructive" }),
   });
 
   const flagMutation = useMutation({
@@ -606,6 +640,11 @@ function ReviewQueue() {
                         <TableCell>
                           <p className="text-sm font-medium leading-tight">{pod.farmerName ?? "—"}</p>
                           <p className="text-xs text-muted-foreground font-mono">{pod.farmerCode}</p>
+                          {pod.duplicateFlag && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400 px-1.5 py-0.5 rounded mt-0.5">
+                              <AlertTriangle className="h-2.5 w-2.5" />Duplicate
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <OtpPill status={pod.otpStatus} />
@@ -695,6 +734,44 @@ function ReviewQueue() {
               onOverride={() => { setOverrideOpen(true); setOverrideReason(""); }}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Delivery Confirmation Dialog */}
+      <Dialog open={duplicateDialogPodId != null} onOpenChange={(v) => { if (!v) { setDuplicateDialogPodId(null); setDuplicateExistingPod(null); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              Duplicate Delivery Detected
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This farmer already has a verified Proof of Delivery on record for this campaign.
+              {duplicateExistingPod && (
+                <span className="block mt-1 font-mono text-xs text-foreground">
+                  Existing PoD: {duplicateExistingPod.pod_code ?? `#${duplicateExistingPod.id}`}
+                  {duplicateExistingPod.submitted_at && ` — ${new Date(duplicateExistingPod.submitted_at).toLocaleDateString("en-GB")}`}
+                </span>
+              )}
+            </p>
+            <p className="text-sm font-medium text-orange-800 dark:text-orange-400">
+              Approving this PoD will be recorded as a supervisor override and flagged for audit review.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => { setDuplicateDialogPodId(null); setDuplicateExistingPod(null); }}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+                disabled={forceApproveMutation.isPending}
+                onClick={() => duplicateDialogPodId != null && forceApproveMutation.mutate(duplicateDialogPodId)}
+              >
+                {forceApproveMutation.isPending ? "Approving…" : "Approve Anyway"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -2108,16 +2108,22 @@ async function podToken(): Promise<string> {
   return session.access_token;
 }
 
-export async function approvePod(id: number): Promise<void> {
+export async function approvePod(id: number, forceApprove = false): Promise<{ duplicate?: boolean; existingPod?: any }> {
   const token = await podToken();
   const resp = await fetch(`/api/pod/${id}/approve`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ forceApprove }),
   });
+  if (resp.status === 409) {
+    const data = await resp.json().catch(() => ({}));
+    if ((data as any).duplicate) return { duplicate: true, existingPod: (data as any).existingPod };
+  }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error((err as any).error ?? "Failed to approve PoD");
   }
+  return {};
 }
 
 export async function flagPodException(id: number, notes?: string): Promise<void> {
