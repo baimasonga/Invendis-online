@@ -139,18 +139,77 @@ function SimilarityMeter({ similarity }: { similarity?: number | null }) {
 
 const EVIDENCE_LABELS = ["Inputs Only", "Inputs + Beneficiary", "Farmer Receiving", "Community / Group", "Additional Evidence"];
 
+function EvidencePhotoCard({ photoKey, label }: { photoKey: string; label: string }) {
+  const [analysing, setAnalysing] = useState(false);
+  const [result, setResult] = useState<{
+    hasAgriContent: boolean;
+    topAgriLabels: string[];
+    confidence: number | null;
+    labels: { name: string; confidence: number; isAgri: boolean }[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  async function handleAnalyse() {
+    setAnalysing(true); setError(null);
+    try {
+      const r = await analysePhotoLabels(photoKey);
+      setResult(r);
+    } catch (err: any) {
+      setError(err.message);
+      toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+    } finally { setAnalysing(false); }
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] font-medium text-muted-foreground text-center leading-tight">{label}</p>
+      <div className="rounded-md overflow-hidden border">
+        <PodDetailPhoto photoKey={photoKey} />
+      </div>
+      {result ? (
+        <div className={`rounded-md p-1.5 text-[9px] space-y-1 ${result.hasAgriContent ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"}`}>
+          <div className="flex items-center gap-1">
+            {result.hasAgriContent
+              ? <Leaf className="h-2.5 w-2.5 text-emerald-600 shrink-0" />
+              : <AlertCircle className="h-2.5 w-2.5 text-amber-600 shrink-0" />}
+            <span className={`font-semibold ${result.hasAgriContent ? "text-emerald-700" : "text-amber-700"}`}>
+              {result.hasAgriContent ? "Agri content confirmed" : "No agri content"}
+            </span>
+          </div>
+          {result.topAgriLabels.length > 0 && (
+            <p className="text-muted-foreground leading-tight">{result.topAgriLabels.join(" · ")}</p>
+          )}
+          {result.confidence != null && (
+            <p className="text-muted-foreground">{result.confidence.toFixed(0)}% confidence</p>
+          )}
+          {!result.hasAgriContent && result.labels.slice(0, 3).length > 0 && (
+            <p className="text-muted-foreground">Detected: {result.labels.slice(0, 3).map(l => l.name).join(", ")}</p>
+          )}
+        </div>
+      ) : error ? (
+        <p className="text-[9px] text-red-600 text-center">{error}</p>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-6 text-[10px] gap-1"
+          disabled={analysing}
+          onClick={handleAnalyse}
+        >
+          {analysing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Microscope className="h-2.5 w-2.5" />}
+          {analysing ? "Analysing…" : "Analyse"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function EvidencePhotoGrid({ photoKeys }: { photoKeys: string[] }) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {photoKeys.map((key, i) => (
-        <div key={key} className="space-y-1">
-          <p className="text-[9px] font-medium text-muted-foreground text-center leading-tight">
-            {EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`}
-          </p>
-          <div className="rounded-md overflow-hidden border">
-            <PodDetailPhoto photoKey={key} />
-          </div>
-        </div>
+        <EvidencePhotoCard key={key} photoKey={key} label={EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`} />
       ))}
     </div>
   );

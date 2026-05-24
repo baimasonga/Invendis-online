@@ -64,7 +64,7 @@ router.post("/api/face/analyse-labels", requireAnyAuth, async (req, res) => {
   if (!s3Key) { res.status(400).json({ error: "s3Key is required" }); return; }
   try {
     const result = await detectLabels(s3Key);
-    await logAudit(req, "ANALYSE", "PoD", `Label analysis on photo: ${s3Key} — agri=${result.hasAgriContent}`, "pod", null);
+    await logAudit(req, "ANALYSE", "PoD", `Label analysis on photo: ${s3Key} — agri=${result.hasAgriContent}`, "pod", undefined);
     res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -77,7 +77,7 @@ router.post("/api/face/analyse-farmer", requireAnyAuth, async (req, res) => {
   if (!s3Key) { res.status(400).json({ error: "s3Key is required" }); return; }
   try {
     const result = await detectFaces(s3Key);
-    await logAudit(req, "ANALYSE", "Farmers", `Face attribute analysis for farmer ${farmerId ?? "unknown"}: ${result.faceCount} face(s) detected`, "farmer", farmerId ?? null);
+    await logAudit(req, "ANALYSE", "Farmers", `Face attribute analysis for farmer ${farmerId ?? "unknown"}: ${result.faceCount} face(s) detected`, "farmer", farmerId ?? undefined);
     res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -43,6 +43,15 @@ export default function FarmerDetail() {
   const [rejectOpen, setRejectOpen]   = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [faceAnalysing, setFaceAnalysing] = useState(false);
+  const [faceAnalysis, setFaceAnalysis] = useState<{
+    ageRangeLow: number | null; ageRangeHigh: number | null;
+    gender: string | null; genderConfidence: number | null;
+    smile: boolean | null; eyesOpen: boolean | null;
+    primaryEmotion: string | null; primaryEmotionConfidence: number | null;
+    faceQuality: number | null; brightness: number | null; sharpness: number | null;
+    faceCount: number;
+  } | null>(null);
 
   const { data: farmer, isLoading } = useQuery({
     queryKey: KEYS.farmer(id),
@@ -87,6 +96,22 @@ export default function FarmerDetail() {
     } catch (err: any) {
       toast({ title: "Rejection failed", description: err.message, variant: "destructive" });
     } finally { setActionLoading(false); setRejectOpen(false); }
+  }
+
+  async function handleAnalyseFace() {
+    if (!photoKey) return;
+    setFaceAnalysing(true);
+    try {
+      const result = await analyseFarmerFace(photoKey, id);
+      setFaceAnalysis(result);
+      if (result.faceCount === 0) {
+        toast({ title: "No face detected", description: "The photo does not contain a detectable face.", variant: "destructive" });
+      } else {
+        toast({ title: "Analysis complete", description: `${result.faceCount} face(s) detected.` });
+      }
+    } catch (err: any) {
+      toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+    } finally { setFaceAnalysing(false); }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -290,18 +315,119 @@ export default function FarmerDetail() {
                   className="hidden"
                   onChange={handleFileUpload}
                 />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs w-full"
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading
-                    ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Uploading…</>
-                    : <><Upload className="h-3 w-3 mr-1.5" /> {photoSrc ? "Replace Photo" : "Upload Photo"}</>
-                  }
-                </Button>
+                <div className="flex gap-1.5 w-full">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs flex-1"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploading
+                      ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading…</>
+                      : <><Upload className="h-3 w-3 mr-1" /> {photoSrc ? "Replace" : "Upload"}</>
+                    }
+                  </Button>
+                  {photoSrc && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs flex-1"
+                      disabled={faceAnalysing}
+                      onClick={() => { setFaceAnalysis(null); handleAnalyseFace(); }}
+                    >
+                      {faceAnalysing
+                        ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Analysing…</>
+                        : <><ScanFace className="h-3 w-3 mr-1" /> Analyse</>
+                      }
+                    </Button>
+                  )}
+                </div>
+
+                {/* Face analysis results panel */}
+                {faceAnalysis && faceAnalysis.faceCount === 0 && (
+                  <div className="w-full rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-3 py-2 text-center">
+                    <AlertTriangle className="h-4 w-4 text-red-500 mx-auto mb-1" />
+                    <p className="text-xs text-red-700 font-medium">No face detected</p>
+                    <p className="text-[10px] text-red-600 mt-0.5">Photo may be too blurry, dark, or not contain a face</p>
+                  </div>
+                )}
+                {faceAnalysis && faceAnalysis.faceCount > 0 && (
+                  <div className="w-full rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                      <ScanFace className="h-3 w-3" /> Face Analysis
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                      {faceAnalysis.ageRangeLow != null && faceAnalysis.ageRangeHigh != null && (
+                        <div className="flex items-center gap-1.5 col-span-2">
+                          <User className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Age range:</span>
+                          <span className="font-medium">{faceAnalysis.ageRangeLow}–{faceAnalysis.ageRangeHigh} yrs</span>
+                        </div>
+                      )}
+                      {faceAnalysis.gender && (
+                        <div className="flex items-center gap-1.5">
+                          <User className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Gender:</span>
+                          <span className="font-medium">{faceAnalysis.gender}
+                            {faceAnalysis.genderConfidence != null && <span className="text-muted-foreground font-normal"> ({faceAnalysis.genderConfidence.toFixed(0)}%)</span>}
+                          </span>
+                        </div>
+                      )}
+                      {faceAnalysis.primaryEmotion && (
+                        <div className="flex items-center gap-1.5">
+                          <Smile className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Emotion:</span>
+                          <span className="font-medium capitalize">{faceAnalysis.primaryEmotion.toLowerCase()}
+                            {faceAnalysis.primaryEmotionConfidence != null && <span className="text-muted-foreground font-normal"> ({faceAnalysis.primaryEmotionConfidence.toFixed(0)}%)</span>}
+                          </span>
+                        </div>
+                      )}
+                      {faceAnalysis.eyesOpen != null && (
+                        <div className="flex items-center gap-1.5">
+                          <Eye className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Eyes:</span>
+                          <span className={`font-medium ${faceAnalysis.eyesOpen ? "text-emerald-700" : "text-amber-600"}`}>
+                            {faceAnalysis.eyesOpen ? "Open" : "Closed"}
+                          </span>
+                        </div>
+                      )}
+                      {faceAnalysis.smile != null && (
+                        <div className="flex items-center gap-1.5">
+                          <Star className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Smile:</span>
+                          <span className="font-medium">{faceAnalysis.smile ? "Yes" : "No"}</span>
+                        </div>
+                      )}
+                    </div>
+                    {/* Photo quality bar */}
+                    {faceAnalysis.faceQuality != null && (
+                      <div className="space-y-1 pt-1 border-t">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-1"><Zap className="h-2.5 w-2.5" />Photo quality</span>
+                          <span className={`text-[10px] font-bold ${faceAnalysis.faceQuality >= 70 ? "text-emerald-700" : faceAnalysis.faceQuality >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                            {faceAnalysis.faceQuality.toFixed(0)} / 100
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${faceAnalysis.faceQuality >= 70 ? "bg-emerald-500" : faceAnalysis.faceQuality >= 40 ? "bg-amber-400" : "bg-red-500"}`}
+                            style={{ width: `${faceAnalysis.faceQuality}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[9px] text-muted-foreground">
+                          <span>Brightness {faceAnalysis.brightness?.toFixed(0) ?? "—"}</span>
+                          <span>Sharpness {faceAnalysis.sharpness?.toFixed(0) ?? "—"}</span>
+                        </div>
+                      </div>
+                    )}
+                    {f.beneficiaryType !== "group" && (
+                      <p className="text-[9px] text-muted-foreground pt-0.5 border-t leading-tight">
+                        Analysis via AWS Rekognition — for verification purposes only. Results may not be 100% accurate.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
