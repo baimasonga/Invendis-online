@@ -50,36 +50,28 @@ async function sendSms(to: string, text: string): Promise<void> {
 }
 
 async function sendWhatsApp(to: string, text: string): Promise<void> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+  const username = process.env.EASYSENDSMS_USERNAME;
+  const password = process.env.EASYSENDSMS_PASSWORD;
+  const sender   = process.env.EASYSENDSMS_SENDER ?? "AVDP PoD";
 
-  if (!accountSid || !authToken || !fromNumber) {
-    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
+  if (!username || !password) {
+    throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
   }
 
-  const e164 = "+" + normalisePhone(to);
-  const formBody = new URLSearchParams({
-    From: `whatsapp:${fromNumber}`,
-    To:   `whatsapp:${e164}`,
-    Body: text,
+  const params = new URLSearchParams({
+    username,
+    password,
+    to:   normalisePhone(to),
+    from: sender,
+    text,
+    type: "text",
   });
 
-  const resp = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: formBody.toString(),
-    }
-  );
+  const resp = await fetch(`https://api.easysendsms.app/whatsapp?${params}`, { method: "GET" });
+  const body = (await resp.text()).trim();
 
-  if (!resp.ok) {
-    const errBody = await resp.json().catch(() => ({})) as any;
-    throw new Error(`Twilio WhatsApp error ${resp.status}: ${errBody.message ?? resp.statusText}`);
+  if (!body.toUpperCase().startsWith("OK:")) {
+    throw new Error(`EasySendSMS WhatsApp error: ${body}`);
   }
 }
 
