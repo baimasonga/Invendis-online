@@ -687,41 +687,32 @@ router.post(
       const firstName    = nameParts[0] ?? "";
       const lastName     = nameParts.slice(1).join(" ") || "";
 
-      // Compute next safe farmer ID (sequence may be behind max after seed imports)
-      const { data: maxFarmerRow } = await supa
-        .from("farmers")
-        .select("id")
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const nextFarmerId = ((maxFarmerRow as any)?.id ?? 0) + 1;
+      // Use direct pg pool to bypass PostgREST schema cache (avoids "column not found" errors)
+      // Compute next safe ID — PG sequence may be behind max after seed imports
+      const maxIdRes = await pool.query<{ id: number }>("SELECT MAX(id) AS id FROM farmers");
+      const nextFarmerId = (maxIdRes.rows[0]?.id ?? 0) + 1;
 
-      const { data: newFarmer, error: farmerErr } = await supa
-        .from("farmers")
-        .insert({
-          id:              nextFarmerId,
-          farmer_group:    row.community.trim(),
-          beneficiary_type: "group",
-          first_name:      firstName,
-          last_name:       lastName,
-          district_id:     districtId,
-          chiefdom_id:     chiefdomId,
-          phone:           phone,
-          farmer_code:     farmerCode,
-          barcode_token:   barcodeToken,
-          status:          "pending",
-          registered_by:   createdBy,
-          notes:           "Auto-registered from dispatch import — complete profile via Farmer Registry",
-        })
-        .select()
-        .single();
-
-      if (farmerErr || !newFarmer) {
-        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${farmerErr?.message}` });
+      let farmerId: number;
+      try {
+        const insertRes = await pool.query<{ id: number }>(
+          `INSERT INTO farmers
+             (id, farmer_group, beneficiary_type, first_name, last_name,
+              district_id, chiefdom_id, phone, farmer_code, barcode_token,
+              status, registered_by, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           RETURNING id`,
+          [
+            nextFarmerId, row.community.trim(), "group", firstName, lastName,
+            districtId ?? null, chiefdomId ?? null, phone ?? null,
+            farmerCode, barcodeToken, "pending", createdBy ?? null,
+            "Auto-registered from dispatch import — complete profile via Farmer Registry",
+          ]
+        );
+        farmerId = insertRes.rows[0].id;
+      } catch (pgErr: any) {
+        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${pgErr.message}` });
         return;
       }
-
-      const farmerId = (newFarmer as any).id;
       farmerIds.push(farmerId);
       newFarmerCount++;
       communities.push({ community: row.community.trim(), district: row.district.trim(), farmerCode, barcodeToken });
