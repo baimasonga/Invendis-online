@@ -65,10 +65,10 @@ export default function Dispatch() {
   }, [manifestSearch]);
 
   const limit = 20;
-  const officerIdStr = officerFilter !== "all" ? officerFilter : undefined;
+  const officerIdNum = officerFilter !== "all" ? Number(officerFilter) : undefined;
   const { data: dispatchData, isLoading } = useQuery({
-    queryKey: KEYS.dispatches(page, officerIdStr, statusFilter, debouncedManifestSearch),
-    queryFn: () => listDispatches(page, limit, officerIdStr, statusFilter, debouncedManifestSearch),
+    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter, debouncedManifestSearch),
+    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter, debouncedManifestSearch),
   });
 
   const { data: officersList = [] } = useQuery({

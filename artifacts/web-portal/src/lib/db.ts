@@ -90,7 +90,7 @@ export const KEYS = {
   vehicles:      () => ["vehicles"],
   gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
-  dispatches:    (page?: number, fieldOfficerId?: string, status?: string, manifestCode?: string) => ["dispatches", page, fieldOfficerId, status, manifestCode],
+  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string) => ["dispatches", page, fieldOfficerId, status, manifestCode],
   dispatch:      (id: number) => ["dispatch", id],
   pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
   podStats:      () => ["pod-stats"],
@@ -794,10 +794,10 @@ async function dispatchToken(): Promise<string> {
   return session.access_token;
 }
 
-export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: string, status?: string, manifestCode?: string) {
+export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number, status?: string, manifestCode?: string) {
   const token = await dispatchToken();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-  if (fieldOfficerId) params.set("fieldOfficerId", fieldOfficerId);
+  if (fieldOfficerId) params.set("fieldOfficerId", String(fieldOfficerId));
   if (status && status !== "all") params.set("status", status);
   if (manifestCode && manifestCode.trim()) params.set("manifestCode", manifestCode.trim());
   const resp = await fetch(`/api/dispatch?${params}`, {
@@ -908,16 +908,16 @@ export async function deleteDispatch(id: number) {
 
 export async function listFieldOfficers() {
   const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, district_id")
-    .in("role", ["FieldOfficer", "field_officer"])
-    .eq("is_active", 1)
+    .from("users")
+    .select("id, full_name, email, district_id")
+    .eq("role", "FieldOfficer")
+    .eq("is_active", true)
     .order("full_name");
   if (error) throw new Error(error.message);
   return cc(data ?? []);
 }
 
-export async function assignDispatchOfficer(id: number, fieldOfficerId: string | null) {
+export async function assignDispatchOfficer(id: number, fieldOfficerId: number | null) {
   const token = await dispatchToken();
   const resp = await fetch(`/api/dispatch/${id}/assign`, {
     method: "PATCH",
