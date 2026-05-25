@@ -5,11 +5,13 @@ description: How to trigger EAS Android APK builds from within Replit for the fi
 
 ## Account & project
 
-- Expo account: `medbangz` (corrected — earlier memory had `medbangs` which was wrong)
-- EAS project ID: `38af30b8-d718-443c-8d26-5e527ea4049c`
+- Expo account: `amadu-bangura` (GitHub repo linked to this account on expo.dev)
+- EAS project ID: `1aab4d73-31bd-4726-8566-ef26af36b6d8` — must match `extra.eas.projectId` in app.json
 - Android package: `com.medbangz.fieldapp`
-- app.json must have `"owner": "medbangz"` and `"extra.eas.projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"`
-- EXPO_TOKEN secret holds the `medbangz` personal access token
+- app.json must have `"owner": "medbangs"` and `"extra.eas.projectId": "1aab4d73-31bd-4726-8566-ef26af36b6d8"`
+- EXPO_TOKEN secret holds the personal access token for EAS CLI
+
+**Why the projectId matters:** EAS CLI reads `extra.eas.projectId` from app.json and rejects the build immediately at "Read app config" if it doesn't match the project linked in the Expo account. Always verify this matches the project ID shown on expo.dev for the linked project.
 
 ## Git shim (required)
 
@@ -50,9 +52,6 @@ cd artifacts/field-app && \
 
 `eas.json` preview profile: `distribution: internal`, `android.buildType: apk`, env `EXPO_PUBLIC_DOMAIN: invendisapp.com`.
 
-## History
+## Local branch divergence warning
 
-| Date | Build ID | Status |
-|------|----------|--------|
-| 2026-05-13 | `b3b10169-181f-41fd-9550-eb78d6545001` | FINISHED |
-| 2026-05-24 | `96313f0b-ec40-4f35-a778-1fe06449136f` | IN PROGRESS |
+The Replit local `main` branch can diverge from `github/main` when multiple agent tasks push directly to GitHub. Before pushing any change, check `git log --oneline github/main -5` vs `git log --oneline -5`. If diverged, reset local to `github/main` first, re-apply the change, then push.
