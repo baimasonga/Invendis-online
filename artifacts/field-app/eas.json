@@ -1,7 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.0.0",
-    "appVersionSource": "local"
+    "version": ">= 18.11.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -12,17 +12,12 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_DOMAIN": "invendisapp.com"
       }
     },
     "production": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
-      },
-      "env": {
-        "EXPO_PUBLIC_DOMAIN": "invendisapp.com"
       }
     }
   },

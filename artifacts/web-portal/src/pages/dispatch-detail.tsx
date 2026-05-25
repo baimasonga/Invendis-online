@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, removeDispatchItem, cancelDispatch, assignDispatchOfficer, listFieldOfficers, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,24 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
-  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Trash2, XCircle, UserCheck,
+  CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
 } from "lucide-react";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 import { StatusBadge } from "@/components/StatusBadge";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
-  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { usePermissions } from "@/hooks/use-permissions";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -57,11 +46,6 @@ export default function DispatchDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
-  const [deleteItemTarget, setDeleteItemTarget] = useState<any>(null);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState("");
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [assignOfficerId, setAssignOfficerId] = useState("");
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -74,16 +58,9 @@ export default function DispatchDetail() {
     enabled: !!id,
   });
 
-  const can = usePermissions();
-  const approveMutation    = useMutation({ mutationFn: () => approveDispatch(id) });
-  const dispatchMutation   = useMutation({ mutationFn: () => dispatchManifest(id) });
-  const arriveMutation     = useMutation({ mutationFn: () => arriveDispatch(id) });
-  const removeItemMutation = useMutation({ mutationFn: (itemId: number) => removeDispatchItem(id, itemId) });
-  const cancelMutation     = useMutation({ mutationFn: (reason: string) => cancelDispatch(id, reason) });
-  const assignMutation     = useMutation({ mutationFn: (officerId: number | null) => assignDispatchOfficer(id, officerId) });
-
-  const { data: officersList } = useQuery({ queryKey: KEYS.fieldOfficers(), queryFn: listFieldOfficers, enabled: assignOpen });
-  const officers: any[] = Array.isArray(officersList) ? officersList : [];
+  const approveMutation  = useMutation({ mutationFn: () => approveDispatch(id) });
+  const dispatchMutation = useMutation({ mutationFn: () => dispatchManifest(id) });
+  const arriveMutation   = useMutation({ mutationFn: () => arriveDispatch(id) });
 
   async function invalidate() {
     await Promise.all([
@@ -125,27 +102,113 @@ export default function DispatchDetail() {
     } finally { setActionLoading(false); }
   }
 
-  async function handleRemoveItem() {
-    if (!deleteItemTarget) return;
-    try {
-      await removeItemMutation.mutateAsync(deleteItemTarget.id);
-      await invalidate();
-      toast({ title: "Item removed from manifest" });
-    } catch (err: any) {
-      toast({ title: "Failed to remove item", description: err.message, variant: "destructive" });
-    } finally { setDeleteItemTarget(null); }
-  }
+  function handlePrintManifest() {
+    if (!dispatch) return;
+    const d = dispatch as any;
+    const items: any[] = d.items ?? [];
+    const win = window.open("", "_blank", "width=800,height=700");
+    if (!win) return;
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Manifest — ${d.manifestCode}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: system-ui, sans-serif; padding: 32px; color: #111; font-size: 13px; }
+          h1 { font-size: 20px; font-weight: 700; }
+          h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 8px; margin-top: 24px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #16a34a; padding-bottom: 16px; margin-bottom: 8px; }
+          .header-left h1 { color: #15803d; }
+          .header-left p { color: #6b7280; font-size: 11px; margin-top: 4px; }
+          .header-right { text-align: right; }
+          .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #dbeafe; color: #1d4ed8; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 8px; }
+          .field label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
+          .field p { font-size: 13px; font-weight: 600; margin-top: 2px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+          th { text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+          td { padding: 8px 10px; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+          tr:last-child td { border-bottom: none; }
+          .summary { margin-top: 24px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; background: #f9fafb; }
+          .summary-row { display: flex; justify-content: space-between; padding: 4px 0; }
+          .summary-row.total { font-weight: 700; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 4px; }
+          .footer { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+          .sig-line { border-top: 1px solid #9ca3af; margin-top: 48px; padding-top: 4px; font-size: 11px; color: #6b7280; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <h1>INVENDIS — AGRI-POD</h1>
+            <p>Dispatch Manifest</p>
+          </div>
+          <div class="header-right">
+            <p style="font-size:18px;font-weight:700;font-family:monospace">${d.manifestCode}</p>
+            <span class="badge">${d.status ?? "—"}</span>
+            <p style="font-size:11px;color:#6b7280;margin-top:6px">Printed: ${new Date().toLocaleString("en-GB")}</p>
+          </div>
+        </div>
 
-  async function handleCancel() {
-    try {
-      await cancelMutation.mutateAsync(cancelReason);
-      await invalidate();
-      toast({ title: "Manifest cancelled" });
-      setCancelOpen(false);
-      setCancelReason("");
-    } catch (err: any) {
-      toast({ title: "Failed to cancel", description: err.message, variant: "destructive" });
-    }
+        <h2>Dispatch Details</h2>
+        <div class="grid">
+          <div class="field"><label>Campaign</label><p>${d.campaignName ?? "—"}</p></div>
+          <div class="field"><label>Warehouse</label><p>${d.warehouseName ?? "—"}</p></div>
+          <div class="field"><label>Vehicle</label><p>${d.plateNumber ?? (d.isHired ? "Hired" : "—")}</p></div>
+          <div class="field"><label>Driver</label><p>${d.driverName ?? "—"}</p></div>
+          <div class="field"><label>Scheduled Date</label><p>${d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"}</p></div>
+          <div class="field"><label>Departed</label><p>${d.departedAt ? new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</p></div>
+        </div>
+
+        <h2>Line Items</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Input Item</th>
+              <th style="text-align:right">Loaded</th>
+              <th style="text-align:right">Delivered</th>
+              <th style="text-align:right">Returned</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.length === 0
+              ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:20px">No items loaded</td></tr>`
+              : items.map((item: any, i: number) => `
+                <tr>
+                  <td style="color:#9ca3af">${i + 1}</td>
+                  <td style="font-weight:600">${item.itemName ?? item.inputItemName ?? "—"}</td>
+                  <td style="text-align:right">${(item.quantityLoaded ?? 0).toLocaleString()}</td>
+                  <td style="text-align:right;color:#16a34a">${(item.quantityDelivered ?? 0).toLocaleString()}</td>
+                  <td style="text-align:right;color:#6b7280">${(item.quantityReturned ?? 0).toLocaleString()}</td>
+                  <td style="color:#6b7280">${item.unit ?? "—"}</td>
+                </tr>
+              `).join("")
+            }
+          </tbody>
+        </table>
+
+        <div class="summary">
+          <div class="summary-row"><span>Total Packages Loaded</span><span>${(d.totalPackages ?? 0).toLocaleString()}</span></div>
+          <div class="summary-row"><span>Total Delivered</span><span style="color:#16a34a">${(d.deliveredPackages ?? 0).toLocaleString()}</span></div>
+          <div class="summary-row total"><span>Balance</span><span>${((d.totalPackages ?? 0) - (d.deliveredPackages ?? 0)).toLocaleString()}</span></div>
+        </div>
+
+        ${d.notes ? `<div style="margin-top:16px;padding:12px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa"><p style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em">Notes</p><p style="margin-top:4px">${d.notes}</p></div>` : ""}
+
+        <div class="footer">
+          <div><div class="sig-line">Dispatcher Signature &amp; Date</div></div>
+          <div><div class="sig-line">Driver Signature &amp; Date</div></div>
+        </div>
+
+        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
+      </body>
+      </html>
+    `);
+    win.document.close();
   }
 
   if (isLoading) {
@@ -189,6 +252,9 @@ export default function DispatchDetail() {
           <p className="text-xs text-muted-foreground">{d.campaignName ?? "No campaign"}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintManifest}>
+            <Printer className="h-3.5 w-3.5 mr-1" /> Print Manifest
+          </Button>
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
             {d.status}
           </span>
@@ -210,16 +276,6 @@ export default function DispatchDetail() {
           {canRecordDelivery && (
             <Button size="sm" className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white" onClick={() => setPodOpen(true)}>
               <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Record Delivery
-            </Button>
-          )}
-          {(status === "approved" || status === "dispatched" || status === "intransit") && can.manageDispatch && (
-            <Button
-              size="sm" variant="outline"
-              className="h-7 text-xs text-orange-700 border-orange-300 hover:bg-orange-50"
-              disabled={actionLoading || cancelMutation.isPending}
-              onClick={() => { setCancelReason(""); setCancelOpen(true); }}
-            >
-              <XCircle className="h-3.5 w-3.5 mr-1" /> Cancel
             </Button>
           )}
         </div>
@@ -261,21 +317,6 @@ export default function DispatchDetail() {
                     </div>
                   </div>
                   <Field label="Driver"     value={d.driverName}     icon={User} />
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1"><UserCheck className="h-3 w-3" /> Field Officer</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{d.fieldOfficerName ?? "Unassigned"}</p>
-                      {can.manageDispatch && (
-                        <button
-                          type="button"
-                          className="text-[10px] text-green-700 hover:underline"
-                          onClick={() => { setAssignOfficerId(d.fieldOfficerId ? String(d.fieldOfficerId) : "none"); setAssignOpen(true); }}
-                        >
-                          {d.fieldOfficerName ? "Change" : "Assign"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
                   <Field label="Scheduled"  value={d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined} icon={CalendarDays} />
                   <Field label="Departed"   value={d.departedAt ? new Date(d.departedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} />
                   <Field label="Arrived"    value={d.arrivedAt ? new Date(d.arrivedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : undefined} icon={MapPin} />
@@ -384,14 +425,13 @@ export default function DispatchDetail() {
                     <TableHead className="text-right">Loaded</TableHead>
                     <TableHead className="text-right hidden md:table-cell">Delivered</TableHead>
                     <TableHead className="text-right hidden lg:table-cell">Returned</TableHead>
-                    <TableHead className="text-right hidden md:table-cell">Unit</TableHead>
-                    {canAddItems && <TableHead className="pr-4 w-[40px]" />}
+                    <TableHead className="text-right pr-4 hidden md:table-cell">Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canAddItems ? 6 : 5} className="h-28 text-center">
+                      <TableCell colSpan={5} className="h-28 text-center">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Package2 className="h-7 w-7 opacity-30" />
                           <span className="text-sm">No items added yet</span>
@@ -409,18 +449,7 @@ export default function DispatchDetail() {
                       <TableCell className="text-right text-sm font-semibold tabular-nums">{item.quantityLoaded?.toLocaleString()}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden md:table-cell text-emerald-700">{item.quantityDelivered ?? 0}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums hidden lg:table-cell text-muted-foreground">{item.quantityReturned ?? 0}</TableCell>
-                      <TableCell className="text-right text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? "—"}</TableCell>
-                      {canAddItems && (
-                        <TableCell className="pr-4 text-right">
-                          <Button
-                            size="sm" variant="ghost"
-                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => setDeleteItemTarget(item)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
-                      )}
+                      <TableCell className="text-right pr-4 text-sm text-muted-foreground hidden md:table-cell">{item.unit ?? "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -464,9 +493,6 @@ export default function DispatchDetail() {
                       <TableCell>
                         <p className="text-sm font-medium">{p.farmerName}</p>
                         <p className="text-xs text-muted-foreground">{p.farmerCode}</p>
-                        {p.beneficiaryType === "group" && p.groupSize ? (
-                          <p className="text-xs text-muted-foreground tabular-nums">{p.groupSize} members</p>
-                        ) : null}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm">{p.inputItemName ?? "—"}</TableCell>
                       <TableCell className="text-right text-sm hidden sm:table-cell">{p.quantityDelivered}</TableCell>
@@ -485,99 +511,8 @@ export default function DispatchDetail() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={assignOpen} onOpenChange={(v) => { if (!v) { setAssignOpen(false); setAssignOfficerId(""); } }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Assign Field Officer</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <Select value={assignOfficerId} onValueChange={setAssignOfficerId}>
-              <SelectTrigger><SelectValue placeholder="Select officer…" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— Unassigned —</SelectItem>
-                {officers.map((o: any) => (
-                  <SelectItem key={o.id} value={String(o.id)}>{o.fullName}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setAssignOpen(false); setAssignOfficerId(""); }}>Cancel</Button>
-            <Button
-              className="bg-green-700 hover:bg-green-800 text-white"
-              disabled={assignMutation.isPending}
-              onClick={async () => {
-                try {
-                  await assignMutation.mutateAsync(assignOfficerId && assignOfficerId !== "none" ? Number(assignOfficerId) : null);
-                  await invalidate();
-                  toast({ title: "Field officer assigned" });
-                  setAssignOpen(false); setAssignOfficerId("");
-                } catch (err: any) {
-                  toast({ title: "Failed", description: err.message, variant: "destructive" });
-                }
-              }}
-            >
-              {assignMutation.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
       <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />
-
-      <Dialog open={cancelOpen} onOpenChange={(v) => { if (!v) { setCancelOpen(false); setCancelReason(""); } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Cancel manifest {d?.manifestCode}?</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-1">
-            <p className="text-sm text-muted-foreground">
-              This will set the manifest status to <span className="font-semibold text-orange-700">Cancelled</span>.
-              Field officers will no longer be able to record deliveries against it.
-            </p>
-            <Textarea
-              placeholder="Reason for cancellation (optional)…"
-              value={cancelReason}
-              onChange={e => setCancelReason(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setCancelOpen(false); setCancelReason(""); }}>Back</Button>
-            <Button
-              className="bg-orange-600 hover:bg-orange-700 text-white"
-              disabled={cancelMutation.isPending}
-              onClick={handleCancel}
-            >
-              {cancelMutation.isPending ? "Cancelling…" : "Cancel Manifest"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={!!deleteItemTarget} onOpenChange={(v) => { if (!v) setDeleteItemTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove item?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove{" "}
-              <span className="font-medium">{deleteItemTarget?.itemName ?? deleteItemTarget?.inputItemName ?? "this item"}</span>{" "}
-              from the manifest. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={handleRemoveItem}
-              disabled={removeItemMutation.isPending}
-            >
-              {removeItemMutation.isPending ? "Removing…" : "Remove"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

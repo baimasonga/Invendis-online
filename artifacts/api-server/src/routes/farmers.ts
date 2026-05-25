@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireRoles } from "../lib/auth.js";
+import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { getPresignedViewUrl } from "../lib/aws.js";
 import { randomBytes } from "crypto";
 
 const router = Router();
@@ -14,20 +15,19 @@ function generateBarcode() {
 }
 
 router.get("/api/farmers", requireAuth, async (req, res) => {
-  const { page = "1", limit = "20", search, status, districtId, valueChainId, beneficiaryType } = req.query as Record<string, string>;
+  const { page = "1", limit = "20", search, status, districtId, valueChainId } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("farmers").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
-  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`) as typeof q;
+  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
   if (districtId) q = q.eq("district_id", Number(districtId)) as typeof q;
   if (valueChainId) q = q.eq("value_chain_id", Number(valueChainId)) as typeof q;
-  if (beneficiaryType && (beneficiaryType === "individual" || beneficiaryType === "group")) q = q.eq("beneficiary_type", beneficiaryType) as typeof q;
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/farmers", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+router.post("/api/farmers", requireAuth, async (req, res) => {
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
   const body = camelToSnake(req.body);
@@ -51,40 +51,6 @@ router.get("/api/farmers/stats", requireAuth, async (_req, res) => {
   res.json(stats);
 });
 
-router.get("/api/farmers/check-duplicate", requireAuth, async (req, res) => {
-  const { phone, nationalId } = req.query as Record<string, string>;
-  if (!phone?.trim() && !nationalId?.trim()) { res.json({ matches: [] }); return; }
-  let q = supa.from("farmers").select("id, first_name, last_name, farmer_group, farmer_code, beneficiary_type, phone, national_id");
-  const orParts: string[] = [];
-  if (phone?.trim())      orParts.push(`phone.eq.${phone.trim()}`);
-  if (nationalId?.trim()) orParts.push(`national_id.eq.${nationalId.trim()}`);
-  q = (orParts.length === 1 ? q.or(orParts[0]) : q.or(orParts.join(","))) as typeof q;
-  const { data, error } = await (q as any).limit(5);
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json({ matches: snakeToCamel(data ?? []) });
-});
-
-router.post("/api/farmers/bulk-check-duplicates", requireAuth, async (req, res) => {
-  const { phones } = req.body as { phones?: string[] };
-  if (!Array.isArray(phones) || phones.length === 0) { res.json({ duplicates: [] }); return; }
-  const cleaned = phones.map(p => String(p).trim()).filter(Boolean);
-  if (cleaned.length === 0) { res.json({ duplicates: [] }); return; }
-  const orFilter = cleaned.map(p => `phone.eq.${p}`).join(",");
-  const { data, error } = await supa
-    .from("farmers")
-    .select("id, first_name, last_name, farmer_group, farmer_code, beneficiary_type, phone")
-    .or(orFilter);
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  const duplicates = (data ?? []).map((r: any) => ({
-    phone: r.phone,
-    farmerCode: r.farmer_code,
-    name: r.beneficiary_type === "group"
-      ? (r.farmer_group || "—")
-      : `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "—",
-  }));
-  res.json({ duplicates });
-});
-
 router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
   const { data: rows, error } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
@@ -97,7 +63,7 @@ router.get("/api/farmers/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(rows[0]));
 });
 
-router.put("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+router.put("/api/farmers/:id", requireAuth, async (req, res) => {
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("farmers").update({ ...body, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -105,14 +71,14 @@ router.put("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectManage
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/approve", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
+router.post("/api/farmers/:id/approve", requireAuth, async (req, res) => {
   const { data, error } = await supa.from("farmers").update({ status: "approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "APPROVE", "Farmers", `Approved farmer ID ${req.params.id}`, "farmer", (data as any).id);
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/reject", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
+router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
   const { reason } = req.body;
   const { data, error } = await supa.from("farmers").update({ status: "rejected", rejection_reason: reason, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -120,116 +86,57 @@ router.post("/api/farmers/:id/reject", requireAuth, requireRoles("Admin", "Proje
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/bulk-import", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
-  const { rows, districtId, valueChainId } = req.body as {
-    rows: Array<{
-      firstName?: string; lastName?: string; gender?: string; phone?: string;
-      beneficiaryType?: string; farmerGroup?: string; groupSize?: number;
-    }>;
-    districtId?: number;
-    valueChainId?: number;
-  };
+router.delete("/api/farmers/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { error } = await supa.from("farmers").delete().eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "Farmers", `Deleted farmer ID ${id}`, "farmer", id);
+  res.json({ success: true });
+});
 
-  if (!Array.isArray(rows) || rows.length === 0) {
-    res.status(400).json({ error: "No rows provided" });
-    return;
+// ── Public ID card endpoint ───────────────────────────────────────────────────
+// Returns ID-card-safe fields for a farmer given their barcode_token.
+// Intentionally no auth: this powers the shareable mobile card view that field
+// staff open by scanning the QR on a farmer's printed card. The token already
+// gates the printed physical card, so the digital view is the same trust level.
+router.get("/api/cards/:token", async (req, res) => {
+  const token = req.params.token;
+  if (!token || token.length < 4) { res.status(400).json({ error: "Invalid token" }); return; }
+
+  const { data: rows, error } = await supa
+    .from("farmers")
+    .select("id, first_name, last_name, farmer_code, barcode_token, gender, phone, status, photo_url, district_id, chiefdom_id, value_chain_id")
+    .eq("barcode_token", token)
+    .limit(1);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const farmer = rows?.[0] as any;
+  if (!farmer) { res.status(404).json({ error: "Card not found" }); return; }
+
+  const [districtRes, chiefdomRes, vcRes] = await Promise.all([
+    farmer.district_id     ? supa.from("districts").select("name").eq("id", farmer.district_id).limit(1)         : Promise.resolve({ data: null }),
+    farmer.chiefdom_id     ? supa.from("chiefdoms").select("name").eq("id", farmer.chiefdom_id).limit(1)         : Promise.resolve({ data: null }),
+    farmer.value_chain_id  ? supa.from("value_chains").select("name").eq("id", farmer.value_chain_id).limit(1)   : Promise.resolve({ data: null }),
+  ]);
+
+  let photoUrl: string | null = null;
+  if (farmer.photo_url) {
+    try { photoUrl = await getPresignedViewUrl(farmer.photo_url); } catch { photoUrl = null; }
   }
 
-  const createdBy = req.user?.userId;
-  const created: any[] = [];
-  const duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }> = [];
-  let skipped = 0;
-
-  // Pre-scan: detect duplicate phone numbers within the uploaded batch itself.
-  // Key = normalised phone, Value = first 1-based row index that used it.
-  const seenPhones = new Map<string, number>();
-  const intraBatchDuplicateRows = new Set<number>();
-
-  for (let i = 0; i < rows.length; i++) {
-    const phone = String(rows[i].phone || "").trim();
-    if (!phone) continue;
-    if (seenPhones.has(phone)) {
-      intraBatchDuplicateRows.add(i);
-    } else {
-      seenPhones.set(phone, i + 1); // store 1-based row of first occurrence
-    }
-  }
-
-  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-    const row = rows[rowIdx];
-    const firstName = String(row.firstName || "").trim();
-    const lastName  = String(row.lastName  || "").trim();
-    const farmerGroup = String(row.farmerGroup || "").trim() || null;
-    const beneficiaryType = row.beneficiaryType === "group" ? "group" : "individual";
-    const phone = String(row.phone || "").trim() || null;
-
-    if (!firstName && !farmerGroup) { skipped++; continue; }
-
-    // Skip rows whose phone number already appeared earlier in this same batch.
-    if (phone && intraBatchDuplicateRows.has(rowIdx)) {
-      const firstSeenRow = seenPhones.get(phone)!;
-      const displayName = farmerGroup || `${firstName} ${lastName}`.trim() || "—";
-      duplicates.push({
-        row: rowIdx + 1,
-        name: displayName,
-        phone,
-        matchedFarmerCode: `duplicate within import file (row ${firstSeenRow})`,
-      });
-      continue;
-    }
-
-    if (phone) {
-      const { data: existing, error: dupErr } = await supa
-        .from("farmers")
-        .select("farmer_code")
-        .eq("phone", phone)
-        .limit(1);
-
-      if (dupErr) { skipped++; continue; }
-
-      if (existing && existing.length > 0) {
-        const displayName = farmerGroup || `${firstName} ${lastName}`.trim() || "—";
-        duplicates.push({
-          row: rowIdx + 1,
-          name: displayName,
-          phone,
-          matchedFarmerCode: (existing[0] as any).farmer_code,
-        });
-        continue;
-      }
-    }
-
-    const farmerCode   = generateFarmerCode();
-    const barcodeToken = generateBarcode();
-
-    const { data, error } = await supa.from("farmers").insert({
-      first_name:       firstName || null,
-      last_name:        String(row.lastName || "").trim() || null,
-      gender:           row.gender || null,
-      phone:            phone,
-      district_id:      districtId ?? null,
-      value_chain_id:   valueChainId ?? null,
-      beneficiary_type: beneficiaryType,
-      group_size:       row.groupSize ? Number(row.groupSize) : null,
-      farmer_group:     farmerGroup,
-      farmer_code:      farmerCode,
-      barcode_token:    barcodeToken,
-      status:           "pending",
-      registered_by:    createdBy ?? null,
-    }).select("id, farmer_code, barcode_token, first_name, last_name, farmer_group").single();
-
-    if (error) { skipped++; continue; }
-
-    created.push({
-      id:           (data as any).id,
-      farmerCode:   (data as any).farmer_code,
-      barcodeToken: (data as any).barcode_token,
-      name: farmerGroup || `${(data as any).first_name ?? ""} ${(data as any).last_name ?? ""}`.trim(),
-    });
-  }
-
-  await logAudit(req, "BULK_IMPORT", "Farmers", `Bulk imported ${created.length} farmers (${skipped} skipped, ${duplicates.length} duplicates)`, "farmer", 0);
-  res.status(201).json({ created: created.length, skipped, duplicates, farmers: created });
+  res.set("Cache-Control", "private, max-age=60");
+  res.json({
+    firstName:      farmer.first_name,
+    lastName:       farmer.last_name,
+    farmerCode:     farmer.farmer_code,
+    barcodeToken:   farmer.barcode_token,
+    gender:         farmer.gender,
+    phone:          farmer.phone,
+    status:         farmer.status,
+    districtName:   (districtRes.data as any)?.[0]?.name ?? null,
+    chiefdomName:   (chiefdomRes.data as any)?.[0]?.name ?? null,
+    valueChainName: (vcRes.data as any)?.[0]?.name ?? null,
+    photoUrl,
+  });
 });
 
 export default router;

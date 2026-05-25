@@ -21,8 +21,12 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
   const streamRef = useRef<MediaStream | null>(null);
   const detectRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const autoCapCountRef = useRef(0);
+  const capturingRef = useRef(false);
+
   const [phase, setPhase] = useState<Phase>("loading_models");
   const [faceDetected, setFaceDetected] = useState(false);
+  const [captureProgress, setCaptureProgress] = useState(0); // 0-6 ticks toward auto-capture
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +34,8 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
     if (detectRef.current) { clearInterval(detectRef.current); detectRef.current = null; }
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
+    autoCapCountRef.current = 0;
+    capturingRef.current = false;
   }, []);
 
   // Load face-api models
@@ -68,7 +74,19 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
       if (!faceapi.nets.tinyFaceDetector.isLoaded) return;
       try {
         const det = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions());
-        setFaceDetected(!!det);
+        if (det) {
+          setFaceDetected(true);
+          autoCapCountRef.current += 1;
+          setCaptureProgress(autoCapCountRef.current);
+          if (autoCapCountRef.current >= 6 && !capturingRef.current) {
+            capturingRef.current = true;
+            capturePhoto();
+          }
+        } else {
+          setFaceDetected(false);
+          autoCapCountRef.current = 0;
+          setCaptureProgress(0);
+        }
       } catch {
         // model not ready yet — skip this tick
       }
@@ -101,6 +119,9 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
   const handleRetake = () => {
     setCapturedBlob(null);
     setFaceDetected(false);
+    setCaptureProgress(0);
+    autoCapCountRef.current = 0;
+    capturingRef.current = false;
     setPhase("starting_cam");
   };
 
@@ -132,9 +153,24 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
         {phase === "scanning" && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div className={`w-40 h-52 rounded-full border-4 transition-all duration-300 ${faceDetected ? "border-green-400 shadow-[0_0_20px_rgba(74,222,128,0.5)]" : "border-white/40"}`} />
+            {faceDetected && captureProgress > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div
+                  className="w-40 h-52 rounded-full border-4 border-transparent transition-all duration-300"
+                  style={{
+                    background: `conic-gradient(rgba(74,222,128,0.6) ${(captureProgress / 6) * 360}deg, transparent 0)`,
+                    borderRadius: "50%",
+                    mask: "radial-gradient(transparent 60%, black 61%)",
+                    WebkitMask: "radial-gradient(transparent 60%, black 61%)",
+                  }}
+                />
+              </div>
+            )}
             <div className="absolute bottom-3 left-0 right-0 flex justify-center">
-              {faceDetected
-                ? <span className="bg-green-600/90 backdrop-blur text-white text-xs px-3 py-1 rounded-full">Face detected ✓</span>
+              {faceDetected && captureProgress >= 3
+                ? <span className="bg-green-600/90 backdrop-blur text-white text-xs px-3 py-1 rounded-full">Hold still… capturing</span>
+                : faceDetected
+                ? <span className="bg-green-600/90 backdrop-blur text-white text-xs px-3 py-1 rounded-full">Face detected — hold still</span>
                 : <span className="bg-black/50 backdrop-blur text-white/70 text-xs px-3 py-1 rounded-full">Position face in oval</span>
               }
             </div>
@@ -173,12 +209,12 @@ export function BiometricCapture({ farmerId: _farmerId, farmerName, onCapture, o
         {phase === "scanning" && (
           <Button
             type="button"
-            onClick={capturePhoto}
+            onClick={() => { if (!capturingRef.current) { capturingRef.current = true; capturePhoto(); } }}
             disabled={!faceDetected}
             className="flex-1 bg-green-700 hover:bg-green-800 text-white"
           >
             <Camera className="h-4 w-4 mr-2" />
-            {faceDetected ? "Capture Photo" : "Waiting for face…"}
+            {faceDetected ? "Capture Now" : "Waiting for face…"}
           </Button>
         )}
 

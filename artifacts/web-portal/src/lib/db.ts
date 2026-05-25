@@ -40,8 +40,8 @@ async function intUid(): Promise<number | null> {
   const email = await sessionEmail();
   if (!email) return null;
   if (_intUidCache?.email === email) return _intUidCache.id;
-  const { data } = await supabase.from("users").select("id").eq("email", email).limit(1).single();
-  if (!data) return null;
+  const { data, error } = await supabase.from("users").select("id").eq("email", email).limit(1).single();
+  if (error || !data) return null;
   _intUidCache = { email, id: (data as any).id as number };
   return _intUidCache.id;
 }
@@ -88,6 +88,7 @@ export const KEYS = {
   stockBalance:  () => ["stock-balance"],
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
+  gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
   dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string) => ["dispatches", page, fieldOfficerId, status, manifestCode],
   dispatch:      (id: number) => ["dispatch", id],
@@ -332,11 +333,7 @@ export async function createFarmer(payload: any) {
   const userId = await intUid();
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
-  // Explicitly compute next id to work around a stuck sequence from seed data
-  const { data: maxRow } = await supabase.from("farmers").select("id").order("id", { ascending: false }).limit(1).single();
-  const nextId = ((maxRow as any)?.id ?? 0) + 1;
   const { data, error } = await supabase.from("farmers").insert({
-    id: nextId,
     beneficiary_type: payload.beneficiaryType ?? "individual",
     first_name: payload.firstName,
     last_name: payload.lastName,
@@ -395,6 +392,12 @@ export async function rejectFarmer(id: number, reason = "Rejected by administrat
   if (error) throw new Error(error.message);
   await logAudit("REJECT", "farmers", `Rejected farmer #${id}`, "farmer", id);
   return cc(data);
+}
+
+export async function deleteFarmer(id: number) {
+  const { error } = await supabase.from("farmers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "farmers", `Deleted farmer #${id}`, "farmer", id);
 }
 
 // ── CAMPAIGNS ─────────────────────────────────────────────────────────────────
@@ -590,6 +593,7 @@ export async function getStockBalance() {
 }
 
 export async function receiveStock(payload: any) {
+  if (!payload.quantity || payload.quantity <= 0) throw new Error("Quantity must be greater than zero");
   const userId = await intUid();
   const { data: ledger, error } = await supabase.from("stock_ledger").insert({
     warehouse_id: payload.warehouseId,
@@ -629,6 +633,7 @@ export async function transferStock(payload: {
   quantity: number;
   notes?: string;
 }) {
+  if (!payload.quantity || payload.quantity <= 0) throw new Error("Quantity must be greater than zero");
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
@@ -1075,6 +1080,41 @@ export async function unlinkGpsTraceUnit(vehicleId: number): Promise<void> {
   if (!resp.ok) throw new Error("Failed to unlink GPS-Trace unit");
 }
 
+export async function listGpsTraceDevices(): Promise<{ configured: boolean; devices: any[]; vehicles: any[] }> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/devices", { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace devices fetch failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function syncGpsTrace(): Promise<{ synced: number; total: number; linked: number }> {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/sync", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`GPS-Trace sync failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, deviceName?: string) {
+  const token = await gpsToken();
+  const resp = await fetch("/api/gpstrace/link", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicleId, deviceId, deviceName }),
+  });
+  if (!resp.ok) throw new Error(`Link failed: ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function unlinkGpsTraceDevice(vehicleId: number) {
+  const token = await gpsToken();
+  const resp = await fetch(`/api/gpstrace/unlink/${vehicleId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Unlink failed: ${resp.statusText}`);
+  return resp.json();
+}
+
 export async function triggerGpsTraceSync(): Promise<{ synced: number; skipped: number }> {
   const token = await gpsToken();
   const resp = await fetch("/api/gps/trace/sync", {
@@ -1171,16 +1211,16 @@ async function apiPost(path: string, body: unknown): Promise<any> {
     },
     body: JSON.stringify(body),
   });
-  const json = await res.json();
   if (!res.ok) {
-    const err = new Error(json?.error ?? json?.message ?? "Request failed") as Error & Record<string, unknown>;
+    const json = await res.json().catch(() => null);
+    const err = new Error(json?.error ?? json?.message ?? res.statusText ?? "Request failed") as Error & Record<string, unknown>;
     // Preserve any extra fields from the error body (e.g. retryAfterSeconds from 429)
     if (json && typeof json === "object") {
       Object.assign(err, json);
     }
     throw err;
   }
-  return json;
+  return res.json();
 }
 
 export async function sendOtp(farmerId: number): Promise<{ sent: boolean; maskedPhone: string; farmerName: string; devCode?: string }> {
@@ -1215,7 +1255,7 @@ export async function createReconciliation(payload: any) {
   const variance = (payload.loadedQuantity ?? 0) - (payload.deliveredQuantity ?? 0)
     - (payload.returnedQuantity ?? 0) - (payload.damagedQuantity ?? 0);
   // generate a unique code (equivalent to server-side randomBytes(3).hex().toUpperCase())
-  const raw = new Uint8Array(3);
+  const raw = new Uint8Array(5);
   crypto.getRandomValues(raw);
   const reconciliationCode = "REC-" + Array.from(raw).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
   const { data, error } = await supabase.from("reconciliations").insert({
@@ -2054,6 +2094,29 @@ export async function analyseFarmerFace(s3Key: string, farmerId: number): Promis
     body: JSON.stringify({ s3Key, farmerId }),
   });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Face analysis failed"); }
+  return res.json();
+}
+
+export interface PublicCardData {
+  firstName: string;
+  lastName: string;
+  farmerCode: string;
+  barcodeToken: string;
+  gender?: string | null;
+  phone?: string | null;
+  status?: string | null;
+  districtName?: string | null;
+  chiefdomName?: string | null;
+  valueChainName?: string | null;
+  photoUrl?: string | null;
+}
+
+export async function getPublicCard(token: string): Promise<PublicCardData> {
+  const res = await fetch(`${API_BASE}/cards/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as any).error ?? "Card not found");
+  }
   return res.json();
 }
 

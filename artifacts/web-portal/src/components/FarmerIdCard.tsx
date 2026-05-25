@@ -1,7 +1,9 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
-import { Printer, Download } from "lucide-react";
+import { Printer, Download, Share2, Copy, Check, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
 interface FarmerIdCardProps {
   farmer: {
@@ -15,222 +17,103 @@ interface FarmerIdCardProps {
     valueChainName?: string | null;
     status?: string;
     phone?: string | null;
-    beneficiaryType?: string | null;
-    farmerGroup?: string | null;
   };
   photoUrl?: string | null;
 }
 
 export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const qrValue = farmer.barcodeToken ?? farmer.farmerCode;
+  const { toast } = useToast();
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const isGroup = farmer.beneficiaryType === "group" && !!farmer.farmerGroup;
-  const primaryName = isGroup ? farmer.farmerGroup! : `${farmer.firstName} ${farmer.lastName}`;
-  const contactName = isGroup ? `${farmer.firstName} ${farmer.lastName}` : null;
+  // QR encodes the full public card URL so a phone-camera scan opens the
+  // mobile card view directly. Falls back to bare token in SSR or if window
+  // is unavailable.
+  const shareToken = farmer.barcodeToken ?? farmer.farmerCode;
+  const shareUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/card/${encodeURIComponent(shareToken)}`
+    : `/card/${encodeURIComponent(shareToken)}`;
+  const qrValue = shareUrl;
+
+  async function copyShareUrl() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast({ title: "Copy failed", description: "Could not copy link to clipboard.", variant: "destructive" });
+    }
+  }
 
   function handlePrint() {
     const card = cardRef.current;
     if (!card) return;
-
-    // Strip hardcoded pixel width/height from SVG so CSS physical sizing takes over.
-    // QRCodeSVG sets width="N" height="N" which prints at a fixed px size (~12mm at
-    // 300dpi). Removing them while keeping viewBox makes the SVG scale with CSS.
-    const rawSvg = card.querySelector("svg")?.outerHTML ?? "";
-    const svgHtml = rawSvg
-      .replace(/\s+width="[^"]*"/, "")
-      .replace(/\s+height="[^"]*"/, "");
-
-    const photoBlock = photoUrl
-      ? `<div class="photo-wrap">
-           <img src="${photoUrl}" alt="${primaryName}" class="photo-img" crossorigin="anonymous" />
-         </div>`
-      : `<div class="photo-wrap">
-           <div class="photo-placeholder">
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:40%;height:40%">
-               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-             </svg>
-           </div>
-         </div>`;
-
-    const infoItems = [
-      farmer.gender         ? `<div class="info-item"><label>Gender</label><p>${farmer.gender}</p></div>` : "",
-      farmer.districtName   ? `<div class="info-item"><label>District</label><p>${farmer.districtName}</p></div>` : "",
-      farmer.chiefdomName   ? `<div class="info-item"><label>Chiefdom</label><p>${farmer.chiefdomName}</p></div>` : "",
-      farmer.valueChainName ? `<div class="info-item"><label>Value Chain</label><p>${farmer.valueChainName}</p></div>` : "",
-      farmer.phone          ? `<div class="info-item"><label>Phone</label><p>${farmer.phone}</p></div>` : "",
-      `<div class="info-item"><label>Status</label><p style="color:${farmer.status === "approved" ? "#16a34a" : "#f59e0b"};text-transform:capitalize">${farmer.status ?? "—"}</p></div>`,
-    ].join("");
-
-    // Open a full-page window — @page CSS below controls the actual paper size/margins.
-    const win = window.open("", "_blank", "width=800,height=1100");
+    const win = window.open("", "_blank", "width=500,height=820");
     if (!win) return;
+    const photoBlock = photoUrl
+      ? `<img src="${photoUrl}" class="farmer-photo" crossorigin="anonymous" />`
+      : `<div class="farmer-photo placeholder">
+           <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+             <circle cx="12" cy="8" r="4"/>
+             <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+           </svg>
+         </div>`;
     win.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8" />
-        <title>Farmer ID — ${farmer.farmerCode}</title>
+        <title>AVDP Farmer ID — ${farmer.farmerCode}</title>
         <style>
-          /* ── Page setup ──────────────────────────────────────────── */
-          @page {
-            size: A5 portrait;
-            margin: 12mm;
-          }
-
+          @page { size: 100mm 160mm; margin: 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-
-          /* Screen: center the card nicely */
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #f3f4f6;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            padding: 24px;
-            min-height: 100vh;
-          }
-
-          /* Print: no chrome, card fills the page */
-          @media print {
-            body {
-              background: white;
-              padding: 0;
-              margin: 0;
-              display: block;
-            }
-          }
-
-          /* ── Card shell ──────────────────────────────────────────── */
-          .card {
-            width: 148mm;          /* A5 width minus 2×12mm margin */
-            background: white;
-            border: 2px solid #16a34a;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-            page-break-inside: avoid;
-          }
-          @media print {
-            .card { box-shadow: none; border-radius: 8px; }
-          }
-
-          /* ── Header ──────────────────────────────────────────────── */
-          .card-header {
-            background: linear-gradient(135deg, #14532d 0%, #16a34a 100%);
-            padding: 5mm 6mm;
-            color: white;
-            display: flex;
-            align-items: center;
-            gap: 4mm;
-          }
-          .header-logo {
-            width: 11mm; height: 11mm;
-            background: rgba(255,255,255,0.15);
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 5.5mm; font-weight: 900; color: white;
-            flex-shrink: 0;
-          }
-          .header-text h1 { font-size: 4.8mm; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
-          .header-text p  { font-size: 2.8mm; opacity: 0.75; margin-top: 0.5mm; }
-
-          /* ── Body ────────────────────────────────────────────────── */
-          .card-body {
-            padding: 5mm 6mm 4mm;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4mm;
-          }
-
-          /* ── Photo ───────────────────────────────────────────────── */
-          .photo-wrap {
-            width: 22mm; height: 22mm;
-            border-radius: 50%;
-            overflow: hidden;
-            border: 0.8mm solid #16a34a;
-            flex-shrink: 0;
-          }
-          .photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-          .photo-placeholder {
-            width: 100%; height: 100%;
-            background: #f1f5f9;
-            display: flex; align-items: center; justify-content: center;
-          }
-
-          /* ── Name / code ─────────────────────────────────────────── */
-          .farmer-name { font-size: 5.5mm; font-weight: 700; color: #111827; text-align: center; line-height: 1.25; }
-          .farmer-contact { font-size: 3mm; color: #6b7280; text-align: center; margin-top: 0.5mm; }
-          .farmer-code { font-family: 'Courier New', monospace; font-size: 3mm; color: #6b7280; margin-top: 1mm; text-align: center; }
-
-          .divider { width: 100%; border: none; border-top: 1px solid #e5e7eb; }
-
-          /* ── QR section ──────────────────────────────────────────── */
-          .qr-section { display: flex; flex-direction: column; align-items: center; gap: 2mm; }
-          .qr-wrap {
-            padding: 3mm;
-            border: 0.4mm solid #e5e7eb;
-            border-radius: 3mm;
-            background: white;
-            line-height: 0;
-          }
-          /* This is the key fix: force QR to a large physical size regardless of SVG attributes */
-          .qr-wrap svg {
-            width: 45mm !important;
-            height: 45mm !important;
-            display: block;
-          }
-          .qr-label { font-size: 2.5mm; color: #9ca3af; letter-spacing: 0.06em; text-transform: uppercase; }
-
-          /* ── Info grid ───────────────────────────────────────────── */
-          .info-grid {
-            width: 100%;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2.5mm 5mm;
-            border-top: 1px solid #e5e7eb;
-            padding-top: 3.5mm;
-          }
-          .info-item label { font-size: 2.5mm; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; display: block; }
-          .info-item p     { font-size: 3.2mm; font-weight: 600; color: #374151; margin-top: 0.5mm; }
-
-          /* ── Footer ──────────────────────────────────────────────── */
-          .card-footer {
-            background: #f0fdf4;
-            border-top: 1px solid #dcfce7;
-            padding: 2.5mm 6mm;
-            text-align: center;
-          }
-          .card-footer p { font-size: 2.5mm; color: #6b7280; }
+          html, body { background: white; }
+          body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 8mm; }
+          .card { width: 100mm; height: 160mm; border: 2px solid #16a34a; border-radius: 6mm; overflow: hidden; background: white; display: flex; flex-direction: column; }
+          .card-header { background: #15803d; padding: 6mm 6mm 5mm; color: white; text-align: center; }
+          .card-header h1 { font-size: 28pt; font-weight: 800; letter-spacing: 0.02em; line-height: 1; }
+          .card-header p { font-size: 9pt; opacity: 0.85; margin-top: 2mm; letter-spacing: 0.05em; text-transform: uppercase; }
+          .card-body { padding: 5mm 6mm; display: flex; flex-direction: column; align-items: center; gap: 3mm; flex: 1; }
+          .farmer-photo { width: 28mm; height: 28mm; border-radius: 50%; object-fit: cover; border: 3px solid #16a34a; background: #f1f5f9; display: flex; align-items: center; justify-content: center; }
+          .farmer-photo.placeholder { background: #f1f5f9; }
+          .farmer-name { font-size: 16pt; font-weight: 700; color: #111; text-align: center; line-height: 1.1; }
+          .farmer-code { font-family: monospace; font-size: 10pt; color: #6b7280; margin-top: 1mm; }
+          .qr-wrap { padding: 2mm; border: 1.5px solid #e5e7eb; border-radius: 2mm; }
+          .qr-wrap svg { display: block; width: 32mm; height: 32mm; }
+          .info-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 4mm; border-top: 1px solid #e5e7eb; padding-top: 3mm; margin-top: 1mm; }
+          .info-item label { font-size: 7pt; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; }
+          .info-item p { font-size: 9pt; font-weight: 600; color: #374151; margin-top: 0.5mm; }
+          .card-footer { background: #f0fdf4; padding: 3mm 6mm; text-align: center; border-top: 1px solid #bbf7d0; }
+          .card-footer p { font-size: 7.5pt; color: #6b7280; }
         </style>
       </head>
       <body>
         <div class="card">
           <div class="card-header">
-            <div class="header-logo">A</div>
-            <div class="header-text">
-              <h1>AVDP Farmer</h1>
-              <p>Agricultural Verified Distribution Programme</p>
-              <p style="margin-top:0.5mm;opacity:0.6;font-size:2.5mm">Agri-PoD Identification Card</p>
-            </div>
+            <h1>AVDP Farmer</h1>
+            <p>Identification Card</p>
           </div>
           <div class="card-body">
             ${photoBlock}
-            <div>
-              <div class="farmer-name">${primaryName}</div>
-              ${contactName ? `<div class="farmer-contact">Contact: ${contactName}</div>` : ""}
+            <div style="text-align:center">
+              <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
               <div class="farmer-code">${farmer.farmerCode}</div>
             </div>
-            <hr class="divider" />
-            <div class="qr-section">
-              <div class="qr-wrap">${svgHtml}</div>
-              <div class="qr-label">Scan to verify identity</div>
+            <div class="qr-wrap">
+              ${card.querySelector("svg")?.outerHTML ?? ""}
             </div>
-            ${infoItems ? `<div class="info-grid">${infoItems}</div>` : ""}
+            <div class="info-grid">
+              ${farmer.gender ? `<div class="info-item"><label>Gender</label><p>${farmer.gender}</p></div>` : ""}
+              ${farmer.districtName ? `<div class="info-item"><label>District</label><p>${farmer.districtName}</p></div>` : ""}
+              ${farmer.chiefdomName ? `<div class="info-item"><label>Chiefdom</label><p>${farmer.chiefdomName}</p></div>` : ""}
+              ${farmer.valueChainName ? `<div class="info-item"><label>Value Chain</label><p>${farmer.valueChainName}</p></div>` : ""}
+              ${farmer.phone ? `<div class="info-item"><label>Phone</label><p>${farmer.phone}</p></div>` : ""}
+              <div class="info-item"><label>Status</label><p style="color:${farmer.status === 'approved' ? '#16a34a' : '#f59e0b'}">${farmer.status ?? '—'}</p></div>
+            </div>
           </div>
           <div class="card-footer">
-            <p>Present this card at distribution points for identification &amp; verification</p>
+            <p>Present this card at distribution points for identification</p>
           </div>
         </div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
@@ -240,117 +123,258 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
     win.document.close();
   }
 
-  function handleDownload() {
-    const svg = cardRef.current?.querySelector("svg");
-    if (!svg) return;
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([svgData], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${farmer.farmerCode}-qr.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleDownload() {
+    const W = 340;
+    const fields: [string, string][] = [
+      ...(farmer.gender       ? [["GENDER",      farmer.gender]      as [string,string]] : []),
+      ...(farmer.districtName ? [["DISTRICT",    farmer.districtName] as [string,string]] : []),
+      ...(farmer.chiefdomName ? [["CHIEFDOM",    farmer.chiefdomName] as [string,string]] : []),
+      ...(farmer.valueChainName ? [["VALUE CHAIN", farmer.valueChainName] as [string,string]] : []),
+      ...(farmer.phone        ? [["PHONE",        farmer.phone]       as [string,string]] : []),
+      ...(farmer.status       ? [["STATUS",       farmer.status]      as [string,string]] : []),
+    ];
+    const infoRows = Math.ceil(fields.length / 2);
+    const hasPhoto = !!photoUrl;
+    const H = 60 + 115 + 60 + 160 + 12 + infoRows * 38 + 50;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d")!;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+
+    // Header
+    ctx.fillStyle = "#15803d";
+    ctx.beginPath();
+    ctx.moveTo(12, 0); ctx.lineTo(W - 12, 0);
+    ctx.quadraticCurveTo(W, 0, W, 12); ctx.lineTo(W, 60);
+    ctx.lineTo(0, 60); ctx.lineTo(0, 12);
+    ctx.quadraticCurveTo(0, 0, 12, 0); ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 22px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("AVDP Farmer", W / 2, 32);
+    ctx.font = "9px sans-serif"; ctx.globalAlpha = 0.85;
+    ctx.fillText("IDENTIFICATION CARD", W / 2, 49);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+
+    let y = 70;
+
+    // Photo circle (with silhouette placeholder when no photo)
+    {
+      const cx = W / 2, cy = y + 50, r = 48;
+      // Background fill
+      ctx.fillStyle = "#f1f5f9";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+      let drewPhoto = false;
+      if (hasPhoto && photoUrl) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r(); img.src = photoUrl; });
+        if (img.naturalWidth > 0) {
+          ctx.save();
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+          const aspect = img.naturalWidth / img.naturalHeight;
+          const dw = aspect > 1 ? r * 2 * aspect : r * 2;
+          const dh = aspect > 1 ? r * 2 : r * 2 / aspect;
+          ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+          ctx.restore();
+          drewPhoto = true;
+        }
+      }
+      if (!drewPhoto) {
+        // Silhouette: head + shoulders
+        ctx.fillStyle = "#94a3b8";
+        ctx.beginPath(); ctx.arc(cx, cy - 12, 14, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy + 30, 26, Math.PI, 0, true);
+        ctx.fill();
+      }
+      ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      y += 115;
+    }
+
+    // Name + code
+    ctx.fillStyle = "#111827"; ctx.font = "bold 17px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(`${farmer.firstName} ${farmer.lastName}`, W / 2, y + 20);
+    ctx.font = "11px monospace"; ctx.fillStyle = "#6b7280";
+    ctx.fillText(farmer.farmerCode, W / 2, y + 38);
+    y += 55;
+
+    // QR code
+    const svgEl = cardRef.current?.querySelector("svg");
+    if (svgEl) {
+      const svgData = new XMLSerializer().serializeToString(svgEl);
+      const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+      const qrImg = new Image();
+      await new Promise<void>(r => { qrImg.onload = () => r(); qrImg.onerror = () => r(); qrImg.src = `data:image/svg+xml;base64,${svgBase64}`; });
+      const qrSize = 140, boxPad = 10, boxX = (W - qrSize - boxPad * 2) / 2;
+      ctx.fillStyle = "#f8fafc"; ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.rect(boxX, y, qrSize + boxPad * 2, qrSize + boxPad * 2); ctx.fill(); ctx.stroke();
+      ctx.drawImage(qrImg, boxX + boxPad, y + boxPad, qrSize, qrSize);
+      y += qrSize + boxPad * 2 + 14;
+    }
+
+    // Divider
+    ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(W - 16, y); ctx.stroke();
+    y += 12;
+
+    // Info grid
+    for (let i = 0; i < fields.length; i++) {
+      const col = i % 2, row = Math.floor(i / 2);
+      const x = col === 0 ? 16 : W / 2 + 8;
+      const iy = y + row * 38;
+      ctx.fillStyle = "#9ca3af"; ctx.font = "8px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText(fields[i][0], x, iy + 10);
+      ctx.fillStyle = "#374151"; ctx.font = "bold 11px sans-serif";
+      ctx.fillText(fields[i][1], x, iy + 24);
+    }
+    y += infoRows * 38 + 8;
+
+    // Footer
+    ctx.fillStyle = "#f0fdf4"; ctx.fillRect(0, y, W, H - y);
+    ctx.strokeStyle = "#bbf7d0"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = "#6b7280"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("Present this card at distribution points for identification", W / 2, y + 22);
+
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${farmer.farmerCode}-id-card.png`; a.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={handlePrint}>
-          <Printer className="h-3 w-3 mr-1.5" /> Print ID Card
+      <div className="grid grid-cols-3 gap-2">
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrint}>
+          <Printer className="h-3 w-3 mr-1.5" /> Print
         </Button>
-        <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={handleDownload}>
-          <Download className="h-3 w-3 mr-1.5" /> Download QR
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleDownload}>
+          <Download className="h-3 w-3 mr-1.5" /> Download
+        </Button>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShareOpen(true)}>
+          <Share2 className="h-3 w-3 mr-1.5" /> Share
         </Button>
       </div>
 
-      {/* Hidden QR source for extraction */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-green-700" />
+              Send Card to Phone
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-xs text-muted-foreground">
+              Have field staff scan this QR code with their phone camera, or share the short link below — it opens a mobile-friendly version of <strong>{farmer.firstName} {farmer.lastName}</strong>'s ID card.
+            </p>
+
+            <div className="flex justify-center p-4 bg-white rounded-lg border-2 border-slate-200">
+              <QRCodeSVG value={shareUrl} size={220} level="M" includeMargin={false} />
+            </div>
+
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+              <code className="flex-1 text-[11px] font-mono text-slate-700 truncate select-all">{shareUrl}</code>
+              <Button size="sm" variant="ghost" className="h-7 px-2 shrink-0" onClick={copyShareUrl}>
+                {copied
+                  ? <><Check className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Copied</>
+                  : <><Copy className="h-3.5 w-3.5 mr-1" /> Copy</>
+                }
+              </Button>
+            </div>
+
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Open on this device
+            </a>
+
+            <p className="text-[10px] text-muted-foreground border-t pt-3">
+              The QR printed on this farmer's physical ID card encodes the same link, so scanning the printed card with a phone camera opens this page directly.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden render source for QR extraction */}
       <div ref={cardRef} className="hidden">
         <QRCodeSVG
           value={qrValue}
-          size={400}
-          level="H"
+          size={140}
+          level="M"
           includeMargin={false}
           style={{ display: "block" }}
         />
       </div>
 
       {/* Visual preview */}
-      <div className="border-2 border-green-700 rounded-xl overflow-hidden shadow-sm">
+      <div className="border rounded-lg overflow-hidden shadow-sm">
         {/* Header */}
-        <div className="bg-gradient-to-r from-green-900 to-green-700 px-4 py-3 text-white flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center text-white font-black text-base shrink-0">A</div>
-          <div>
-            <p className="text-xs font-extrabold tracking-wider uppercase">AVDP Farmer</p>
-            <p className="text-[9px] opacity-70 mt-0.5">Agricultural Verified Distribution Programme</p>
-          </div>
+        <div className="bg-green-700 px-4 py-3 text-white text-center">
+          <p className="text-lg font-extrabold tracking-tight leading-none">AVDP Farmer</p>
+          <p className="text-[10px] opacity-80 mt-1 tracking-wider uppercase">Identification Card</p>
         </div>
 
         {/* Body */}
-        <div className="bg-white px-4 py-4 flex flex-col items-center gap-3">
-          {/* Photo */}
-          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-600 shadow-md ring-2 ring-green-100 flex-shrink-0">
+        <div className="bg-white p-4 flex flex-col items-center gap-3">
+          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-300 bg-slate-100 shrink-0 flex items-center justify-center">
             {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={primaryName}
-                className="w-full h-full object-cover"
-              />
+              <img src={photoUrl} alt={`${farmer.firstName} ${farmer.lastName}`} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full bg-slate-100 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                </svg>
-              </div>
+              <svg viewBox="0 0 24 24" className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+              </svg>
             )}
           </div>
-
-          {/* Name */}
           <div className="text-center">
-            <p className="font-bold text-sm leading-tight">{primaryName}</p>
-            {contactName && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">Contact: {contactName}</p>
-            )}
-            <p className="font-mono text-[10px] text-muted-foreground mt-0.5">{farmer.farmerCode}</p>
+            <p className="font-bold text-base leading-tight">{farmer.firstName} {farmer.lastName}</p>
+            <p className="font-mono text-xs text-muted-foreground mt-0.5">{farmer.farmerCode}</p>
           </div>
 
-          <hr className="w-full border-slate-100" />
-
-          {/* QR */}
           <div className="p-2 border border-slate-200 rounded-lg bg-white">
             <QRCodeSVG
               value={qrValue}
-              size={120}
+              size={130}
               level="M"
               includeMargin={false}
             />
           </div>
-          <p className="text-[8px] text-muted-foreground uppercase tracking-widest">Scan to verify identity</p>
 
-          {/* Info grid */}
           <div className="w-full grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
             {farmer.gender && (
               <div>
-                <p className="text-[8px] text-muted-foreground uppercase tracking-wide">Gender</p>
-                <p className="text-[11px] font-semibold mt-0.5">{farmer.gender}</p>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Gender</p>
+                <p className="text-xs font-semibold mt-0.5">{farmer.gender}</p>
               </div>
             )}
             {farmer.districtName && (
               <div>
-                <p className="text-[8px] text-muted-foreground uppercase tracking-wide">District</p>
-                <p className="text-[11px] font-semibold mt-0.5">{farmer.districtName}</p>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">District</p>
+                <p className="text-xs font-semibold mt-0.5">{farmer.districtName}</p>
               </div>
             )}
             {farmer.valueChainName && (
               <div>
-                <p className="text-[8px] text-muted-foreground uppercase tracking-wide">Value Chain</p>
-                <p className="text-[11px] font-semibold mt-0.5">{farmer.valueChainName}</p>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Value Chain</p>
+                <p className="text-xs font-semibold mt-0.5">{farmer.valueChainName}</p>
               </div>
             )}
             {farmer.status && (
               <div>
-                <p className="text-[8px] text-muted-foreground uppercase tracking-wide">Status</p>
-                <p className={`text-[11px] font-semibold mt-0.5 capitalize ${farmer.status === "approved" ? "text-emerald-700" : "text-amber-700"}`}>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Status</p>
+                <p className={`text-xs font-semibold mt-0.5 capitalize ${farmer.status === "approved" ? "text-emerald-700" : "text-amber-700"}`}>
                   {farmer.status}
                 </p>
               </div>
@@ -359,7 +383,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
         </div>
 
         <div className="bg-green-50 border-t border-green-100 px-4 py-2 text-center">
-          <p className="text-[8px] text-muted-foreground">Present this card at distribution points for identification</p>
+          <p className="text-[9px] text-muted-foreground">Present this card at distribution points for identification</p>
         </div>
       </div>
     </div>

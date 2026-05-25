@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, listDistricts, getFarmerTypeCounts, farmerDisplayName, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, deleteFarmer, listDistricts, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,13 +9,12 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, User, FileSpreadsheet } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
 import { EditFarmerModal } from "@/components/modals/EditFarmerModal";
-import { BulkFarmerImportModal } from "@/components/modals/BulkFarmerImportModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -39,12 +38,6 @@ const STATUS_CHIPS = [
   { label: "Rejected", value: "rejected" },
 ];
 
-const TYPE_CHIPS = [
-  { label: "All Types",   value: "" },
-  { label: "Individual",  value: "individual" },
-  { label: "Group",       value: "group" },
-];
-
 export default function Farmers() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -54,19 +47,18 @@ export default function Farmers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [editFarmer, setEditFarmer] = useState<any>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
   const limit = 20;
   const districtId = districtFilter && districtFilter !== "all" ? parseInt(districtFilter) : undefined;
 
   const { data: farmersData, isLoading } = useQuery({
-    queryKey: KEYS.farmers(page, search, statusFilter || undefined, districtId, typeFilter || undefined),
-    queryFn: () => listFarmers(page, limit, search || undefined, statusFilter || undefined, districtId, typeFilter || undefined),
+    queryKey: KEYS.farmers(page, search, statusFilter || undefined, districtId),
+    queryFn: () => listFarmers(page, limit, search || undefined, statusFilter || undefined, districtId),
   });
 
   const { data: districts } = useQuery({
@@ -74,17 +66,12 @@ export default function Farmers() {
     queryFn: listDistricts,
   });
 
-  const { data: typeCounts } = useQuery({
-    queryKey: KEYS.farmerTypeCounts(),
-    queryFn: getFarmerTypeCounts,
-    staleTime: 60_000,
-  });
-
   const total = farmersData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const approveMutation = useMutation({ mutationFn: (id: number) => approveFarmer(id) });
   const rejectMutation  = useMutation({ mutationFn: (id: number) => rejectFarmer(id) });
+  const deleteMutation  = useMutation({ mutationFn: (id: number) => deleteFarmer(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
@@ -111,11 +98,24 @@ export default function Farmers() {
     } finally { setLoadingId(null); setRejectTarget(null); }
   }
 
-  function resetFilters() {
-    setSearch(""); setStatusFilter(""); setDistrictFilter(""); setTypeFilter(""); setPage(1);
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setLoadingId(deleteTarget.id);
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      await qc.invalidateQueries({ queryKey: KEYS.farmers() });
+      await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
+      toast({ title: "Farmer deleted" });
+    } catch (err: any) {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    } finally { setLoadingId(null); setDeleteTarget(null); }
   }
 
-  const hasFilters = !!(search || statusFilter || districtFilter || typeFilter);
+  function resetFilters() {
+    setSearch(""); setStatusFilter(""); setDistrictFilter(""); setPage(1);
+  }
+
+  const hasFilters = !!(search || statusFilter || districtFilter);
 
   return (
     <div className="space-y-5">
@@ -123,16 +123,10 @@ export default function Farmers() {
         title="Farmer Registry"
         subtitle="Manage and verify registered farmers."
         actions={can.registerFarmer ? (
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setBulkImportOpen(true)}>
-              <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
-              Bulk Import
-            </Button>
-            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Register Farmer
-            </Button>
-          </div>
+          <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" onClick={() => setRegisterOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Register Farmer
+          </Button>
         ) : undefined}
       />
 
@@ -167,22 +161,7 @@ export default function Farmers() {
               </Button>
             )}
             {!isLoading && (
-              <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
-                {typeCounts && (
-                  <span className="text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <User className="h-3 w-3" />
-                      {typeCounts.individuals.toLocaleString()} individuals
-                    </span>
-                    <span className="mx-1.5 text-muted-foreground/40">·</span>
-                    <span className="inline-flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      {typeCounts.groups.toLocaleString()} groups
-                    </span>
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground border-l pl-2">{total.toLocaleString()} total</span>
-              </div>
+              <span className="text-xs text-muted-foreground ml-auto">{total.toLocaleString()} farmers</span>
             )}
           </div>
 
@@ -195,20 +174,6 @@ export default function Farmers() {
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   statusFilter === value
                     ? "bg-green-700 text-white"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-            <span className="mx-1 text-muted-foreground/40 text-xs select-none">|</span>
-            {TYPE_CHIPS.map(({ label, value }) => (
-              <button
-                key={value}
-                onClick={() => { setTypeFilter(value); setPage(1); }}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  typeFilter === value
-                    ? "bg-blue-600 text-white"
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
               >
@@ -248,24 +213,8 @@ export default function Farmers() {
                       <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{farmer.farmerCode}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Avatar name={(farmer as any).beneficiaryType === "group" ? ((farmer as any).farmerGroup || `${farmer.firstName} ${farmer.lastName}`) : `${farmer.firstName} ${farmer.lastName}`} />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-medium text-sm">
-                                {(farmer as any).beneficiaryType === "group"
-                                  ? ((farmer as any).farmerGroup || `${farmer.firstName} ${farmer.lastName}`)
-                                  : `${farmer.firstName} ${farmer.lastName}`}
-                              </span>
-                              {(farmer as any).beneficiaryType === "group" && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] font-medium shrink-0">
-                                  <Users className="h-2.5 w-2.5" /> Group
-                                </span>
-                              )}
-                            </div>
-                            {(farmer as any).beneficiaryType === "group" && (farmer.firstName && farmer.firstName !== "—") && (
-                              <p className="text-xs text-muted-foreground">Contact: {farmer.firstName} {farmer.lastName}</p>
-                            )}
-                          </div>
+                          <Avatar name={`${farmer.firstName} ${farmer.lastName}`} />
+                          <span className="font-medium text-sm">{farmer.firstName} {farmer.lastName}</span>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
@@ -289,7 +238,7 @@ export default function Farmers() {
                                 size="sm" variant="ghost"
                                 className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                                 disabled={loadingId === farmer.id}
-                                onClick={() => setRejectTarget({ id: farmer.id, name: farmerDisplayName(farmer) })}
+                                onClick={() => setRejectTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
                               >
                                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                               </Button>
@@ -302,6 +251,16 @@ export default function Farmers() {
                               onClick={() => setEditFarmer(farmer)}
                             >
                               <Pencil className="h-3 w-3 mr-1" /> Edit
+                            </Button>
+                          )}
+                          {can.editFarmer && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
+                              disabled={loadingId === farmer.id}
+                              onClick={() => setDeleteTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                           )}
                           <Link href={`/farmers/${farmer.id}`}>
@@ -344,10 +303,7 @@ export default function Farmers() {
       </Card>
 
       {can.registerFarmer && (
-        <>
-          <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
-          <BulkFarmerImportModal open={bulkImportOpen} onClose={() => setBulkImportOpen(false)} />
-        </>
+        <RegisterFarmerModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
       )}
       {can.editFarmer && (
         <EditFarmerModal open={!!editFarmer} farmer={editFarmer} onClose={() => setEditFarmer(null)} />
@@ -365,6 +321,23 @@ export default function Farmers() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleRejectConfirm}>
               Reject
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Farmer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.name}</strong> and all associated records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={handleDeleteConfirm}>
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

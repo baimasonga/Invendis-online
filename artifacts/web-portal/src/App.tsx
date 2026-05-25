@@ -26,7 +26,7 @@ import AuditLogs from "@/pages/audit";
 import Users from "@/pages/users";
 import Settings from "@/pages/settings";
 import Incidents from "@/pages/incidents";
-import SupervisorView from "@/pages/supervisor";
+import FarmerCardPublic from "@/pages/farmer-card-public";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +57,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/card/:token" component={FarmerCardPublic} />
 
       <ProtectedRoute path="/dashboard"        component={Dashboard} />
       <ProtectedRoute path="/farmers"          component={Farmers} />
@@ -77,7 +78,6 @@ function Router() {
       <ProtectedRoute path="/users"            component={Users} />
       <ProtectedRoute path="/settings"         component={Settings} />
       <ProtectedRoute path="/incidents"        component={Incidents} />
-      <ProtectedRoute path="/supervisor"       component={SupervisorView} />
 
       <Route path="/">
         <Redirect to="/dashboard" />

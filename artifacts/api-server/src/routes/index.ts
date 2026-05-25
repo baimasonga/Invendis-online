@@ -9,6 +9,7 @@ import campaignsRouter from "./campaigns";
 import vehiclesRouter from "./vehicles";
 import dispatchRouter from "./dispatch";
 import gpsRouter from "./gps";
+import gpsTraceRouter from "./gpstrace";
 import podRouter from "./pod";
 import otpRouter from "./otp";
 import reconciliationRouter from "./reconciliation";
@@ -17,7 +18,6 @@ import auditRouter from "./audit";
 import usersRouter from "./users";
 import faceRouter from "./face";
 import incidentsRouter from "./incidents";
-import gisRouter from "./gis";
 
 const router: IRouter = Router();
 
@@ -31,6 +31,7 @@ router.use(campaignsRouter);
 router.use(vehiclesRouter);
 router.use(dispatchRouter);
 router.use(gpsRouter);
+router.use(gpsTraceRouter);
 router.use(podRouter);
 router.use(otpRouter);
 router.use(reconciliationRouter);
@@ -39,6 +40,5 @@ router.use(auditRouter);
 router.use(usersRouter);
 router.use(faceRouter);
 router.use(incidentsRouter);
-router.use(gisRouter);
 
 export default router;
