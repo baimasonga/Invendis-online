@@ -38,7 +38,7 @@ export default function LoginScreen() {
     try {
       await login(email.trim().toLowerCase(), password);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/(tabs)" as any);
+      router.replace("/(tabs)");
     } catch (e: unknown) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const raw = e instanceof Error ? e.message : "";

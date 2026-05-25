@@ -22,7 +22,9 @@ let CameraView: React.ComponentType<{
   onBarcodeScanned?: (data: { data: string }) => void;
   barcodeScannerSettings?: { barcodeTypes: string[] };
 }> | null = null;
-let useCameraPermissions: (() => [{ granted: boolean } | null, () => Promise<void>]) | null = null;
+type CameraPermission = { granted: boolean } | null;
+type RequestCameraPermission = (() => Promise<unknown>) | null;
+let useCameraPermissions: (() => [CameraPermission, RequestCameraPermission]) | null = null;
 
 if (Platform.OS !== "web") {
   try {
@@ -44,27 +46,20 @@ export default function ScanFarmerScreen() {
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  const _camPerms = useCameraPermissions?.() ?? null;
-  const camPermission = _camPerms?.[0] ?? null;
-  const requestCamPermission: () => Promise<void> = _camPerms?.[1] ?? (async () => {});
+  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, null];
+  const [camPermission, requestCamPermission] = camPerms;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const lookup = async (code: string) => {
     if (!token || loading) return;
-    // Newer ID-card QR codes encode the full share URL (e.g.
-    // "https://invendisapp.com/card/BC12345678"). Pull the trailing token
-    // segment out so we can still look the farmer up by barcode.
-    const trimmed = code.trim();
-    const urlMatch = trimmed.match(/\/card\/([^/?#]+)/);
-    const scanned = urlMatch ? decodeURIComponent(urlMatch[1]) : trimmed;
     setLoading(true);
     setFarmer(null);
     try {
-      const result = await farmerByBarcode(token, scanned);
+      const result = await farmerByBarcode(token, code);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      const results = await searchFarmers(token, scanned).catch(() => ({ data: [] as Farmer[] }));
+      const results = await searchFarmers(token, code).catch(() => ({ data: [] as Farmer[] }));
       if (results.data.length > 0) {
         setFarmer(results.data[0]);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -128,7 +123,7 @@ export default function ScanFarmerScreen() {
             <View style={[styles.camUnavail, { backgroundColor: colors.muted }]}>
               <Feather name="lock" size={40} color={colors.mutedForeground} />
               <Text style={[styles.camUnavailText, { color: colors.foreground }]}>Camera permission needed</Text>
-              <TouchableOpacity style={[styles.switchBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]} onPress={requestCamPermission}>
+              <TouchableOpacity style={[styles.switchBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]} onPress={() => { void requestCamPermission?.(); }}>
                 <Text style={styles.switchBtnTxt}>Grant Access</Text>
               </TouchableOpacity>
             </View>

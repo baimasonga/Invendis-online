@@ -1,0 +1,100 @@
+name: Mobile Build (Field App)
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile-typecheck:
+    name: Mobile Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck field app
+        run: pnpm --filter @workspace/field-app run typecheck
+
+  mobile-static-build:
+    name: Mobile Static Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs: mobile-typecheck
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: true
+      EXPO_PUBLIC_DOMAIN: b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev
+      REPLIT_DEV_DOMAIN: b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev
+      EXPO_PUBLIC_REPL_ID: ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build field app static bundle
+        run: pnpm --filter @workspace/field-app run build
+
+      - name: Verify static build output exists
+        run: |
+          test -d artifacts/field-app/static-build
+          test -f artifacts/field-app/static-build/index.html
+
+      - name: Smoke-check Android static build structure
+        run: |
+          test -d artifacts/field-app/static-build/android
+          test -f artifacts/field-app/static-build/android/manifest.json
+          test -d artifacts/field-app/static-build/*/_expo/static/js/android
+          test -f artifacts/field-app/static-build/*/_expo/static/js/android/bundle.js
+
+      - name: Upload static build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-app-static-build
+          path: artifacts/field-app/static-build
+          if-no-files-found: error

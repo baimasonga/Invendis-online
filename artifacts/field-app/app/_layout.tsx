@@ -33,8 +33,8 @@ function AuthGuard() {
 
     if (!token && !onLogin) {
       router.replace("/login");
-    } else if (token && (onLogin || !segments[0])) {
-      router.replace("/(tabs)" as any);
+    } else if (token && onLogin) {
+      router.replace("/(tabs)");
     }
   }, [token, isLoading, segments]);
 
