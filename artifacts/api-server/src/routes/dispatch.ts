@@ -900,11 +900,14 @@ router.post(
     }
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)
+    // NOTE: row.quantities is a compact 0-based array (one entry per column), so we
+    // must use the positional index i — NOT col.colIndex (the original spreadsheet column number).
     let totalPackages = 0;
-    for (const col of columns) {
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
       const itemId = itemIdMap[col.colIndex];
       if (!itemId) continue;
-      const totalQty = rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantities[col.colIndex]) || 0), 0);
+      const totalQty = rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantities[i]) || 0), 0);
       if (totalQty <= 0) continue;
       await supa.from("dispatch_items").insert({
         dispatch_id: dispatchId,
