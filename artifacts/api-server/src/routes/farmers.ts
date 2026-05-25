@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireRoles } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, FarmerCreateSchema } from "../lib/validate.js";
 import { getPresignedViewUrl } from "../lib/aws.js";
@@ -15,7 +15,7 @@ function generateBarcode() {
   return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
 }
 
-router.get("/api/farmers", requireAuth, async (req, res) => {
+router.get("/api/farmers", requireAnyAuth, async (req, res) => {
   const { page = "1", limit = "20", search, status, districtId, valueChainId } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("farmers").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
@@ -52,7 +52,7 @@ router.get("/api/farmers/stats", requireAuth, async (_req, res) => {
   res.json(stats);
 });
 
-router.get("/api/farmers/barcode/:token", requireAuth, async (req, res) => {
+router.get("/api/farmers/barcode/:token", requireAnyAuth, async (req, res) => {
   const { data: rows, error } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
   res.json(snakeToCamel(rows[0]));

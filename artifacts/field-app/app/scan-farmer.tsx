@@ -155,7 +155,7 @@ export default function ScanFarmerScreen() {
             placeholderTextColor={colors.mutedForeground}
             value={input}
             onChangeText={setInput}
-            autoCapitalize="characters"
+            autoCapitalize="words"
             returnKeyType="search"
             onSubmitEditing={() => input.trim() && lookup(input.trim())}
           />
