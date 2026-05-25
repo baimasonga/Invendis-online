@@ -6,27 +6,31 @@ function normalisePhone(raw: string): string {
 }
 
 export async function sendSms(to: string, text: string): Promise<void> {
-  const username = process.env.EASYSENDSMS_USERNAME;
-  const password = process.env.EASYSENDSMS_PASSWORD;
-  const sender   = process.env.EASYSENDSMS_SENDER ?? "AgriPoD";
+  const sid   = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from  = process.env.TWILIO_PHONE_NUMBER;
 
-  if (!username || !password) {
-    throw new Error("EasySendSMS credentials not configured");
+  if (!sid || !token || !from) {
+    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
   }
 
-  const params = new URLSearchParams({
-    username,
-    password,
-    from:   sender,
-    to:     normalisePhone(to),
-    text,
-    type:   "0",
-  });
+  const e164 = "+" + normalisePhone(to);
+  const body = new URLSearchParams({ From: from, To: e164, Body: text });
 
-  const resp = await fetch(`https://api.easysendsms.app/bulksms?${params}`, { method: "GET" });
-  const body = (await resp.text()).trim();
+  const resp = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    }
+  );
 
-  if (!body.toUpperCase().startsWith("OK:")) {
-    throw new Error(`EasySendSMS error: ${body}`);
+  const json = await resp.json() as { error_message?: string };
+  if (!resp.ok || json.error_message) {
+    throw new Error(`Twilio SMS error: ${json.error_message ?? resp.status}`);
   }
 }
