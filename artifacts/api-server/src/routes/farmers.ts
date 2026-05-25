@@ -19,7 +19,20 @@ router.get("/api/farmers", requireAnyAuth, async (req, res) => {
   const { page = "1", limit = "20", search, status, districtId, valueChainId } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("farmers").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
-  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%`) as typeof q;
+  if (search) {
+    const parts = search.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      const first = parts[0];
+      const last = parts.slice(1).join(" ");
+      q = q.or(
+        `and(first_name.ilike.%${first}%,last_name.ilike.%${last}%),` +
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,` +
+        `farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`
+      ) as typeof q;
+    } else {
+      q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`) as typeof q;
+    }
+  }
   if (status) q = q.eq("status", status) as typeof q;
   if (districtId) q = q.eq("district_id", Number(districtId)) as typeof q;
   if (valueChainId) q = q.eq("value_chain_id", Number(valueChainId)) as typeof q;
