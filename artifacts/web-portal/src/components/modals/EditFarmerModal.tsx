@@ -26,6 +26,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
   const [gender, setGender]             = useState("");
   const [phone, setPhone]               = useState("");
   const [nationalId, setNationalId]     = useState("");
+  const [cboName, setCboName]           = useState("");
   const [districtId, setDistrictId]     = useState("");
   const [chiefdomId, setChiefdomId]     = useState("");
   const [valueChainId, setValueChainId] = useState("");
@@ -38,6 +39,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
       setGender(farmer.gender ?? "");
       setPhone(farmer.phone ?? "");
       setNationalId(farmer.nationalId ?? "");
+      setCboName(farmer.cboName ?? "");
       setDistrictId(farmer.districtId ? String(farmer.districtId) : "");
       setChiefdomId(farmer.chiefdomId ? String(farmer.chiefdomId) : "");
       setValueChainId(farmer.valueChainId ? String(farmer.valueChainId) : "");
@@ -72,6 +74,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
           gender: gender || undefined,
           phone: phone || undefined,
           nationalId: nationalId || undefined,
+          cboName: cboName || undefined,
           districtId: districtId ? Number(districtId) : undefined,
           chiefdomId: chiefdomId ? Number(chiefdomId) : undefined,
           valueChainId: valueChainId ? Number(valueChainId) : undefined,
@@ -131,6 +134,11 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
               <Label htmlFor="ef-farm">Farm Size (ha)</Label>
               <Input id="ef-farm" type="number" min="0" step="any" value={farmSize} onChange={e => setFarmSize(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ef-cbo">Name of CBO</Label>
+            <Input id="ef-cbo" value={cboName} onChange={e => setCboName(e.target.value)} placeholder="Community Based Organisation name" />
           </div>
 
           <div className="space-y-1.5">

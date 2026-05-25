@@ -212,6 +212,7 @@ export default function FarmerDetail() {
               <Field label="Chiefdom"       value={f.chiefdomName} />
               <Field label="Section"        value={f.sectionName} />
               <Field label="Community"      value={f.communityName} />
+              <Field label="Name of CBO"    value={f.cboName} />
             </CardContent>
           </Card>
         </div>
