@@ -9,7 +9,7 @@
  *   GPSTRACE_HOST   – (optional) Wialon host; default: hst-api.wialon.com
  */
 import { Router } from "express";
-import { requireAuth } from "../lib/auth.js";
+import { requireAnyAuth } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
 
 const router = Router();
@@ -76,7 +76,7 @@ interface WialonUnit {
 
 // ── GET /api/gpstrace/devices ─────────────────────────────────────────────────
 // Returns GPS-Trace devices enriched with which vehicle each is linked to.
-router.get("/api/gpstrace/devices", requireAuth, async (_req, res) => {
+router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
   if (!getToken()) {
     res.json({ configured: false, devices: [], vehicles: [] });
     return;
@@ -118,7 +118,7 @@ router.get("/api/gpstrace/devices", requireAuth, async (_req, res) => {
 
 // ── POST /api/gpstrace/sync ───────────────────────────────────────────────────
 // Pulls latest position for every linked vehicle and writes to gps_track.
-router.post("/api/gpstrace/sync", requireAuth, async (_req, res) => {
+router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
   if (!getToken()) {
     res.json({ synced: 0, message: "GPSTRACE_TOKEN not configured" });
     return;
@@ -181,7 +181,7 @@ router.post("/api/gpstrace/sync", requireAuth, async (_req, res) => {
 
 // ── POST /api/gpstrace/link ───────────────────────────────────────────────────
 // Links a GPS-Trace device ID to a vehicle.
-router.post("/api/gpstrace/link", requireAuth, async (req, res) => {
+router.post("/api/gpstrace/link", requireAnyAuth, async (req, res) => {
   const { vehicleId, deviceId, deviceName } = req.body as {
     vehicleId: number; deviceId: string; deviceName?: string;
   };
@@ -204,7 +204,7 @@ router.post("/api/gpstrace/link", requireAuth, async (req, res) => {
 });
 
 // ── DELETE /api/gpstrace/unlink/:vehicleId ────────────────────────────────────
-router.delete("/api/gpstrace/unlink/:vehicleId", requireAuth, async (req, res) => {
+router.delete("/api/gpstrace/unlink/:vehicleId", requireAnyAuth, async (req, res) => {
   const { error } = await supa
     .from("vehicles")
     .update({ gps_device_id: null })
