@@ -72,7 +72,7 @@ router.post("/api/dispatches/:id/notify-farmers", requireAnyAuth, async (req, re
     .from("allocations")
     .select("farmer_id")
     .eq("campaign_id", d.campaign_id)
-    .in("status", ["approved", "Approved", "active", "Active"]);
+    .not("status", "eq", "Rejected");
 
   if (allocErr) {
     res.status(500).json({ error: allocErr.message });
@@ -80,7 +80,7 @@ router.post("/api/dispatches/:id/notify-farmers", requireAnyAuth, async (req, re
   }
 
   if (!allocations?.length) {
-    res.json({ total: 0, notified: 0, noPhone: 0, failed: 0, campaignName, message: "No approved allocations found" });
+    res.json({ total: 0, notified: 0, noPhone: 0, failed: 0, campaignName, message: "No allocations found for this campaign" });
     return;
   }
 
