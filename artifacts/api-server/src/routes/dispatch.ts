@@ -35,7 +35,7 @@ async function fetchLookups(
     warehouseIds.length ? supa.from("warehouses").select("id,name").in("id", warehouseIds)             : Promise.resolve({ data: [] }),
     vehicleIds.length   ? supa.from("vehicles").select("id,plate_number,vehicle_type").in("id", vehicleIds) : Promise.resolve({ data: [] }),
     driverIds.length    ? supa.from("drivers").select("id,full_name").in("id", driverIds)              : Promise.resolve({ data: [] }),
-    officerIds.length   ? supa.from("users").select("id,full_name").in("id", officerIds)               : Promise.resolve({ data: [] }),
+    officerIds.length   ? supa.from("profiles").select("id,full_name").in("id", officerIds)            : Promise.resolve({ data: [] }),
   ]);
 
   // Resolve district names for campaigns

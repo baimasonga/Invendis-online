@@ -908,10 +908,10 @@ export async function deleteDispatch(id: number) {
 
 export async function listFieldOfficers() {
   const { data, error } = await supabase
-    .from("users")
-    .select("id, full_name, email, district_id")
-    .eq("role", "FieldOfficer")
-    .eq("is_active", true)
+    .from("profiles")
+    .select("id, full_name, district_id")
+    .in("role", ["FieldOfficer", "field_officer"])
+    .eq("is_active", 1)
     .order("full_name");
   if (error) throw new Error(error.message);
   return cc(data ?? []);
