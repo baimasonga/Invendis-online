@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "invendis-app",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -51,7 +51,6 @@
           ]
         }
       ],
-      "expo-web-browser",
       [
         "expo-camera",
         {
