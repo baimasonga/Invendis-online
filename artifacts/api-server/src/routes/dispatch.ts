@@ -935,4 +935,43 @@ router.post(
   },
 );
 
+// ── GET /api/dispatch/:id/farmers ────────────────────────────────────────────
+// Returns allocated farmers for the dispatch's campaign (for web-portal OTP sender).
+router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid dispatch id" }); return; }
+
+  const { data: dispRow, error: dispErr } = await supa
+    .from("dispatches")
+    .select("campaign_id, manifest_code")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (dispErr || !dispRow) { res.status(404).json({ error: "Dispatch not found" }); return; }
+  if (!dispRow.campaign_id) { res.json([]); return; }
+
+  const { data: allocs, error: allocErr } = await supa
+    .from("allocations")
+    .select("id, farmer_id, status, farmers(id, first_name, last_name, farmer_code, phone, barcode_token)")
+    .eq("campaign_id", dispRow.campaign_id)
+    .order("id");
+
+  if (allocErr) { res.status(500).json({ error: allocErr.message }); return; }
+
+  const rows = (allocs ?? []).map((a: any) => {
+    const f = a.farmers ?? {};
+    return {
+      allocationId:     a.id,
+      farmerId:         a.farmer_id,
+      farmerName:       `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "—",
+      farmerCode:       f.farmer_code   ?? null,
+      phone:            f.phone         ?? null,
+      barcodeToken:     f.barcode_token ?? null,
+      allocationStatus: a.status,
+    };
+  });
+
+  res.json(rows);
+});
+
 export default router;

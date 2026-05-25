@@ -1201,6 +1201,18 @@ async function getSupabaseAccessToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
+async function apiGet(path: string): Promise<any> {
+  const token = await getSupabaseAccessToken();
+  const res = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(json?.error ?? json?.message ?? res.statusText ?? "Request failed");
+  }
+  return res.json();
+}
+
 async function apiPost(path: string, body: unknown): Promise<any> {
   const token = await getSupabaseAccessToken();
   const res = await fetch(path, {
@@ -1223,8 +1235,23 @@ async function apiPost(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
-export async function sendOtp(farmerId: number): Promise<{ sent: boolean; maskedPhone: string; farmerName: string; devCode?: string }> {
-  return apiPost("/api/pod/otp/send", { farmerId });
+export async function sendOtp(
+  farmerId: number,
+  opts?: { dispatchId?: number; campaignId?: number },
+): Promise<{ sent: boolean; maskedPhone: string; farmerName: string; smsSent?: boolean; whatsappSent?: boolean; devCode?: string }> {
+  return apiPost("/api/pod/otp/send", { farmerId, ...opts });
+}
+
+export async function listDispatchFarmers(dispatchId: number): Promise<{
+  allocationId: number;
+  farmerId: number;
+  farmerName: string;
+  farmerCode: string | null;
+  phone: string | null;
+  barcodeToken: string | null;
+  allocationStatus: string;
+}[]> {
+  return apiGet(`/api/dispatch/${dispatchId}/farmers`);
 }
 
 export async function verifyOtp(farmerId: number, code: string): Promise<{ verified: boolean }> {

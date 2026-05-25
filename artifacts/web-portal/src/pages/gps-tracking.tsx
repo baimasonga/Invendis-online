@@ -149,9 +149,10 @@ interface GpsMapProps {
   vehicles: any[];
   selectedId: number | null;
   onSelectVehicle: (id: number) => void;
+  track?: any[];
 }
 
-function GpsMap({ vehicles, selectedId, onSelectVehicle }: GpsMapProps) {
+function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<any>(null);
   const vehicleMarkersRef = useRef<Record<number, any>>({});
@@ -299,7 +300,28 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle }: GpsMapProps) {
     const map = mapRef.current;
     if (!L || !map) return;
     if (trackLineRef.current) { trackLineRef.current.remove(); trackLineRef.current = null; }
-  }, [selectedId]);
+
+    const latLngs = track
+      .filter(p => p.latitude != null && p.longitude != null)
+      .map(p => [p.latitude, p.longitude] as [number, number]);
+
+    if (latLngs.length >= 2) {
+      trackLineRef.current = L.polyline(latLngs, {
+        color: "#6366f1",
+        weight: 3,
+        opacity: 0.75,
+      }).addTo(map);
+
+      // Dot at the oldest known point (tail of the trail)
+      L.circleMarker(latLngs[latLngs.length - 1], {
+        radius: 5,
+        color: "#6366f1",
+        fillColor: "#6366f1",
+        fillOpacity: 0.7,
+        weight: 2,
+      }).addTo(map);
+    }
+  }, [selectedId, track]);
 
   return (
     <div className="relative rounded-xl overflow-hidden border h-full">
@@ -698,6 +720,7 @@ export default function GpsTracking() {
               vehicles={vehicleList}
               selectedId={selectedVehicle}
               onSelectVehicle={handleSelectVehicle}
+              track={trackPoints}
             />
           )}
         </div>

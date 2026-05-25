@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
   CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
+  MessageSquare, Send, Phone, AlertCircle,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +47,7 @@ export default function DispatchDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [otpResults, setOtpResults] = useState<Record<number, { sending: boolean; sent?: boolean; maskedPhone?: string; error?: string }>>({});
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -57,6 +59,22 @@ export default function DispatchDetail() {
     queryFn: () => listPod(1, 100, id),
     enabled: !!id,
   });
+
+  const { data: dispatchFarmers = [], isLoading: loadingFarmers } = useQuery({
+    queryKey: ["dispatch-farmers", id],
+    queryFn: () => listDispatchFarmers(id),
+    enabled: !!id,
+  });
+
+  async function handleSendOtp(farmerId: number) {
+    setOtpResults(prev => ({ ...prev, [farmerId]: { sending: true } }));
+    try {
+      const result = await sendOtp(farmerId, { dispatchId: id });
+      setOtpResults(prev => ({ ...prev, [farmerId]: { sending: false, sent: true, maskedPhone: result.maskedPhone } }));
+    } catch (err: any) {
+      setOtpResults(prev => ({ ...prev, [farmerId]: { sending: false, error: err.message ?? "Failed to send" } }));
+    }
+  }
 
   const approveMutation  = useMutation({ mutationFn: () => approveDispatch(id) });
   const dispatchMutation = useMutation({ mutationFn: () => dispatchManifest(id) });
@@ -292,6 +310,13 @@ export default function DispatchDetail() {
             PoD Records
             {pods.length > 0 && <span className="ml-1 text-xs bg-muted rounded px-1">{pods.length}</span>}
           </TabsTrigger>
+          <TabsTrigger value="notify" className="text-xs flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" />
+            Notify Farmers
+            {(dispatchFarmers as any[]).length > 0 && (
+              <span className="ml-0.5 text-xs bg-muted rounded px-1">{(dispatchFarmers as any[]).length}</span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="manifest" className="mt-4">
@@ -506,6 +531,126 @@ export default function DispatchDetail() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="notify" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-blue-600" />
+                Send OTP to Farmers
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Send a one-time verification code to each farmer's phone before the field officer arrives.
+                The field officer will ask the farmer for the code to confirm identity.
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loadingFarmers ? (
+                <div className="p-4 space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-14 w-full" />
+                  ))}
+                </div>
+              ) : (dispatchFarmers as any[]).length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+                  <Phone className="h-8 w-8 opacity-25" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium">No farmers allocated</p>
+                    <p className="text-xs mt-0.5">
+                      {(d as any).campaignName
+                        ? "No allocations found for this campaign."
+                        : "This dispatch is not linked to a campaign."}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="pl-4">Farmer</TableHead>
+                      <TableHead className="hidden sm:table-cell">Code</TableHead>
+                      <TableHead className="hidden md:table-cell">Phone</TableHead>
+                      <TableHead className="text-right pr-4">OTP</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(dispatchFarmers as any[]).map((f: any) => {
+                      const state = otpResults[f.farmerId];
+                      return (
+                        <TableRow key={f.farmerId} className="hover:bg-muted/40">
+                          <TableCell className="pl-4">
+                            <p className="text-sm font-medium">{f.farmerName}</p>
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell text-xs text-muted-foreground font-mono">
+                            {f.farmerCode ?? "—"}
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            {f.phone ? (
+                              <span className="text-xs font-mono flex items-center gap-1">
+                                <Phone className="h-3 w-3 text-muted-foreground" />
+                                {state?.maskedPhone ?? f.phone}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 text-amber-500" />
+                                No phone
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right pr-4">
+                            {state?.sent ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Sent · {state.maskedPhone}
+                              </span>
+                            ) : state?.error ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <span className="text-[10px] text-red-600 flex items-center gap-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  {state.error.length > 40 ? state.error.slice(0, 40) + "…" : state.error}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 text-[10px] px-2"
+                                  onClick={() => handleSendOtp(f.farmerId)}
+                                  disabled={state?.sending || !f.phone}
+                                >
+                                  Retry
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => handleSendOtp(f.farmerId)}
+                                disabled={state?.sending || !f.phone}
+                                title={!f.phone ? "No phone number on record" : undefined}
+                              >
+                                {state?.sending ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                    Sending…
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1.5">
+                                    <Send className="h-3 w-3" />
+                                    Send Code
+                                  </span>
+                                )}
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
