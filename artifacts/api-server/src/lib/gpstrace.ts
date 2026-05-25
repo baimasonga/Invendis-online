@@ -1,60 +1,39 @@
 /**
- * GPS poller — uses GPSTRACE_TOKEN (Wialon token/login → core/search_items).
- * Writes position data to Supabase (gps_track + vehicles).
+ * GPS poller — Partner Console API (api.gps-trace.com, X-AccessToken).
+ * Runs on a background interval; writes positions to gps_track + vehicles.
  */
 import { supa } from "./supabase.js";
 import { logger } from "./logger.js";
 
-const WIALON_HOST = (process.env["GPSTRACE_HOST"] ?? "hst-api.wialon.com").replace(/\/$/, "");
-const WIALON_BASE = `https://${WIALON_HOST}/wialon/ajax.html`;
+const API_BASE = "https://api.gps-trace.com";
 
-async function wialonGet(svc: string, params: object, sid?: string): Promise<any> {
-  const qs = new URLSearchParams({ svc, params: JSON.stringify(params) });
-  if (sid) qs.set("sid", sid);
-  const resp = await fetch(`${WIALON_BASE}?${qs.toString()}`, { signal: AbortSignal.timeout(12_000) });
+const getToken = () =>
+  (process.env["GPS_TRACE_TOKEN"] || process.env["GPS_TRACE_API_TOKEN"] || process.env["GPSTRACE_TOKEN"] || "").trim();
+
+async function partnerGet(path: string): Promise<any> {
+  const token = getToken();
+  if (!token) throw new Error("GPS_TRACE_API_TOKEN is not set");
+  const resp = await fetch(`${API_BASE}${path}`, {
+    headers: { "X-AccessToken": token, Accept: "application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`GPS-Trace API ${resp.status}: ${body.slice(0, 200)}`);
+  }
   return resp.json();
 }
 
-async function openSession(): Promise<string> {
-  const token = process.env["GPSTRACE_TOKEN"] ?? process.env["GPS_TRACE_API_TOKEN"];
-  if (!token) throw new Error("GPSTRACE_TOKEN is not set");
-  const result = await wialonGet("token/login", { token });
-  if (result.error) throw new Error(`GPS-Trace login failed (code ${result.error})`);
-  return result.eid as string;
-}
-
-async function closeSession(sid: string): Promise<void> {
-  await wialonGet("core/logout", {}, sid).catch(() => {});
-}
-
-interface WialonUnit {
-  id: number;
-  nm: string;
-  pos?: {
-    t: number;
-    y: number;
-    x: number;
-    s: number;
-    c: number;
-  } | null;
-}
-
-async function fetchUnits(sid: string): Promise<WialonUnit[]> {
-  const result = await wialonGet(
-    "core/search_items",
-    {
-      spec: { itemsType: "avl_unit", propName: "sys_name", propValueMask: "*", sortType: "sys_name" },
-      force: 1,
-      flags: 1033,
-      from: 0,
-      to: 0,
-    },
-    sid
-  );
-  return (result.items ?? []) as WialonUnit[];
+interface Telemetry {
+  "position.latitude"?:  { ts: number; value: number };
+  "position.longitude"?: { ts: number; value: number };
+  "position.speed"?:     { ts: number; value: number };
+  "position.direction"?: { ts: number; value: number };
 }
 
 export async function syncAllVehicles(): Promise<{ synced: number; skipped: number; source: string }> {
+  if (!getToken()) return { synced: 0, skipped: 0, source: "no-token" };
+
   const { data: vehicles, error } = await supa
     .from("vehicles")
     .select("id, gps_device_id, last_ping")
@@ -66,65 +45,73 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
     return { synced: 0, skipped: 0, source: "error" };
   }
 
-  const vList: { id: number; gps_device_id: string; last_ping: string | null }[] = vehicles ?? [];
+  const vList = (vehicles ?? []) as { id: number; gps_device_id: string; last_ping: string | null }[];
   if (!vList.length) return { synced: 0, skipped: 0, source: "none" };
 
-  let sid: string | null = null;
-  try {
-    sid = await openSession();
-    const units = await fetchUnits(sid);
+  // Build a map of deviceId → vehicle
+  const deviceMap = new Map<string, typeof vList[number]>();
+  for (const v of vList) deviceMap.set(v.gps_device_id, v);
 
-    const unitMap = new Map<string, WialonUnit>();
-    for (const u of units) unitMap.set(String(u.id), u);
+  // Fetch telemetry in parallel for all linked devices
+  const deviceIds = [...deviceMap.keys()];
+  const telemetries = await Promise.allSettled(
+    deviceIds.map(id => partnerGet(`/provider/units/${id}/telemetry`) as Promise<Telemetry>)
+  );
 
-    let synced = 0;
-    let skipped = 0;
+  let synced = 0;
+  let skipped = 0;
 
-    for (const v of vList) {
-      const unit = unitMap.get(v.gps_device_id);
-      if (!unit?.pos) { skipped++; continue; }
+  for (let i = 0; i < deviceIds.length; i++) {
+    const vehicle = deviceMap.get(deviceIds[i])!;
+    const result = telemetries[i];
 
-      const posTime = new Date(unit.pos.t * 1000);
+    if (result.status === "rejected") { skipped++; continue; }
 
-      if (v.last_ping && posTime <= new Date(v.last_ping)) { skipped++; continue; }
+    const tel = result.value;
+    const lat = tel["position.latitude"]?.value  ?? null;
+    const lng = tel["position.longitude"]?.value ?? null;
+    const ts  = tel["position.latitude"]?.ts     ?? null;
 
-      const { error: insertErr } = await supa.from("gps_track").insert({
-        vehicle_id:  v.id,
-        dispatch_id: null,
-        latitude:    unit.pos.y,
-        longitude:   unit.pos.x,
-        speed:       unit.pos.s ?? null,
-        heading:     unit.pos.c ?? null,
-        accuracy:    null,
-        recorded_at: posTime.toISOString(),
-      });
-      if (insertErr) {
-        logger.warn({ vehicleId: v.id, err: insertErr.message }, "GPS poller: gps_track insert error");
-        skipped++;
-        continue;
-      }
+    if (lat == null || lng == null || ts == null) { skipped++; continue; }
 
-      await supa.from("vehicles").update({
-        last_latitude:  unit.pos.y,
-        last_longitude: unit.pos.x,
-        last_ping:      posTime.toISOString(),
-      }).eq("id", v.id);
+    const posTime = new Date(ts * 1000);
+    if (vehicle.last_ping && posTime <= new Date(vehicle.last_ping)) { skipped++; continue; }
 
-      synced++;
+    const { error: insertErr } = await supa.from("gps_track").insert({
+      vehicle_id:  vehicle.id,
+      dispatch_id: null,
+      latitude:    lat,
+      longitude:   lng,
+      speed:       tel["position.speed"]?.value     ?? null,
+      heading:     tel["position.direction"]?.value ?? null,
+      accuracy:    null,
+      recorded_at: posTime.toISOString(),
+    });
+
+    if (insertErr) {
+      logger.warn({ vehicleId: vehicle.id, err: insertErr.message }, "GPS poller: gps_track insert error");
+      skipped++;
+      continue;
     }
 
-    logger.info({ synced, skipped, source: "gpstrace" }, "GPS sync complete");
-    return { synced, skipped, source: "gpstrace" };
-  } finally {
-    if (sid) await closeSession(sid);
+    await supa.from("vehicles").update({
+      last_latitude:  lat,
+      last_longitude: lng,
+      last_ping:      posTime.toISOString(),
+    }).eq("id", vehicle.id);
+
+    synced++;
   }
+
+  logger.info({ synced, skipped, source: "gpstrace-partner" }, "GPS sync complete");
+  return { synced, skipped, source: "gpstrace-partner" };
 }
 
 let _pollTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startGpsPoller(intervalMs = 30_000): void {
   if (_pollTimer) return;
-  logger.info({ intervalMs }, "Starting GPS poller (GPSTRACE_TOKEN)");
+  logger.info({ intervalMs }, "Starting GPS poller (Partner Console API)");
   _pollTimer = setInterval(async () => {
     try { await syncAllVehicles(); }
     catch (err: any) { logger.warn({ err: err.message }, "GPS poller error"); }
