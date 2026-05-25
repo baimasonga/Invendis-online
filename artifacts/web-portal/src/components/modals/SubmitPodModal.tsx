@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, KEYS } from "@/lib/db";
+import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, KEYS } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -118,7 +118,10 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setOtpError("");
     setOtpDevCode(null);
     try {
-      const res = await sendOtp(Number(farmerId));
+      const res = await sendOtp(Number(farmerId), {
+        dispatchId: dispatchId ? Number(dispatchId) : undefined,
+        campaignId: selectedDispatch?.campaignId ?? undefined,
+      });
       setOtpMaskedPhone(res.maskedPhone ?? "");
       setOtpSent(true);
       setOtpResendSecs(60);
@@ -147,8 +150,16 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     }
   }
 
-  function handleOtpBypass() {
+  async function handleOtpBypass() {
     if (!otpBypassReason.trim()) return;
+    try {
+      await bypassOtp(Number(farmerId), {
+        dispatchId: dispatchId ? Number(dispatchId) : undefined,
+        reason: otpBypassReason.trim(),
+      });
+    } catch {
+      // Non-fatal: bypass is recorded locally even if the audit call fails
+    }
     setOtpBypassed(true);
     setShowOtpBypass(false);
   }

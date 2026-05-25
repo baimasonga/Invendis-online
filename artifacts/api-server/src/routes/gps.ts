@@ -105,7 +105,7 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
      LEFT JOIN distribution_sites ds ON ds.id = c.distribution_site_id
      LEFT JOIN districts dc ON dc.id = COALESCE(ds.district_id, c.district_id)
      LEFT JOIN drivers dr ON dr.id = d.driver_id
-     WHERE v.status = 'InTransit'
+     WHERE d.id IS NOT NULL
      ORDER BY v.last_ping DESC NULLS LAST`,
     []
   );

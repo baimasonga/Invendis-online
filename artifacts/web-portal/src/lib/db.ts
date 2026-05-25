@@ -1198,6 +1198,13 @@ export async function verifyOtp(farmerId: number, code: string): Promise<{ verif
   return apiPost("/api/pod/otp/verify", { farmerId, code });
 }
 
+export async function bypassOtp(
+  farmerId: number,
+  opts?: { dispatchId?: number; reason?: string },
+): Promise<{ bypassed: boolean; reason: string }> {
+  return apiPost("/api/pod/otp/bypass", { farmerId, ...opts });
+}
+
 // ── RECONCILIATION ────────────────────────────────────────────────────────────
 export async function listReconciliations() {
   const { data, error } = await supabase
