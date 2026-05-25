@@ -18,6 +18,9 @@ on:
       - "artifacts/field-app/**"
       - ".github/workflows/build-android.yml"
 
+permissions:
+  contents: write
+
 env:
   EXPO_NO_TELEMETRY: 1
   CI: 1
@@ -88,6 +91,7 @@ jobs:
         working-directory: artifacts/field-app
         run: npx expo prebuild --platform android --clean --no-install
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
 
       - name: Accept Android SDK licenses
@@ -102,10 +106,50 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/field-app/android/**/*.gradle*') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Build debug APK
+      # Auto-generate a signing keystore (use ANDROID_KEYSTORE_BASE64 secret for production signing)
+      - name: Prepare signing keystore
+        id: signing
+        working-directory: artifacts/field-app/android/app
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > release.keystore
+            echo "store_file=$(pwd)/release.keystore" >> $GITHUB_OUTPUT
+            echo "store_password=$STORE_PASS" >> $GITHUB_OUTPUT
+            echo "key_alias=$KEY_ALIAS"       >> $GITHUB_OUTPUT
+            echo "key_password=$KEY_PASS"     >> $GITHUB_OUTPUT
+            echo "signed=production"          >> $GITHUB_OUTPUT
+          else
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias release \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass invendis123 -keypass invendis123 \
+              -dname "CN=Invendis Field,OU=Mobile,O=Invendis,L=Freetown,C=SL" \
+              2>/dev/null || true
+            echo "store_file=$(pwd)/release.keystore" >> $GITHUB_OUTPUT
+            echo "store_password=invendis123"         >> $GITHUB_OUTPUT
+            echo "key_alias=release"                  >> $GITHUB_OUTPUT
+            echo "key_password=invendis123"           >> $GITHUB_OUTPUT
+            echo "signed=auto-keystore"               >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build release APK
         if: github.event.inputs.build_type != 'aab'
         working-directory: artifacts/field-app/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace \
+            "-Pandroid.injected.signing.store.file=${{ steps.signing.outputs.store_file }}" \
+            "-Pandroid.injected.signing.store.password=${{ steps.signing.outputs.store_password }}" \
+            "-Pandroid.injected.signing.key.alias=${{ steps.signing.outputs.key_alias }}" \
+            "-Pandroid.injected.signing.key.password=${{ steps.signing.outputs.key_password }}"
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
@@ -116,16 +160,16 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      - name: Find and upload APK
+      - name: Find and upload APK artifact
         if: github.event.inputs.build_type != 'aab'
         uses: actions/upload-artifact@v4
         with:
           name: invendis-field-app-${{ github.sha }}
-          path: artifacts/field-app/android/app/build/outputs/apk/**/*.apk
+          path: artifacts/field-app/android/app/build/outputs/apk/release/*.apk
           retention-days: 30
           if-no-files-found: error
 
-      - name: Find and upload AAB
+      - name: Find and upload AAB artifact
         if: github.event.inputs.build_type == 'aab'
         uses: actions/upload-artifact@v4
         with:
@@ -134,14 +178,38 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # Create a GitHub Release so the APK is downloadable from the Releases page
+      - name: Create GitHub Release with APK
+        if: github.event.inputs.build_type != 'aab' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: field-app-build-${{ github.run_number }}
+          name: "Invendis Field App — Build #${{ github.run_number }}"
+          body: |
+            ## Android APK — Build #${{ github.run_number }}
+
+            | Field | Value |
+            |-------|-------|
+            | Commit | `${{ github.sha }}` |
+            | API domain | `${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}` |
+            | Signing | `${{ steps.signing.outputs.signed }}` |
+
+            Download the `.apk` below and install on Android.
+            Enable **Install from Unknown Sources** in Settings → Apps if prompted.
+          files: artifacts/field-app/android/app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build summary
         if: always()
         run: |
           echo "## Android Build" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Build type:** ${{ github.event.inputs.build_type || 'apk' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Signing:** \`${{ steps.signing.outputs.signed }}\`" >> $GITHUB_STEP_SUMMARY
           if [ "${{ job.status }}" = "success" ]; then
-            echo "- **Status:** ✅ Success — download from Artifacts tab" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status:** ✅ Success — download from Artifacts tab and Releases page" >> $GITHUB_STEP_SUMMARY
           else
             echo "- **Status:** ❌ Failed — check logs above" >> $GITHUB_STEP_SUMMARY
           fi
