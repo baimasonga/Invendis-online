@@ -1,6 +1,5 @@
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { Platform } from "react-native";
 import { z } from "zod";
 import { setUnauthorizedHandler } from "@/lib/api";
 
@@ -33,34 +32,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
 }
 
-const AUTH_KEY = "invendis_auth";
-
-async function secureRead(key: string): Promise<string | null> {
-  if (Platform.OS === "web") {
-    try {
-      const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
-      return AsyncStorage.getItem(key);
-    } catch { return null; }
-  }
-  return SecureStore.getItemAsync(key);
-}
-
-async function secureWrite(key: string, value: string): Promise<void> {
-  if (Platform.OS === "web") {
-    const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
-    return AsyncStorage.setItem(key, value);
-  }
-  return SecureStore.setItemAsync(key, value);
-}
-
-async function secureDelete(key: string): Promise<void> {
-  if (Platform.OS === "web") {
-    const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
-    return AsyncStorage.removeItem(key);
-  }
-  return SecureStore.deleteItemAsync(key);
-}
-
+const AUTH_KEY = "@auth";
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -69,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const logout = async () => {
-    await secureDelete(AUTH_KEY);
+    await AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
     setUser(null);
     setToken(null);
   };
@@ -79,14 +51,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const stored = await secureRead(AUTH_KEY);
+        const stored = await AsyncStorage.getItem(AUTH_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           setUser(parsed.user);
           setToken(parsed.token);
         }
       } catch {
-        await secureDelete(AUTH_KEY).catch(() => {});
+        await AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
       } finally {
         setIsLoading(false);
       }
@@ -110,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const parsed = LoginResponseSchema.safeParse(raw);
     if (!parsed.success) throw new Error("Unexpected response from server");
     const { token: tok, user: usr } = parsed.data;
-    await secureWrite(AUTH_KEY, JSON.stringify({ user: usr, token: tok }));
+    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify({ user: usr, token: tok }));
     setUser(usr);
     setToken(tok);
   };
