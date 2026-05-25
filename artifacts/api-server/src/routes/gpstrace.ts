@@ -16,7 +16,7 @@ const router = Router();
 
 const WIALON_HOST = process.env.GPSTRACE_HOST ?? "hst-api.wialon.com";
 const WIALON_BASE = `https://${WIALON_HOST}/wialon/ajax.html`;
-const TOKEN       = process.env.GPSTRACE_TOKEN ?? "";
+const TOKEN       = process.env.GPSTRACE_TOKEN ?? process.env.GPS_TRACE_API_TOKEN ?? "";
 
 // ── Wialon helpers ────────────────────────────────────────────────────────────
 

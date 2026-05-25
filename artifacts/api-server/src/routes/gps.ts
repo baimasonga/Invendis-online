@@ -100,7 +100,7 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
        dr.full_name   AS driver_name
      FROM vehicles v
      LEFT JOIN dispatches d
-       ON d.vehicle_id = v.id AND d.status IN ('InTransit','Arrived')
+       ON d.vehicle_id = v.id AND d.status IN ('In Transit','Arrived')
      LEFT JOIN campaigns c ON c.id = d.campaign_id
      LEFT JOIN distribution_sites ds ON ds.id = c.distribution_site_id
      LEFT JOIN districts dc ON dc.id = COALESCE(ds.district_id, c.district_id)

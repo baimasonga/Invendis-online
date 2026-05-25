@@ -16,7 +16,7 @@ async function wialonGet(svc: string, params: object, sid?: string): Promise<any
 }
 
 async function openSession(): Promise<string> {
-  const token = process.env["GPSTRACE_TOKEN"];
+  const token = process.env["GPSTRACE_TOKEN"] ?? process.env["GPS_TRACE_API_TOKEN"];
   if (!token) throw new Error("GPSTRACE_TOKEN is not set");
   const result = await wialonGet("token/login", { token });
   if (result.error) throw new Error(`GPS-Trace login failed (code ${result.error})`);
