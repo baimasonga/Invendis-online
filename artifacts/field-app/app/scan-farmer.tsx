@@ -44,8 +44,9 @@ export default function ScanFarmerScreen() {
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, async () => {}];
-  const [camPermission, requestCamPermission] = camPerms;
+  const _camPerms = useCameraPermissions?.() ?? null;
+  const camPermission = _camPerms?.[0] ?? null;
+  const requestCamPermission: () => Promise<void> = _camPerms?.[1] ?? (async () => {});
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const lookup = async (code: string) => {

@@ -115,8 +115,9 @@ export default function ScanScreen() {
   const [loading, setLoading] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  const camPerms = useCameraPermissions ? useCameraPermissions() : [null, async () => {}];
-  const [camPermission, requestCamPermission] = camPerms;
+  const _camPerms = useCameraPermissions?.() ?? null;
+  const camPermission = _camPerms?.[0] ?? null;
+  const requestCamPermission: () => Promise<void> = _camPerms?.[1] ?? (async () => {});
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
