@@ -183,6 +183,9 @@ export const submitPoD = (token: string, payload: Record<string, unknown>) =>
 export const inputByBarcode = (token: string, barcode: string) =>
   apiFetch<InputItem>(`/inventory/input-items/by-barcode/${encodeURIComponent(barcode)}`, token);
 
+export const listInputItems = (token: string) =>
+  apiFetch<InputItem[]>("/inventory/input-items/mobile", token);
+
 export interface GpsPingResult {
   success: boolean;
   arrivalStatus: "arrived" | null;

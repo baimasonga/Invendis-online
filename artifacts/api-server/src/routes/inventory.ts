@@ -30,12 +30,28 @@ router.patch("/api/inventory/input-items/:id", requireAuth, requireRoles("Admin"
   res.json(snakeToCamel(data));
 });
 
-// Lookup item by barcode — mobile JWT allowed
+// List all active input items — mobile JWT allowed (for dropdown picker)
+router.get("/api/inventory/input-items/mobile", requireAnyAuth, async (_req, res) => {
+  const { data, error } = await supa
+    .from("input_items")
+    .select("id, name, item_code, category, unit")
+    .eq("is_active", 1)
+    .order("name");
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(snakeToCamel(data ?? []));
+});
+
+// Lookup item by barcode OR item_code — mobile JWT allowed
 router.get("/api/inventory/input-items/by-barcode/:code", requireAnyAuth, async (req, res) => {
   const code = decodeURIComponent(String(req.params.code)).trim();
-  const { data, error } = await supa.from("input_items").select("*").eq("barcode", code).eq("is_active", 1).limit(1).single();
-  if (error || !data) { res.status(404).json({ error: "No item found for this barcode" }); return; }
-  res.json(snakeToCamel(data));
+  // Try barcode column first, then fall back to item_code
+  const { data: byBarcode } = await supa
+    .from("input_items").select("*").eq("barcode", code).eq("is_active", 1).limit(1).maybeSingle();
+  if (byBarcode) { res.json(snakeToCamel(byBarcode)); return; }
+  const { data: byCode } = await supa
+    .from("input_items").select("*").ilike("item_code", code).eq("is_active", 1).limit(1).maybeSingle();
+  if (byCode) { res.json(snakeToCamel(byCode)); return; }
+  res.status(404).json({ error: "No item found for this barcode or item code" });
 });
 
 router.get("/api/inventory/stock-balance", requireAuth, async (req, res) => {
