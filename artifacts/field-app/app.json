@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "field-app",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -66,14 +66,13 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     },
     "extra": {
       "eas": {
-        "projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"
+        "projectId": "624b5084-c650-4a8f-92a2-f35cf24b3e81"
       }
     },
-    "owner": "medbangz"
+    "owner": "medbangs"
   }
 }
