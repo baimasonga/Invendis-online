@@ -1,97 +1,15 @@
-name: EAS Build — Android (Auto)
-
+# DISABLED — replaced by android-native-build.yml (Gradle, no EAS cloud)
+# This file is kept as a placeholder so git history is clean.
+name: EAS Build (disabled)
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "artifacts/field-app/**"
-
+    inputs:
+      _disabled:
+        description: "This workflow is disabled. Use 'Build Android APK' instead."
+        required: true
+        default: "disabled"
 jobs:
-  build:
-    name: Build Android APK (preview)
+  disabled:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      statuses: write
-    defaults:
-      run:
-        working-directory: artifacts/field-app
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install dependencies
-        working-directory: .
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Set commit status — pending
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'pending',
-              context: 'EAS Build / Android APK',
-              description: 'Building Android APK via EAS...',
-            });
-
-      - name: Build Android APK
-        id: eas_build
-        run: |
-          eas build \
-            --platform android \
-            --profile preview \
-            --non-interactive
-        env:
-          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
-
-      - name: Post commit status — success
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const buildUrl = '${{ steps.eas_build.outputs.build_url }}';
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'success',
-              context: 'EAS Build / Android APK',
-              description: 'APK build queued on Expo — click Details to open',
-              target_url: buildUrl || 'https://expo.dev',
-            });
-
-      - name: Post commit status — failure
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'failure',
-              context: 'EAS Build / Android APK',
-              description: 'EAS build failed — check Actions logs for details',
-            });
+      - run: echo "This workflow has been replaced by android-native-build.yml" && exit 1

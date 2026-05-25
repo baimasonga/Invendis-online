@@ -1,50 +1,15 @@
-name: EAS Build — Android
-
+# DISABLED — replaced by android-native-build.yml (Gradle, no EAS cloud)
+# This file is kept as a placeholder so git history is clean.
+name: EAS Build Android (disabled)
 on:
   workflow_dispatch:
     inputs:
-      profile:
-        description: "Build profile"
+      _disabled:
+        description: "This workflow is disabled. Use 'Build Android APK' instead."
         required: true
-        default: "preview"
-        type: choice
-        options:
-          - preview
-          - production
-
+        default: "disabled"
 jobs:
-  build:
-    name: Build Android (${{ github.event.inputs.profile }})
+  disabled:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: artifacts/field-app
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install dependencies
-        working-directory: .
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build Android
-        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive
-        env:
-          EXPO_PUBLIC_DOMAIN: ${{ secrets.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+      - run: echo "This workflow has been replaced by android-native-build.yml" && exit 1
