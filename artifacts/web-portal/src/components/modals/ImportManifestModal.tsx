@@ -323,7 +323,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
     const payload: any = {
       warehouseId:    Number(warehouseId),
       vehicleType:    vehicleMode,
-      fieldOfficerId: fieldOfficerId ? Number(fieldOfficerId) : undefined,
+      fieldOfficerId: fieldOfficerId || undefined,
       notes:          notes || parsedTitle || undefined,
       force:          force || undefined,
       columns:        columnMapping.map(c => ({ ...c, name: c.name.trim() || `Item ${c.colIndex + 1}` })),
