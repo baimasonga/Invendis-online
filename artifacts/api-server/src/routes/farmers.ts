@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRoles } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, FarmerCreateSchema } from "../lib/validate.js";
 import { getPresignedViewUrl } from "../lib/aws.js";
@@ -28,7 +28,7 @@ router.get("/api/farmers", requireAuth, async (req, res) => {
   res.json({ data: snakeToCamel(data ?? []), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.post("/api/farmers", requireAuth, validateBody(FarmerCreateSchema), async (req, res) => {
+router.post("/api/farmers", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), validateBody(FarmerCreateSchema), async (req, res) => {
   const farmerCode = generateFarmerCode();
   const barcodeToken = generateBarcode();
   const body = camelToSnake(req.body);
@@ -64,7 +64,7 @@ router.get("/api/farmers/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(rows[0]));
 });
 
-router.put("/api/farmers/:id", requireAuth, async (req, res) => {
+router.put("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const body = camelToSnake(req.body);
   const { data, error } = await supa.from("farmers").update({ ...body, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -72,14 +72,14 @@ router.put("/api/farmers/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/approve", requireAuth, async (req, res) => {
+router.post("/api/farmers/:id/approve", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { data, error } = await supa.from("farmers").update({ status: "approved", approved_by: req.user!.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "APPROVE", "Farmers", `Approved farmer ID ${req.params.id}`, "farmer", (data as any).id);
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
+router.post("/api/farmers/:id/reject", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { reason } = req.body;
   const { data, error } = await supa.from("farmers").update({ status: "rejected", rejection_reason: reason, updated_at: new Date().toISOString() }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -87,7 +87,7 @@ router.post("/api/farmers/:id/reject", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data));
 });
 
-router.delete("/api/farmers/:id", requireAuth, async (req, res) => {
+router.delete("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const id = Number(req.params.id);
   const { error } = await supa.from("farmers").delete().eq("id", id);
   if (error) { res.status(500).json({ error: error.message }); return; }
