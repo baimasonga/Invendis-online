@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { FileSpreadsheet, ChevronRight, ChevronLeft, AlertCircle, Truck, Car, Download, Printer, CheckCircle2 } from "lucide-react";
+import { FileText, ChevronRight, ChevronLeft, AlertCircle, Truck, Car, Download, Printer, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props { open: boolean; onClose: () => void; }
@@ -50,17 +50,17 @@ export function ImportManifestModal({ open, onClose }: Props) {
   const [columnMapping, setColumnMapping] = useState<ColMapping[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const [campaignId, setCampaignId]         = useState("");
-  const [warehouseId, setWarehouseId]       = useState("");
-  const [vehicleMode, setVehicleMode]       = useState<VehicleMode>("office");
-  const [vehicleId, setVehicleId]           = useState("");
-  const [driverId, setDriverId]             = useState("");
-  const [hiredPlate, setHiredPlate]         = useState("");
-  const [hiredDriver, setHiredDriver]       = useState("");
-  const [notes, setNotes]                   = useState("");
+  const [campaignId, setCampaignId]             = useState("");
+  const [warehouseId, setWarehouseId]           = useState("");
+  const [vehicleMode, setVehicleMode]           = useState<VehicleMode>("office");
+  const [vehicleId, setVehicleId]               = useState("");
+  const [driverId, setDriverId]                 = useState("");
+  const [hiredPlate, setHiredPlate]             = useState("");
+  const [hiredDriver, setHiredDriver]           = useState("");
+  const [notes, setNotes]                       = useState("");
   const [fieldOfficerId, setFieldOfficerId]     = useState("");
   const [autoCampaignName, setAutoCampaignName] = useState("");
-  const [parsedTitle, setParsedTitle]             = useState("");
+  const [parsedTitle, setParsedTitle]           = useState("");
   const [stockShortfalls, setStockShortfalls]   = useState<any[] | null>(null);
   const [importResult, setImportResult]         = useState<any>(null);
 
@@ -82,8 +82,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target!.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
+        const text = e.target!.result as string;
+        const wb = XLSX.read(text, { type: "string" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: null });
 
@@ -98,7 +98,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
           }
         }
         if (headerRowIdx < 0) {
-          toast({ title: "Parse error", description: "Could not find a header row with a 'Community' column. Check that the spreadsheet contains a Community header.", variant: "destructive" });
+          toast({ title: "Parse error", description: "Could not find a header row with a 'Community' column. Check that the CSV contains a Community header.", variant: "destructive" });
           return;
         }
 
@@ -154,7 +154,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
         const toolHeaders: string[] = [];
         const toolColIndices: number[] = [];
         for (let i = communityIdx + 1; i < toolEndIdx; i++) {
-          if (fixedIndices.has(i)) continue;          // skip known non-tool columns
+          if (fixedIndices.has(i)) continue;
           toolHeaders.push(headerRow[i]?.toString() ?? `Item ${i - communityIdx}`);
           toolColIndices.push(i);
         }
@@ -181,12 +181,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
           if (!row || row.length === 0) continue;
           const communityVal = row[communityIdx];
           const distVal = districtIdx >= 0 ? row[districtIdx] : null;
-          // Skip empty community rows
           if (communityVal === null || communityVal === undefined || communityVal === "") continue;
-          // Skip total/grand total rows
           if (typeof communityVal === "string" && (communityVal.toLowerCase().includes("total") || communityVal.toLowerCase().includes("grand"))) continue;
           if (typeof distVal === "string" && (distVal.toLowerCase().includes("total") || distVal.toLowerCase().includes("grand"))) continue;
-          // Skip rows where the "No" column exists but is empty and community looks like a summary
           if (noIdx >= 0) {
             const noVal = row[noIdx];
             if ((noVal === null || noVal === undefined || noVal === "") &&
@@ -229,7 +226,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
         toast({ title: "File error", description: err.message, variant: "destructive" });
       }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsText(file);
   }
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -264,24 +261,27 @@ export function ImportManifestModal({ open, onClose }: Props) {
     const toolCols = activeItems.length
       ? activeItems.map((it: any) => it.name || "")
       : ["Shovel", "Heavy cutlass", "Light cutlass", "Hoe", "Head pan", "Spade", "Wheel barrow", "Pick axe", "Felling axe", "Measuring tape 50m", "Tarpaulin"];
-    const totalCols = 4 + toolCols.length + 2; // No + District + Chiefdom + Community + tools + Contact Person + Contact #
-    const titleRow: any[] = ["DISTRIBUTION PLAN"];
-    // Pad title row so merge range is valid
-    for (let c = 1; c < totalCols; c++) titleRow.push(null);
+
     const headers = ["No", "District", "Chiefdom", "Community", ...toolCols, "Contact Person", "Contact #"];
-    // Create 5 blank data rows with row numbers
-    const dataRows: any[][] = [];
-    for (let r = 1; r <= 5; r++) {
-      const blankRow: any[] = [r];
-      for (let c = 1; c < totalCols; c++) blankRow.push(null);
-      dataRows.push(blankRow);
+
+    function escapeCsv(val: string | number | null) {
+      const s = val == null ? "" : String(val);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
     }
-    const ws = XLSX.utils.aoa_to_sheet([titleRow, headers, ...dataRows]);
-    // Merge title row across all columns
-    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Distribution Plan");
-    XLSX.writeFile(wb, "dispatch-plan-template.xlsx");
+
+    const lines: string[] = [headers.map(escapeCsv).join(",")];
+    for (let r = 1; r <= 5; r++) {
+      const row = [r, ...Array(headers.length - 1).fill("")];
+      lines.push(row.map(escapeCsv).join(","));
+    }
+
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "dispatch-plan-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function printLabels(communities: any[]) {
@@ -364,7 +364,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
       <Dialog open={open} onOpenChange={v => !v && handleClose()}>
         <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0">
           <DialogHeader className="px-6 pt-5 pb-0">
-            <DialogTitle className="text-lg">Import Dispatch from Excel</DialogTitle>
+            <DialogTitle className="text-lg">Import Dispatch from CSV</DialogTitle>
           </DialogHeader>
 
           {/* Step indicators */}
@@ -400,12 +400,12 @@ export function ImportManifestModal({ open, onClose }: Props) {
             {step === 1 && (
               <div className="space-y-4 py-4">
                 <p className="text-sm text-muted-foreground">
-                  Upload your filled Excel distribution plan. Communities are auto-registered as group beneficiaries
+                  Upload your filled CSV distribution plan. Communities are auto-registered as group beneficiaries
                   with barcodes, and new tool types are added to Inventory automatically.
                 </p>
 
                 <Button variant="outline" size="sm" className="w-full gap-2 justify-center" onClick={downloadTemplate}>
-                  <Download className="h-4 w-4" /> Download Excel Template
+                  <Download className="h-4 w-4" /> Download CSV Template
                 </Button>
 
                 <div
@@ -416,18 +416,19 @@ export function ImportManifestModal({ open, onClose }: Props) {
                   onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
                   onDragLeave={() => setIsDragOver(false)}
                   onDrop={handleDrop}
-                  onClick={() => document.getElementById("xls-upload-input")?.click()}
+                  onClick={() => document.getElementById("csv-upload-input")?.click()}
                 >
-                  <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-                  <p className="font-semibold text-sm">Drop Excel file here or click to browse</p>
-                  <p className="text-xs text-muted-foreground mt-1">Supports .xlsx and .xls</p>
-                  <input id="xls-upload-input" type="file" accept=".xlsx,.xls" className="hidden"
+                  <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                  <p className="font-semibold text-sm">Drop CSV file here or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">Supports .csv</p>
+                  <input id="csv-upload-input" type="file" accept=".csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f); }} />
                 </div>
+
                 <div className="rounded-md bg-muted/60 p-3 space-y-1 text-xs text-muted-foreground">
                   <p className="font-medium text-foreground text-xs">Expected column order:</p>
                   <p>No · District · Chiefdom · Community · [Tool columns] · Contact Person · Contact #</p>
-                  <p>Title rows above the headers are detected automatically. Subtotal rows (e.g. "Bo District Total", "GRAND TOTAL") are skipped automatically.</p>
+                  <p>An optional title row above the headers is detected automatically. Subtotal rows (e.g. "Bo District Total", "GRAND TOTAL") are skipped automatically.</p>
                 </div>
               </div>
             )}
