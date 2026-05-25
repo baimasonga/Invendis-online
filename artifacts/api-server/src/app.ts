@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(router);
 
-if (process.env["GPS_TRACE_API_TOKEN"]) {
+if (process.env["GPSTRACE_TOKEN"]) {
   startGpsPoller(30_000);
 }
 

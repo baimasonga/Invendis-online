@@ -10,7 +10,6 @@
  */
 import { Router } from "express";
 import { requireAuth } from "../lib/auth.js";
-import { query } from "../lib/db.js";
 import { supa } from "../lib/supabase.js";
 
 const router = Router();
@@ -149,16 +148,22 @@ router.post("/api/gpstrace/sync", requireAuth, async (_req, res) => {
       // Skip if this position is older than what we already have
       if (vehicle.lastPing && posTime <= new Date(vehicle.lastPing)) continue;
 
-      await query(
-        `INSERT INTO gps_track (vehicle_id, latitude, longitude, speed, heading, recorded_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [vehicle.id, unit.pos.y, unit.pos.x, unit.pos.s ?? null, unit.pos.c ?? null, posTime]
-      );
+      await supa.from("gps_track").insert({
+        vehicle_id:  vehicle.id,
+        dispatch_id: null,
+        latitude:    unit.pos.y,
+        longitude:   unit.pos.x,
+        speed:       unit.pos.s ?? null,
+        heading:     unit.pos.c ?? null,
+        accuracy:    null,
+        recorded_at: posTime.toISOString(),
+      });
 
-      await query(
-        `UPDATE vehicles SET last_latitude=$1, last_longitude=$2, last_ping=$3 WHERE id=$4`,
-        [unit.pos.y, unit.pos.x, posTime, vehicle.id]
-      );
+      await supa.from("vehicles").update({
+        last_latitude:  unit.pos.y,
+        last_longitude: unit.pos.x,
+        last_ping:      posTime.toISOString(),
+      }).eq("id", vehicle.id);
 
       synced++;
     }
