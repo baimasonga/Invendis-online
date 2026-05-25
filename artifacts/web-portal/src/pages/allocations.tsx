@@ -134,9 +134,10 @@ export default function Allocations() {
               <TableRow className="hover:bg-transparent border-t">
                 <TableHead className="pl-4">Farmer</TableHead>
                 <TableHead>Campaign</TableHead>
+                <TableHead className="hidden lg:table-cell">Input Items</TableHead>
                 <TableHead className="hidden md:table-cell">Notes</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="hidden lg:table-cell">Created</TableHead>
+                <TableHead className="hidden xl:table-cell">Created</TableHead>
                 {can.manageAllocations && <TableHead className="pr-4 text-right w-[100px]" />}
               </TableRow>
             </TableHeader>
@@ -146,9 +147,10 @@ export default function Allocations() {
                     <TableRow key={i}>
                       <TableCell className="pl-4"><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                      <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-40" /></TableCell>
                       <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
-                      <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell className="hidden xl:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
                       {can.manageAllocations && <TableCell className="pr-4" />}
                     </TableRow>
                   ))
@@ -174,9 +176,27 @@ export default function Allocations() {
                           <span className="text-sm text-green-700 hover:underline cursor-pointer">{a.campaignName ?? "—"}</span>
                         </Link>
                       </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {(a.campaignItems ?? []).length === 0 ? (
+                          <span className="text-xs text-muted-foreground italic">None configured</span>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            {(a.campaignItems as { name: string; itemCode: string; unit: string }[]).map((it, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5">
+                                <span className="text-sm font-medium leading-tight">{it.name}</span>
+                                {it.itemCode && (
+                                  <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                                    {it.itemCode}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
                       <TableCell><StatusBadge status={a.status ?? "Pending"} /></TableCell>
-                      <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
+                      <TableCell className="hidden xl:table-cell text-xs text-muted-foreground">
                         {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                       </TableCell>
                       {can.manageAllocations && (

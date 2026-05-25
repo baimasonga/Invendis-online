@@ -523,13 +523,36 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = data ?? [];
-  const farmerIds = [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))];
-  const [farmerMap, campaignMap] = await Promise.all([
+  const campaignIds = [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))];
+  const farmerIds   = [...new Set(rows.map((r: any) => r.farmer_id).filter(Boolean))];
+
+  // Fetch campaign_items for all campaigns in this page
+  const { data: ciRows } = campaignIds.length
+    ? await supabase.from("campaign_items").select("campaign_id,input_item_id").in("campaign_id", campaignIds)
+    : { data: [] };
+  const itemIds = [...new Set((ciRows ?? []).map((ci: any) => ci.input_item_id).filter(Boolean))];
+
+  const [farmerMap, campaignMap, inputItemMap] = await Promise.all([
     lookupMap("farmers", farmerIds, "id,first_name,last_name,farmer_code,beneficiary_type,farmer_group,group_size,district_id"),
-    lookupMap("campaigns", [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))], "id,name,campaign_code"),
+    lookupMap("campaigns", campaignIds, "id,name,campaign_code"),
+    itemIds.length ? lookupMap("input_items", itemIds, "id,name,item_code,unit") : Promise.resolve({}),
   ]);
   const districtIds = [...new Set(Object.values(farmerMap).map((f: any) => f.district_id).filter(Boolean))];
   const districtMap = districtIds.length ? await lookupMap("districts", districtIds, "id,name") : {};
+
+  // Build campaignId → [{name, itemCode, unit}] map
+  const campaignItemsMap: Record<number, { name: string; itemCode: string; unit: string }[]> = {};
+  for (const ci of (ciRows ?? []) as any[]) {
+    const it = inputItemMap[ci.input_item_id];
+    if (!it) continue;
+    if (!campaignItemsMap[ci.campaign_id]) campaignItemsMap[ci.campaign_id] = [];
+    campaignItemsMap[ci.campaign_id].push({
+      name: it.name ?? it.Name ?? "",
+      itemCode: it.item_code ?? it.itemCode ?? "",
+      unit: it.unit ?? "",
+    });
+  }
+
   return {
     data: rows.map((r: any) => ({
       ...cc(r),
@@ -539,6 +562,7 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
       groupSize: farmerMap[r.farmer_id]?.group_size ?? null,
       districtName: districtMap[farmerMap[r.farmer_id]?.district_id]?.name ?? null,
       campaignName: campaignMap[r.campaign_id]?.name ?? null,
+      campaignItems: campaignItemsMap[r.campaign_id] ?? [],
     })),
     total: count ?? 0,
   };
