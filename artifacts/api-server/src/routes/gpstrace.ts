@@ -1,12 +1,12 @@
 /**
- * GPS-Trace / Wialon integration
+ * GPS-Trace Partner Console integration
  *
- * GPS-Trace is built on the Wialon platform. Positions are polled via the
- * Wialon Remote API using an access token generated in the GPS-Trace account.
+ * Uses the GPS-Trace Partner REST API at https://api.gps-trace.com
+ * Authentication: X-AccessToken header with the API token from
+ *   partner.gps-trace.com → API Tokens
  *
  * Required env var:
- *   GPSTRACE_TOKEN  – API token from GPS-Trace → My Account → API Access
- *   GPSTRACE_HOST   – (optional) Wialon host; default: hst-api.wialon.com
+ *   GPS_TRACE_API_TOKEN  – token from partner.gps-trace.com/api/tokens
  */
 import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
@@ -14,81 +14,65 @@ import { supa } from "../lib/supabase.js";
 
 const router = Router();
 
-const WIALON_HOST = process.env.GPSTRACE_HOST ?? "hst-api.wialon.com";
-const WIALON_BASE = `https://${WIALON_HOST}/wialon/ajax.html`;
+const API_BASE = "https://api.gps-trace.com";
 
-// Read token at request time so it picks up the env var even after process start
 // Use || not ?? so empty-string secrets fall through to the next var
-const getToken = () => (process.env.GPSTRACE_TOKEN || process.env.GPS_TRACE_API_TOKEN || "").trim();
+const getToken = () =>
+  (process.env.GPS_TRACE_API_TOKEN || process.env.GPSTRACE_TOKEN || "").trim();
 
-// ── Wialon helpers ────────────────────────────────────────────────────────────
+// ── Partner API helpers ───────────────────────────────────────────────────────
 
-async function wialonGet(svc: string, params: object, sid?: string): Promise<any> {
-  const qs = new URLSearchParams({ svc, params: JSON.stringify(params) });
-  if (sid) qs.set("sid", sid);
-  const resp = await fetch(`${WIALON_BASE}?${qs.toString()}`, { signal: AbortSignal.timeout(12_000) });
+async function partnerGet(path: string): Promise<any> {
+  const token = getToken();
+  if (!token) throw new Error("GPS_TRACE_API_TOKEN is not set");
+  const resp = await fetch(`${API_BASE}${path}`, {
+    headers: { "X-AccessToken": token, Accept: "application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`GPS-Trace API error ${resp.status}: ${body.slice(0, 200)}`);
+  }
   return resp.json();
 }
 
-async function openSession(): Promise<string> {
-  const token = getToken();
-  if (!token) throw new Error("GPSTRACE_TOKEN is not set");
-  const result = await wialonGet("token/login", { token });
-  if (result.error) throw new Error(`GPS-Trace login failed (code ${result.error})`);
-  return result.eid as string;
-}
-
-async function closeSession(sid: string): Promise<void> {
-  await wialonGet("core/logout", {}, sid).catch(() => {});
-}
-
-/**
- * Fetch all avl_unit items from Wialon with last-position data.
- * flags: 1 (basic) + 8 (last known position) + 1024 (last message) = 1033
- */
-async function fetchUnits(sid: string): Promise<WialonUnit[]> {
-  const result = await wialonGet(
-    "core/search_items",
-    {
-      spec: { itemsType: "avl_unit", propName: "sys_name", propValueMask: "*", sortType: "sys_name" },
-      force: 1,
-      flags: 1033,
-      from: 0,
-      to: 0,
-    },
-    sid
-  );
-  return (result.items ?? []) as WialonUnit[];
-}
-
-interface WialonUnit {
+interface PartnerUnit {
   id: number;
-  nm: string;
-  pos?: {
-    t: number;   // unix timestamp
-    y: number;   // latitude
-    x: number;   // longitude
-    s: number;   // speed km/h
-    c: number;   // course (heading degrees)
-    z?: number;  // altitude
-    sc?: number; // satellite count
-  } | null;
+  name: string;
+  description?: string;
+  last_active?: number | null;
+  created_at?: number;
+}
+
+interface Telemetry {
+  "position.latitude"?: { ts: number; value: number };
+  "position.longitude"?: { ts: number; value: number };
+  "position.speed"?: { ts: number; value: number };
+  "position.direction"?: { ts: number; value: number };
+  "position.altitude"?: { ts: number; value: number };
+  "position.valid"?: { ts: number; value: boolean };
+  "server.timestamp"?: { ts: number; value: number };
+  timestamp?: { ts: number; value: number };
+}
+
+async function fetchUnits(): Promise<PartnerUnit[]> {
+  return partnerGet("/provider/units");
+}
+
+async function fetchTelemetry(unitId: number): Promise<Telemetry> {
+  return partnerGet(`/provider/units/${unitId}/telemetry`);
 }
 
 // ── GET /api/gpstrace/devices ─────────────────────────────────────────────────
-// Returns GPS-Trace devices enriched with which vehicle each is linked to.
 router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
   if (!getToken()) {
     res.json({ configured: false, devices: [], vehicles: [] });
     return;
   }
 
-  let sid: string | null = null;
   try {
-    sid = await openSession();
-    const units = await fetchUnits(sid);
+    const units = await fetchUnits();
 
-    // Load all vehicles with their linked gps_device_id
     const { data: vehicles } = await supa
       .from("vehicles")
       .select("id, plate_number, vehicle_type, vehicle_code, gps_device_id, last_ping");
@@ -98,39 +82,47 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
       if (v.gps_device_id) vehicleMap[v.gps_device_id] = v;
     }
 
-    const devices = units.map(u => ({
-      deviceId:    String(u.id),
-      deviceName:  u.nm,
-      lastSeen:    u.pos?.t ? new Date(u.pos.t * 1000).toISOString() : null,
-      latitude:    u.pos?.y ?? null,
-      longitude:   u.pos?.x ?? null,
-      speed:       u.pos?.s ?? null,
-      heading:     u.pos?.c ?? null,
-      linkedVehicle: vehicleMap[String(u.id)] ?? null,
-    }));
+    // Fetch telemetry for each unit in parallel
+    const telemetries = await Promise.allSettled(
+      units.map(u => fetchTelemetry(u.id))
+    );
+
+    const devices = units.map((u, i) => {
+      const tel: Telemetry =
+        telemetries[i].status === "fulfilled" ? telemetries[i].value : {};
+
+      const lat = tel["position.latitude"]?.value ?? null;
+      const lng = tel["position.longitude"]?.value ?? null;
+      const ts  = tel["position.latitude"]?.ts ?? tel["timestamp"]?.value ?? null;
+
+      return {
+        deviceId:      String(u.id),
+        deviceName:    u.name,
+        lastSeen:      ts ? new Date(ts * 1000).toISOString() : null,
+        latitude:      lat,
+        longitude:     lng,
+        speed:         tel["position.speed"]?.value ?? null,
+        heading:       tel["position.direction"]?.value ?? null,
+        linkedVehicle: vehicleMap[String(u.id)] ?? null,
+      };
+    });
 
     res.json({ configured: true, devices, vehicles: vehicles ?? [] });
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "GPS-Trace unavailable" });
-  } finally {
-    if (sid) await closeSession(sid);
   }
 });
 
 // ── POST /api/gpstrace/sync ───────────────────────────────────────────────────
-// Pulls latest position for every linked vehicle and writes to gps_track.
 router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
   if (!getToken()) {
-    res.json({ synced: 0, message: "GPSTRACE_TOKEN not configured" });
+    res.json({ synced: 0, message: "GPS_TRACE_API_TOKEN not configured" });
     return;
   }
 
-  let sid: string | null = null;
   try {
-    sid = await openSession();
-    const units = await fetchUnits(sid);
+    const units = await fetchUnits();
 
-    // Load vehicles that have a linked device
     const { data: vehicles } = await supa
       .from("vehicles")
       .select("id, gps_device_id, last_ping")
@@ -145,27 +137,39 @@ router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
 
     for (const unit of units) {
       const vehicle = linkedVehicles.get(String(unit.id));
-      if (!vehicle || !unit.pos) continue;
+      if (!vehicle) continue;
 
-      const posTime = new Date(unit.pos.t * 1000);
+      let tel: Telemetry;
+      try {
+        tel = await fetchTelemetry(unit.id);
+      } catch {
+        continue;
+      }
 
-      // Skip if this position is older than what we already have
+      const lat = tel["position.latitude"]?.value;
+      const lng = tel["position.longitude"]?.value;
+      const ts  = tel["position.latitude"]?.ts;
+
+      if (lat == null || lng == null || ts == null) continue;
+
+      const posTime = new Date(ts * 1000);
+
       if (vehicle.lastPing && posTime <= new Date(vehicle.lastPing)) continue;
 
       await supa.from("gps_track").insert({
         vehicle_id:  vehicle.id,
         dispatch_id: null,
-        latitude:    unit.pos.y,
-        longitude:   unit.pos.x,
-        speed:       unit.pos.s ?? null,
-        heading:     unit.pos.c ?? null,
+        latitude:    lat,
+        longitude:   lng,
+        speed:       tel["position.speed"]?.value ?? null,
+        heading:     tel["position.direction"]?.value ?? null,
         accuracy:    null,
         recorded_at: posTime.toISOString(),
       });
 
       await supa.from("vehicles").update({
-        last_latitude:  unit.pos.y,
-        last_longitude: unit.pos.x,
+        last_latitude:  lat,
+        last_longitude: lng,
         last_ping:      posTime.toISOString(),
       }).eq("id", vehicle.id);
 
@@ -175,13 +179,10 @@ router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
     res.json({ synced, total: units.length, linked: linkedVehicles.size });
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "GPS-Trace sync failed" });
-  } finally {
-    if (sid) await closeSession(sid);
   }
 });
 
 // ── POST /api/gpstrace/link ───────────────────────────────────────────────────
-// Links a GPS-Trace device ID to a vehicle.
 router.post("/api/gpstrace/link", requireAnyAuth, async (req, res) => {
   const { vehicleId, deviceId, deviceName } = req.body as {
     vehicleId: number; deviceId: string; deviceName?: string;
@@ -191,7 +192,6 @@ router.post("/api/gpstrace/link", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  // Ensure no other vehicle already claims this device
   await supa.from("vehicles").update({ gps_device_id: null }).eq("gps_device_id", deviceId);
 
   const { error } = await supa
