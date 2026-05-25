@@ -5,10 +5,11 @@ description: How to trigger EAS Android APK builds from within Replit for the fi
 
 ## Account & project
 
-- Expo account: `medbangs` (not `medbangz` — different account)
-- EAS project ID: `624b5084-c650-4a8f-92a2-f35cf24b3e81`
-- app.json must have `"owner": "medbangs"` and `"extra.eas.projectId": "624b5084-c650-4a8f-92a2-f35cf24b3e81"`
-- EXPO_TOKEN secret holds the `medbangs` personal access token
+- Expo account: `medbangz` (corrected — earlier memory had `medbangs` which was wrong)
+- EAS project ID: `38af30b8-d718-443c-8d26-5e527ea4049c`
+- Android package: `com.medbangz.fieldapp`
+- app.json must have `"owner": "medbangz"` and `"extra.eas.projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"`
+- EXPO_TOKEN secret holds the `medbangz` personal access token
 
 ## Git shim (required)
 

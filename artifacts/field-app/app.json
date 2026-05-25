@@ -21,7 +21,7 @@
       }
     },
     "android": {
-      "package": "com.medbangs.fieldapp",
+      "package": "com.medbangz.fieldapp",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#126d34"
@@ -71,9 +71,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "624b5084-c650-4a8f-92a2-f35cf24b3e81"
+        "projectId": "38af30b8-d718-443c-8d26-5e527ea4049c"
       }
     },
-    "owner": "medbangs"
+    "owner": "medbangz"
   }
 }
