@@ -22,6 +22,7 @@
     "pg": "^8.21.0",
     "pino": "^9",
     "pino-http": "^10",
+    "qrcode": "^1.5.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.3.3",
     "@types/pg": "^8.20.0",
+    "@types/qrcode": "^1.5.6",
     "@workspace/api-zod": "workspace:*",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",

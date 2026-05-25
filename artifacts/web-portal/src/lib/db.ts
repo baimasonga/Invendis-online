@@ -1205,6 +1205,16 @@ export async function bypassOtp(
   return apiPost("/api/pod/otp/bypass", { farmerId, ...opts });
 }
 
+export async function notifyFarmers(dispatchId: number): Promise<{
+  total: number;
+  notified: number;
+  noPhone: number;
+  failed: number;
+  campaignName: string;
+}> {
+  return apiPost(`/api/dispatches/${dispatchId}/notify-farmers`, {});
+}
+
 // ── RECONCILIATION ────────────────────────────────────────────────────────────
 export async function listReconciliations() {
   const { data, error } = await supabase

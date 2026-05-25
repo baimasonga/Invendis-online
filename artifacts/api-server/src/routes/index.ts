@@ -18,6 +18,7 @@ import auditRouter from "./audit";
 import usersRouter from "./users";
 import faceRouter from "./face";
 import incidentsRouter from "./incidents";
+import notifyRouter from "./notify";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(auditRouter);
 router.use(usersRouter);
 router.use(faceRouter);
 router.use(incidentsRouter);
+router.use(notifyRouter);
 
 export default router;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, notifyFarmers, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
   CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
-  MessageSquare, Send, Phone, AlertCircle,
+  MessageSquare, Send, Phone, AlertCircle, Bell,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +48,8 @@ export default function DispatchDetail() {
   const [podOpen, setPodOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [otpResults, setOtpResults] = useState<Record<number, { sending: boolean; sent?: boolean; maskedPhone?: string; error?: string }>>({});
+  const [notifyAllLoading, setNotifyAllLoading] = useState(false);
+  const [notifyAllResult, setNotifyAllResult] = useState<{ total: number; notified: number; noPhone: number; failed: number } | null>(null);
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -65,6 +67,26 @@ export default function DispatchDetail() {
     queryFn: () => listDispatchFarmers(id),
     enabled: !!id,
   });
+
+  async function handleNotifyAll() {
+    setNotifyAllLoading(true);
+    setNotifyAllResult(null);
+    try {
+      const result = await notifyFarmers(id);
+      setNotifyAllResult(result);
+      toast({
+        title: `Notified ${result.notified} of ${result.total} farmers`,
+        description: [
+          result.noPhone > 0 ? `${result.noPhone} had no phone` : null,
+          result.failed > 0 ? `${result.failed} failed` : null,
+        ].filter(Boolean).join(" · ") || "All farmers were notified successfully.",
+      });
+    } catch (err: any) {
+      toast({ title: "Notify failed", description: err.message, variant: "destructive" });
+    } finally {
+      setNotifyAllLoading(false);
+    }
+  }
 
   async function handleSendOtp(farmerId: number) {
     setOtpResults(prev => ({ ...prev, [farmerId]: { sending: true } }));
@@ -538,14 +560,44 @@ export default function DispatchDetail() {
         <TabsContent value="notify" className="mt-4">
           <Card>
             <CardHeader className="pb-3 pt-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-blue-600" />
-                Send OTP to Farmers
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Send a one-time verification code to each farmer's phone before the field officer arrives.
-                The field officer will ask the farmer for the code to confirm identity.
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-blue-600" />
+                    Notify Farmers
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sends each farmer a QR code image via WhatsApp and a 6-digit delivery code via SMS + WhatsApp.
+                    The field officer enters the code the farmer shows them to confirm identity.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs shrink-0 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={handleNotifyAll}
+                  disabled={notifyAllLoading || (dispatchFarmers as any[]).length === 0}
+                >
+                  {notifyAllLoading ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                      Notifying…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <Bell className="h-3.5 w-3.5" />
+                      Notify All
+                    </span>
+                  )}
+                </Button>
+              </div>
+              {notifyAllResult && (
+                <div className="mt-2 p-2 rounded-md bg-muted text-xs flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="text-emerald-700 font-medium">✓ {notifyAllResult.notified} notified</span>
+                  {notifyAllResult.noPhone > 0 && <span className="text-amber-600">⚠ {notifyAllResult.noPhone} no phone</span>}
+                  {notifyAllResult.failed > 0 && <span className="text-red-600">✗ {notifyAllResult.failed} failed</span>}
+                  <span className="text-muted-foreground">of {notifyAllResult.total} total</span>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               {loadingFarmers ? (

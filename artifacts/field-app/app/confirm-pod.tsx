@@ -461,7 +461,7 @@ export default function ConfirmPodScreen() {
     setScannedBarcode("");
     setScannedItem(null);
     setScanError(null);
-    if (otpEnabled) handleSendOtp();
+    if (otpEnabled) setStep("otp");
     else handleSkipOtp();
   };
 
@@ -854,7 +854,7 @@ export default function ConfirmPodScreen() {
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "scan") {
     const proceedToOtp = () => {
-      if (otpEnabled) handleSendOtp();
+      if (otpEnabled) setStep("otp");
       else handleSkipOtp();
     };
 
@@ -1107,35 +1107,30 @@ export default function ConfirmPodScreen() {
             <View style={[styles.otpIconWrap, { backgroundColor: colors.primary + "12" }]}>
               <Feather name="shield" size={32} color={colors.primary} />
             </View>
-            <Text style={[styles.otpTitle, { color: colors.foreground }]}>Verification Code</Text>
+            <Text style={[styles.otpTitle, { color: colors.foreground }]}>Delivery Code Verification</Text>
             <Text style={[styles.otpSubtitle, { color: colors.mutedForeground }]}>
-              {otpResult?.channel === "sms+whatsapp"
-                ? "A 6-digit code was sent via SMS & WhatsApp to"
-                : otpResult?.channel === "whatsapp"
-                ? "A 6-digit code was sent via WhatsApp to"
-                : otpResult?.channel === "sms"
-                ? "A 6-digit code was sent via SMS to"
-                : "A 6-digit code was sent to"}
+              Ask the farmer to show you the 6-digit code they received via SMS or WhatsApp when this dispatch was notified.
             </Text>
-            <Text style={[styles.otpPhone, { color: colors.foreground }]}>
-              {otpResult?.maskedPhone ?? "the farmer's phone"}
-            </Text>
-            {otpResult?.channel === "sms+whatsapp" && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#25d36620", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Feather name="message-circle" size={11} color="#25d366" />
-                  <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#25d366" }}>WhatsApp</Text>
+            {otpResult && (
+              <View style={{ alignItems: "center", gap: 4, marginTop: 6 }}>
+                <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>
+                  Code sent to{" "}
+                  <Text style={{ fontFamily: "Inter_600SemiBold", color: colors.foreground }}>{otpResult.maskedPhone}</Text>
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  {(otpResult.channel === "sms+whatsapp" || otpResult.channel === "whatsapp") && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#25d36620", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Feather name="message-circle" size={11} color="#25d366" />
+                      <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#25d366" }}>WhatsApp</Text>
+                    </View>
+                  )}
+                  {(otpResult.channel === "sms+whatsapp" || otpResult.channel === "sms") && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.primary + "18", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Feather name="message-square" size={11} color={colors.primary} />
+                      <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: colors.primary }}>SMS</Text>
+                    </View>
+                  )}
                 </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.primary + "18", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Feather name="message-square" size={11} color={colors.primary} />
-                  <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: colors.primary }}>SMS</Text>
-                </View>
-              </View>
-            )}
-            {otpResult?.channel === "whatsapp" && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginTop: 4, backgroundColor: "#25d36620", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                <Feather name="message-circle" size={11} color="#25d366" />
-                <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#25d366" }}>WhatsApp only (SMS unavailable)</Text>
               </View>
             )}
             <View style={styles.digitRow}>
@@ -1166,13 +1161,13 @@ export default function ConfirmPodScreen() {
               </View>
             )}
             <View style={styles.resendRow}>
-              <Text style={[styles.resendLabel, { color: colors.mutedForeground }]}>Didn't receive it?</Text>
+              <Text style={[styles.resendLabel, { color: colors.mutedForeground }]}>Farmer doesn't have a code?</Text>
               {resendTimer > 0 ? (
                 <Text style={[styles.resendTimer, { color: colors.mutedForeground }]}>Resend in {resendTimer}s</Text>
               ) : (
                 <TouchableOpacity onPress={handleResend} disabled={sendingOtp}>
                   <Text style={[styles.resendLink, { color: colors.primary }]}>
-                    {sendingOtp ? "Sending…" : "Resend Code"}
+                    {sendingOtp ? "Sending…" : otpResult ? "Resend code" : "Send code to farmer"}
                   </Text>
                 </TouchableOpacity>
               )}
