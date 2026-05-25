@@ -3,12 +3,6 @@
     "name": "Invendis Field",
     "slug": "field-app",
     "version": "1.3.1",
-    "owner": "medbangs",
-    "extra": {
-      "eas": {
-        "projectId": "624b5084-c650-4a8f-92a2-f35cf24b3e81"
-      }
-    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "field-app",
@@ -27,7 +21,7 @@
       }
     },
     "android": {
-      "package": "com.invendis.fieldapp",
+      "package": "com.medbangs.fieldapp",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#126d34"
@@ -74,6 +68,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "624b5084-c650-4a8f-92a2-f35cf24b3e81"
+      }
+    },
+    "owner": "medbangs"
   }
 }
