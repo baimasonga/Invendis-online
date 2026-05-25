@@ -502,10 +502,10 @@ router.post(
     const { warehouseId, columns, rows } = b;
     let campaignId: number | undefined = b.campaignId;
 
-    let createdBy: string | null = req.supabaseUser?.id ?? null;
-    if (!createdBy && req.user?.userId) {
-      const { data: p } = await supa.from("profiles").select("id").eq("email", (req.user as any).email).limit(1).maybeSingle();
-      createdBy = (p as any)?.id ?? null;
+    let createdBy: number | null = req.user?.userId ?? null;
+    if (!createdBy && req.supabaseUser?.email) {
+      const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).maybeSingle();
+      createdBy = (u as any)?.id ?? null;
     }
 
     // 0. Extract value chain from title/notes (e.g. "TOOLS DISTRIBUTION PLAN FOR CASSAVA COMMUNITIES 2025")
