@@ -6,6 +6,13 @@ import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
+function normalisePhoneForStorage(raw: string): string {
+  let p = raw.replace(/\D/g, "");
+  if (p.startsWith("0")) p = "232" + p.slice(1);
+  if (!p.startsWith("232")) p = "232" + p;
+  return "+" + p;
+}
+
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
   if (req.supabaseUser?.email) {
@@ -117,7 +124,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
 
   const { data, count, error } = await q;
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (error) { console.error("Failed to list dispatches:", error); res.status(500).json({ error: "Operation failed" }); return; }
 
   const rows = data ?? [];
   const { campMap, wareMap, vehMap, drivMap, officerMap } = await fetchLookups(
@@ -193,7 +200,8 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
     const result = await pool.query(sql, vals);
     row = result.rows[0];
   } catch (pgErr: any) {
-    res.status(500).json({ error: pgErr.message }); return;
+    console.error("Failed to create dispatch:", pgErr);
+    res.status(500).json({ error: "Operation failed" }); return;
   }
 
   await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", row.id as number);
@@ -211,7 +219,8 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
     if (!pgResult.rows.length) { res.status(404).json({ error: "Not found" }); return; }
     row = pgResult.rows[0];
   } catch (pgErr: any) {
-    res.status(500).json({ error: pgErr.message }); return;
+    console.error("Failed to fetch dispatch:", pgErr);
+    res.status(500).json({ error: "Operation failed" }); return;
   }
   const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap, officerMap }] = await Promise.all([
     supa.from("dispatch_items").select("*").eq("dispatch_id", id),
@@ -224,7 +233,7 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
     ),
   ]);
 
-  if (itemsErr) { res.status(500).json({ error: itemsErr.message }); return; }
+  if (itemsErr) { console.error("Failed to fetch dispatch items:", itemsErr); res.status(500).json({ error: "Operation failed" }); return; }
 
   const camp = campMap[row.campaign_id] as any;
   const ware = wareMap[row.warehouse_id] as any;
@@ -292,7 +301,8 @@ router.patch("/api/dispatch/:id/assign", requireAnyAuth, requireRoleIfJwt("Admin
       [fieldOfficerId ?? null, id],
     );
   } catch (pgErr: any) {
-    res.status(500).json({ error: pgErr.message }); return;
+    console.error("Failed to assign dispatch:", pgErr);
+    res.status(500).json({ error: "Operation failed" }); return;
   }
 
   if (!pgResult.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
@@ -310,15 +320,14 @@ router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin",
     .select()
     .single();
 
-  if (itemErr) { res.status(500).json({ error: itemErr.message }); return; }
+  if (itemErr) { console.error("Failed to add dispatch item:", itemErr); res.status(500).json({ error: "Operation failed" }); return; }
 
-  const { data: allItems } = await supa
-    .from("dispatch_items")
-    .select("quantity_loaded")
-    .eq("dispatch_id", dispatchId);
-
-  const total = (allItems ?? []).reduce((sum: number, i: any) => sum + Number(i.quantity_loaded ?? 0), 0);
-  await supa.from("dispatches").update({ total_packages: Math.round(total), updated_at: new Date().toISOString() }).eq("id", dispatchId);
+  await pool.query(
+    `UPDATE dispatches SET total_packages = (
+      SELECT COALESCE(SUM(quantity_loaded), 0) FROM dispatch_items WHERE dispatch_id = $1
+    ), updated_at = NOW() WHERE id = $1`,
+    [dispatchId],
+  );
 
   await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
   res.status(201).json(snakeToCamel(itemData));
@@ -335,7 +344,7 @@ router.post("/api/dispatch/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin
     .select()
     .single();
 
-  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  if (error || !data) { if (error) console.error("Failed to approve dispatch:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
   await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${id}`, "dispatch", id);
   res.json(snakeToCamel(data));
 });
@@ -350,7 +359,7 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
     .select()
     .single();
 
-  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  if (error || !data) { if (error) console.error("Failed to dispatch:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
   const row = data as any;
 
   if (row.vehicle_id) {
@@ -409,7 +418,7 @@ router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin"
     .select()
     .single();
 
-  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  if (error || !data) { if (error) console.error("Failed to mark dispatch arrived:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
   const row = data as any;
   if (row.vehicle_id) {
     await supa.from("vehicles").update({ status: "Active" }).eq("id", row.vehicle_id);
@@ -428,7 +437,7 @@ router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin"
     .select("id, status, vehicle_id")
     .eq("id", id)
     .single();
-  if (fetchErr || !existing) { res.status(fetchErr ? 500 : 404).json({ error: fetchErr?.message ?? "Dispatch not found" }); return; }
+  if (fetchErr || !existing) { if (fetchErr) console.error("Failed to fetch dispatch for cancel:", fetchErr); res.status(fetchErr ? 500 : 404).json({ error: fetchErr ? "Operation failed" : "Dispatch not found" }); return; }
 
   const { data, error } = await supa
     .from("dispatches")
@@ -442,7 +451,7 @@ router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin"
     .select()
     .single();
 
-  if (error || !data) { res.status(error ? 500 : 404).json({ error: error?.message ?? "Dispatch not found" }); return; }
+  if (error || !data) { if (error) console.error("Failed to cancel dispatch:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
 
   // If dispatch was In Transit, reset vehicle status back to Active
   if ((existing as any).status === "In Transit" && (existing as any).vehicle_id) {
@@ -456,7 +465,7 @@ router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin"
 router.delete("/api/dispatch/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const id = Number(req.params.id);
   const { error } = await supa.from("dispatches").delete().eq("id", id);
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (error) { console.error("Failed to delete dispatch:", error); res.status(500).json({ error: "Operation failed" }); return; }
   await logAudit(req, "DELETE", "Dispatch", `Deleted dispatch ID ${id}`, "dispatch", id);
   res.json({ success: true });
 });
@@ -493,10 +502,29 @@ router.post(
     const { warehouseId, columns, rows } = b;
     let campaignId: number | undefined = b.campaignId;
 
-    let createdBy: number | null = req.user?.userId ?? null;
-    if (!createdBy && req.supabaseUser?.email) {
-      const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
-      createdBy = (u as any)?.id ?? null;
+    let createdBy: string | null = req.supabaseUser?.id ?? null;
+    if (!createdBy && req.user?.userId) {
+      const { data: p } = await supa.from("profiles").select("id").eq("email", (req.user as any).email).limit(1).maybeSingle();
+      createdBy = (p as any)?.id ?? null;
+    }
+
+    // 0. Extract value chain from title/notes (e.g. "TOOLS DISTRIBUTION PLAN FOR CASSAVA COMMUNITIES 2025")
+    let valueChainId: number | null = null;
+    const titleText = b.notes ?? b.newCampaignName ?? "";
+    const vcMatch = titleText.match(/\bfor\s+(\w+)\s+communities\b/i);
+    if (vcMatch) {
+      const vcName = vcMatch[1].charAt(0).toUpperCase() + vcMatch[1].slice(1).toLowerCase();
+      const { data: vcRow } = await supa.from("value_chains").select("id").ilike("name", vcName).limit(1).maybeSingle();
+      if (vcRow) {
+        valueChainId = (vcRow as any).id;
+      } else {
+        const { data: newVc } = await supa.from("value_chains").insert({ name: vcName, is_active: 1 }).select("id").single();
+        if (newVc) valueChainId = (newVc as any).id;
+      }
+    }
+    if (!valueChainId) {
+      const { data: vcFallback } = await supa.from("value_chains").select("id").order("id", { ascending: true }).limit(1).maybeSingle();
+      valueChainId = (vcFallback as any)?.id ?? null;
     }
 
     // 1. Resolve or create each input_item
@@ -534,7 +562,8 @@ router.post(
         .select()
         .single();
       if (itemErr || !newItem) {
-        res.status(500).json({ error: `Failed to create inventory item "${itemName}": ${itemErr?.message}` });
+        console.error(`Failed to create inventory item "${itemName}":`, itemErr);
+        res.status(500).json({ error: "Operation failed" });
         return;
       }
       itemIdMap[col.colIndex] = (newItem as any).id;
@@ -585,17 +614,25 @@ router.post(
       }
     }
 
-    // 2. Resolve district IDs (case-insensitive)
+    // 2. Resolve or create districts (case-insensitive)
+    const unmatchedDistricts: string[] = [];
     const districtNames = [...new Set(rows.map(r => r.district.trim()))];
     const { data: districtRows } = await supa.from("districts").select("id,name").in("name", districtNames);
     const districtMap: Record<string, number> = {};
     for (const d of (districtRows ?? []) as any[]) {
       districtMap[d.name.toLowerCase()] = d.id;
     }
+    for (const dName of districtNames) {
+      if (!districtMap[dName.toLowerCase()]) {
+        const code = dName.substring(0, 3).toUpperCase() + "-" + randomBytes(2).toString("hex").toUpperCase();
+        const { data: newDist } = await supa.from("districts").insert({ name: dName, code }).select("id").single();
+        if (newDist) districtMap[dName.toLowerCase()] = (newDist as any).id;
+      }
+    }
 
-    // 2c. Resolve chiefdom IDs (name + district_id composite key)
+    // 2b. Resolve or create chiefdoms (name + district_id)
     const chiefdomNames = [...new Set(rows.map(r => r.chiefdom?.trim()).filter(Boolean))] as string[];
-    const chiefdomMap: Record<string, number> = {}; // key: "name_lower|districtId"
+    const chiefdomMap: Record<string, number> = {};
     if (chiefdomNames.length > 0) {
       const { data: chiefdomRows } = await supa
         .from("chiefdoms")
@@ -605,38 +642,95 @@ router.post(
         chiefdomMap[`${(c.name as string).toLowerCase()}|${c.district_id}`] = c.id;
       }
     }
+    // Create missing chiefdoms
+    for (const row of rows) {
+      const cName = row.chiefdom?.trim();
+      if (!cName) continue;
+      const dId = districtMap[row.district.trim().toLowerCase()] ?? null;
+      if (!dId) continue;
+      const key = `${cName.toLowerCase()}|${dId}`;
+      if (!chiefdomMap[key]) {
+        const { data: newChief } = await supa.from("chiefdoms").insert({ name: cName, district_id: dId }).select("id").single();
+        if (newChief) chiefdomMap[key] = (newChief as any).id;
+      }
+    }
+
+    // 2c. Resolve or create communities (linked to chiefdom via section)
+    const communityMap: Record<string, number> = {};
+    for (const row of rows) {
+      const commName = row.community.trim();
+      const dId = districtMap[row.district.trim().toLowerCase()] ?? null;
+      const cName = row.chiefdom?.trim();
+      const chiefKey = cName && dId ? `${cName.toLowerCase()}|${dId}` : null;
+      const chiefdomId = chiefKey ? (chiefdomMap[chiefKey] ?? null) : null;
+      const commKey = `${commName.toLowerCase()}|${dId}`;
+      if (communityMap[commKey]) continue;
+
+      // Look up existing community by name + district context
+      const { data: existComm } = await supa.from("communities").select("id,name").ilike("name", commName).limit(1).maybeSingle();
+      if (existComm) {
+        communityMap[commKey] = (existComm as any).id;
+      } else if (chiefdomId) {
+        // Need a section to link community → chiefdom. Find or create a default section.
+        let sectionId: number | null = null;
+        const { data: existSec } = await supa.from("sections").select("id").eq("chiefdom_id", chiefdomId).limit(1).maybeSingle();
+        if (existSec) {
+          sectionId = (existSec as any).id;
+        } else {
+          const { data: newSec } = await supa.from("sections").insert({ name: cName || "Default", chiefdom_id: chiefdomId }).select("id").single();
+          if (newSec) sectionId = (newSec as any).id;
+        }
+        if (sectionId) {
+          const { data: newComm } = await supa.from("communities").insert({ name: commName, section_id: sectionId }).select("id").single();
+          if (newComm) communityMap[commKey] = (newComm as any).id;
+        }
+      }
+    }
 
     // 2b. Auto-create campaign if none supplied
     let autoCampaignName: string | undefined;
     if (!campaignId) {
       const primaryDistrictId = districtMap[districtNames[0]?.toLowerCase()] ?? null;
       autoCampaignName = b.newCampaignName?.trim()
+        || b.notes?.trim()
         || `Distribution - ${districtNames.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`;
-      const campaignCode = "CAM-" + randomBytes(4).toString("hex").toUpperCase();
-      const { data: newCampaign, error: campErr } = await supa
-        .from("campaigns")
-        .insert({
-          name: autoCampaignName,
-          campaign_code: campaignCode,
-          district_id: primaryDistrictId,
-          start_date: new Date().toISOString().slice(0, 10),
-          end_date: new Date(Date.now() + 180 * 24 * 3600_000).toISOString().slice(0, 10),
-          status: "approved",
-          created_by: createdBy,
-        })
-        .select()
-        .single();
-      if (campErr || !newCampaign) {
-        res.status(500).json({ error: `Failed to auto-create campaign: ${campErr?.message}` });
-        return;
+
+      // Check if a campaign with this name already exists to avoid duplicates
+      const { data: existingCamp } = await supa.from("campaigns")
+        .select("id")
+        .eq("name", autoCampaignName)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingCamp) {
+        campaignId = (existingCamp as any).id;
+      } else {
+        const campaignCode = "CAM-" + randomBytes(4).toString("hex").toUpperCase();
+        const { data: newCampaign, error: campErr } = await supa
+          .from("campaigns")
+          .insert({
+            name: autoCampaignName,
+            campaign_code: campaignCode,
+            district_id: primaryDistrictId,
+            value_chain_id: valueChainId,
+            start_date: new Date().toISOString().slice(0, 10),
+            end_date: new Date(Date.now() + 180 * 24 * 3600_000).toISOString().slice(0, 10),
+            status: "approved",
+            created_by: createdBy,
+          })
+          .select()
+          .single();
+        if (campErr || !newCampaign) {
+          console.error("Failed to auto-create campaign:", campErr);
+          res.status(500).json({ error: "Operation failed" });
+          return;
+        }
+        campaignId = (newCampaign as any).id;
       }
-      campaignId = (newCampaign as any).id;
     }
 
     // 3. Find or create a group beneficiary per community
-    // Fetch a fallback value_chain_id — farmers.value_chain_id is NOT NULL
-    const { data: vcFallbackRow } = await supa.from("value_chains").select("id").order("id", { ascending: true }).limit(1).maybeSingle();
-    const defaultValueChainId: number = (vcFallbackRow as any)?.id ?? 1;
+    // Use the value chain extracted from title (or fallback already resolved above)
 
     const communities: Array<{ community: string; district: string; farmerCode: string; barcodeToken: string }> = [];
     const farmerIds: number[] = [];
@@ -646,7 +740,9 @@ router.post(
       const chiefdomId  = row.chiefdom?.trim()
         ? (chiefdomMap[`${row.chiefdom.trim().toLowerCase()}|${districtId}`] ?? null)
         : null;
-      const phone = row.contactPhone?.trim() || null;
+      const communityId = communityMap[`${row.community.trim().toLowerCase()}|${districtId}`] ?? null;
+      const rawPhone = row.contactPhone?.trim() || null;
+      const phone = rawPhone ? normalisePhoneForStorage(rawPhone) : null;
 
       // Look up by farmer_group ONLY (no beneficiary_type filter) — on a failed retry the
       // beneficiary_type UPDATE may not have fired, leaving the row as 'individual'.
@@ -663,6 +759,7 @@ router.post(
         const backfill: Record<string, unknown> = { beneficiary_type: "group" };
         if (!(existing as any).phone && phone)            backfill.phone       = phone;
         if (!(existing as any).chiefdom_id && chiefdomId) backfill.chiefdom_id = chiefdomId;
+        if (communityId) backfill.community_id = communityId;
         await supa.from("farmers").update(backfill).eq("id", (existing as any).id);
 
         farmerIds.push((existing as any).id);
@@ -694,11 +791,11 @@ router.post(
         continue;
       }
 
-      const farmerCode   = "FRM-" + randomBytes(4).toString("hex").toUpperCase();
+      const farmerCode   = "FMR-" + randomBytes(4).toString("hex").toUpperCase();
       const barcodeToken = "BC-"  + randomBytes(5).toString("hex").toUpperCase();
       const nameParts    = (row.contactPerson ?? "").trim().split(/\s+/);
-      const firstName    = nameParts[0] ?? "";
-      const lastName     = nameParts.slice(1).join(" ") || "";
+      const firstName    = nameParts[0] || row.community.trim() || "Group";
+      const lastName     = nameParts.slice(1).join(" ") || "Beneficiary";
 
       // Compute next safe farmer ID (PG sequence may be behind max after seed imports with explicit IDs)
       const { data: maxFarmerRow } = await supa.from("farmers").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
@@ -714,9 +811,10 @@ router.post(
           first_name:     firstName,
           last_name:      lastName,
           gender:         "unknown",
-          value_chain_id: defaultValueChainId,
+          value_chain_id: valueChainId,
           district_id:    districtId ?? null,
           chiefdom_id:    chiefdomId ?? null,
+          community_id:   communityId ?? null,
           phone:          phone ?? null,
           farmer_code:    farmerCode,
           barcode_token:  barcodeToken,
@@ -727,7 +825,8 @@ router.post(
         .single();
 
       if (farmerErr || !newFarmer) {
-        res.status(500).json({ error: `Failed to register beneficiary "${row.community}": ${farmerErr?.message}` });
+        console.error(`Failed to register beneficiary "${row.community}":`, farmerErr);
+        res.status(500).json({ error: "Operation failed" });
         return;
       }
 
@@ -752,7 +851,7 @@ router.post(
     }
 
     // 4. Create the dispatch manifest
-    const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
+    const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase() + randomBytes(2).toString("hex").toUpperCase();
     const isHired = b.vehicleType === "hired";
 
     // Use direct pg pool (bypasses PostgREST schema cache entirely — same pattern as POST /api/dispatch)
@@ -795,7 +894,8 @@ router.post(
       dispatchId = pgResult.rows[0].id as number;
       dispatchRow = { id: dispatchId, manifest_code: manifestCode, ...Object.fromEntries(cols.slice(1).map((c, i) => [c, vals[i + 1]])) };
     } catch (pgErr: any) {
-      res.status(500).json({ error: pgErr.message ?? "Failed to create dispatch manifest" });
+      console.error("Failed to create dispatch manifest:", pgErr);
+      res.status(500).json({ error: "Operation failed" });
       return;
     }
 
@@ -804,7 +904,7 @@ router.post(
     for (const col of columns) {
       const itemId = itemIdMap[col.colIndex];
       if (!itemId) continue;
-      const totalQty = rows.reduce((sum, row) => sum + (Number(row.quantities[col.colIndex]) || 0), 0);
+      const totalQty = rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantities[col.colIndex]) || 0), 0);
       if (totalQty <= 0) continue;
       await supa.from("dispatch_items").insert({
         dispatch_id: dispatchId,
@@ -824,6 +924,11 @@ router.post(
       "dispatch", dispatchId,
     );
 
+    const warnings: string[] = [];
+    if (unmatchedDistricts.length > 0) {
+      warnings.push(`Unmatched district names (no district_id assigned): ${unmatchedDistricts.join(", ")}`);
+    }
+
     res.status(201).json({
       dispatch: snakeToCamel(dispatchRow),
       manifestCode,
@@ -833,6 +938,7 @@ router.post(
       farmersCreated: newFarmerCount,
       totalCommunities: rows.length,
       communities,
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   },
 );

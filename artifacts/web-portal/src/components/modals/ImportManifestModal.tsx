@@ -60,6 +60,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
   const [notes, setNotes]                   = useState("");
   const [fieldOfficerId, setFieldOfficerId]     = useState("");
   const [autoCampaignName, setAutoCampaignName] = useState("");
+  const [parsedTitle, setParsedTitle]             = useState("");
   const [stockShortfalls, setStockShortfalls]   = useState<any[] | null>(null);
   const [importResult, setImportResult]         = useState<any>(null);
 
@@ -86,21 +87,44 @@ export function ImportManifestModal({ open, onClose }: Props) {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: null });
 
-        const headerRowIdx = raw.findIndex((row: any[]) =>
-          row.some((cell: any) => typeof cell === "string" && cell.toString().toLowerCase().includes("district"))
-        );
+        // Scan the first 10 rows (or fewer) to find the header row containing "Community"
+        const scanLimit = Math.min(raw.length, 10);
+        let headerRowIdx = -1;
+        for (let r = 0; r < scanLimit; r++) {
+          const row = raw[r] as any[];
+          if (row?.some((cell: any) => typeof cell === "string" && cell.toString().toLowerCase().trim() === "community")) {
+            headerRowIdx = r;
+            break;
+          }
+        }
         if (headerRowIdx < 0) {
-          toast({ title: "Parse error", description: "Could not find a header row with a 'District' column.", variant: "destructive" });
+          toast({ title: "Parse error", description: "Could not find a header row with a 'Community' column. Check that the spreadsheet contains a Community header.", variant: "destructive" });
           return;
         }
+
+        // Extract title from rows above the header (used as campaign & dispatch name)
+        let extractedTitle = "";
+        for (let r = 0; r < headerRowIdx; r++) {
+          const row = raw[r] as any[];
+          const firstCell = row?.[0]?.toString().trim();
+          if (firstCell && firstCell.length > 3) { extractedTitle = firstCell; break; }
+        }
+
         const headerRow = raw[headerRowIdx] as any[];
 
         const districtIdx      = headerRow.findIndex((h: any) => h?.toString().toLowerCase() === "district");
         const chiefdomIdx      = headerRow.findIndex((h: any) => h?.toString().toLowerCase() === "chiefdom");
         const communityIdx     = headerRow.findIndex((h: any) => h?.toString().toLowerCase() === "community");
-        const distributionIdx  = headerRow.findIndex((h: any) => h?.toString().toLowerCase() === "distribution");
+        const distributionIdx  = headerRow.findIndex((h: any) => {
+          const v = h?.toString().toLowerCase().trim();
+          return v === "distribution" || v === "distribution site";
+        });
         const contactNameIdx   = headerRow.findIndex((h: any) => typeof h === "string" && h.toLowerCase().includes("contact person"));
-        const contactPhoneIdx  = headerRow.findIndex((h: any) => typeof h === "string" && (h.toLowerCase().includes("contact #") || h.toLowerCase().includes("contact number")));
+        const contactPhoneIdx  = headerRow.findIndex((h: any) => {
+          if (typeof h !== "string") return false;
+          const v = h.toLowerCase().trim();
+          return v === "contact #" || v === "contact number" || v === "contact phone" || v === "phone";
+        });
 
         if (communityIdx < 0) {
           toast({ title: "Parse error", description: "Could not detect a Community column.", variant: "destructive" });
@@ -115,11 +139,38 @@ export function ImportManifestModal({ open, onClose }: Props) {
           contactPhoneIdx >= 0 ? contactPhoneIdx  :
           headerRow.length;
 
+        // Collect indices of all known fixed columns so they are excluded from the tool range
+        const fixedIndices = new Set(
+          [districtIdx, chiefdomIdx, communityIdx, distributionIdx, contactNameIdx, contactPhoneIdx]
+            .filter(idx => idx >= 0)
+        );
+        // Also exclude a leading "No" / "#" column if present
+        const noIdx = headerRow.findIndex((h: any) => {
+          const v = h?.toString().toLowerCase().trim();
+          return v === "no" || v === "no." || v === "#" || v === "s/n";
+        });
+        if (noIdx >= 0) fixedIndices.add(noIdx);
+
         const toolHeaders: string[] = [];
+        const toolColIndices: number[] = [];
         for (let i = communityIdx + 1; i < toolEndIdx; i++) {
+          if (fixedIndices.has(i)) continue;          // skip known non-tool columns
           toolHeaders.push(headerRow[i]?.toString() ?? `Item ${i - communityIdx}`);
+          toolColIndices.push(i);
         }
-        if (toolHeaders.length === 0) {
+
+        // Deduplicate tool headers — if the same name appears more than once keep only the first occurrence
+        const seenHeaders = new Set<string>();
+        const dedupedHeaders: string[] = [];
+        const dedupedColIndices: number[] = [];
+        for (let i = 0; i < toolHeaders.length; i++) {
+          const key = toolHeaders[i].toLowerCase().trim();
+          if (seenHeaders.has(key)) continue;
+          seenHeaders.add(key);
+          dedupedHeaders.push(toolHeaders[i]);
+          dedupedColIndices.push(toolColIndices[i]);
+        }
+        if (dedupedHeaders.length === 0) {
           toast({ title: "Parse error", description: "No tool/item columns found after the Community column.", variant: "destructive" });
           return;
         }
@@ -127,15 +178,24 @@ export function ImportManifestModal({ open, onClose }: Props) {
         const rows: ParsedRow[] = [];
         for (let i = headerRowIdx + 1; i < raw.length; i++) {
           const row = raw[i] as any[];
+          if (!row || row.length === 0) continue;
           const communityVal = row[communityIdx];
           const distVal = districtIdx >= 0 ? row[districtIdx] : null;
+          // Skip empty community rows
           if (communityVal === null || communityVal === undefined || communityVal === "") continue;
+          // Skip total/grand total rows
           if (typeof communityVal === "string" && (communityVal.toLowerCase().includes("total") || communityVal.toLowerCase().includes("grand"))) continue;
           if (typeof distVal === "string" && (distVal.toLowerCase().includes("total") || distVal.toLowerCase().includes("grand"))) continue;
+          // Skip rows where the "No" column exists but is empty and community looks like a summary
+          if (noIdx >= 0) {
+            const noVal = row[noIdx];
+            if ((noVal === null || noVal === undefined || noVal === "") &&
+                typeof communityVal === "string" && !/\w/.test(communityVal.replace(/total|grand|sub/gi, ""))) continue;
+          }
 
           const quantities: number[] = [];
-          for (let j = communityIdx + 1; j < toolEndIdx; j++) {
-            quantities.push(Number(row[j] ?? 0));
+          for (const colIdx of dedupedColIndices) {
+            quantities.push(Number(row[colIdx] ?? 0));
           }
           rows.push({
             community:     row[communityIdx]?.toString() ?? "",
@@ -153,7 +213,12 @@ export function ImportManifestModal({ open, onClose }: Props) {
         }
 
         setParsedRows(rows);
-        setColumnMapping(toolHeaders.map((name, i) => ({
+        if (extractedTitle) {
+          setParsedTitle(extractedTitle);
+          setAutoCampaignName(extractedTitle);
+          setCampaignId("_new");
+        }
+        setColumnMapping(dedupedHeaders.map((name, i) => ({
           colIndex: i,
           name: name.toLowerCase().startsWith("tools col") ? "" : name,
           unit: "pcs",
@@ -178,7 +243,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
     setStep(1); setParsedRows([]); setColumnMapping([]);
     setCampaignId(""); setWarehouseId(""); setVehicleMode("office");
     setVehicleId(""); setDriverId(""); setHiredPlate(""); setHiredDriver("");
-    setNotes(""); setFieldOfficerId(""); setAutoCampaignName("");
+    setNotes(""); setFieldOfficerId(""); setAutoCampaignName(""); setParsedTitle("");
     setStockShortfalls(null); setImportResult(null);
   }
 
@@ -196,10 +261,24 @@ export function ImportManifestModal({ open, onClose }: Props) {
 
   function downloadTemplate() {
     const activeItems = itemList.filter((it: any) => it.isActive !== false && it.isActive !== 0);
-    const toolCols = activeItems.length ? activeItems.map((it: any) => it.name || "") : ["Tool 1", "Tool 2"];
-    const headers = ["No", "District", "Chiefdom", "Community", ...toolCols, "Distribution (optional)", "Contact Person", "Contact #"];
-    const example = [1, "Bo", "Kakua", "Gangama", ...toolCols.map(() => 12), "", "Firstname Lastname", "078-000000"];
-    const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+    const toolCols = activeItems.length
+      ? activeItems.map((it: any) => it.name || "")
+      : ["Shovel", "Heavy cutlass", "Light cutlass", "Hoe", "Head pan", "Spade", "Wheel barrow", "Pick axe", "Felling axe", "Measuring tape 50m", "Tarpaulin"];
+    const totalCols = 4 + toolCols.length + 2; // No + District + Chiefdom + Community + tools + Contact Person + Contact #
+    const titleRow: any[] = ["DISTRIBUTION PLAN"];
+    // Pad title row so merge range is valid
+    for (let c = 1; c < totalCols; c++) titleRow.push(null);
+    const headers = ["No", "District", "Chiefdom", "Community", ...toolCols, "Contact Person", "Contact #"];
+    // Create 5 blank data rows with row numbers
+    const dataRows: any[][] = [];
+    for (let r = 1; r <= 5; r++) {
+      const blankRow: any[] = [r];
+      for (let c = 1; c < totalCols; c++) blankRow.push(null);
+      dataRows.push(blankRow);
+    }
+    const ws = XLSX.utils.aoa_to_sheet([titleRow, headers, ...dataRows]);
+    // Merge title row across all columns
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Distribution Plan");
     XLSX.writeFile(wb, "dispatch-plan-template.xlsx");
@@ -245,7 +324,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
       warehouseId:    Number(warehouseId),
       vehicleType:    vehicleMode,
       fieldOfficerId: fieldOfficerId ? Number(fieldOfficerId) : undefined,
-      notes:          notes || undefined,
+      notes:          notes || parsedTitle || undefined,
       force:          force || undefined,
       columns:        columnMapping.map(c => ({ ...c, name: c.name.trim() || `Item ${c.colIndex + 1}` })),
       rows:           parsedRows,
@@ -347,8 +426,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
                 </div>
                 <div className="rounded-md bg-muted/60 p-3 space-y-1 text-xs text-muted-foreground">
                   <p className="font-medium text-foreground text-xs">Expected column order:</p>
-                  <p>No · District · Chiefdom · Community · [Tool columns] · <span className="italic">Distribution (optional)</span> · Contact Person · Contact #</p>
-                  <p>Subtotal rows (e.g. "Bo Total", "GRAND TOTAL") are skipped automatically. Distribution date can be set later by editing the manifest.</p>
+                  <p>No · District · Chiefdom · Community · [Tool columns] · Contact Person · Contact #</p>
+                  <p>Title rows above the headers are detected automatically. Subtotal rows (e.g. "Bo District Total", "GRAND TOTAL") are skipped automatically.</p>
                 </div>
               </div>
             )}
@@ -499,7 +578,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
                     </Select>
                     {campaignId === "_new" && (
                       <Input
-                        placeholder={`Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`}
+                        placeholder={parsedTitle || `Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`}
                         value={autoCampaignName}
                         onChange={e => setAutoCampaignName(e.target.value)}
                         className="h-8 text-xs"
