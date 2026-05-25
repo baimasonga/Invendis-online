@@ -16,7 +16,9 @@ const router = Router();
 
 const WIALON_HOST = process.env.GPSTRACE_HOST ?? "hst-api.wialon.com";
 const WIALON_BASE = `https://${WIALON_HOST}/wialon/ajax.html`;
-const TOKEN       = process.env.GPSTRACE_TOKEN ?? process.env.GPS_TRACE_API_TOKEN ?? "";
+
+// Read token at request time so it picks up the env var even after process start
+const getToken = () => (process.env.GPSTRACE_TOKEN ?? process.env.GPS_TRACE_API_TOKEN ?? "").trim();
 
 // ── Wialon helpers ────────────────────────────────────────────────────────────
 
@@ -28,8 +30,9 @@ async function wialonGet(svc: string, params: object, sid?: string): Promise<any
 }
 
 async function openSession(): Promise<string> {
-  if (!TOKEN) throw new Error("GPSTRACE_TOKEN is not set");
-  const result = await wialonGet("token/login", { token: TOKEN });
+  const token = getToken();
+  if (!token) throw new Error("GPSTRACE_TOKEN is not set");
+  const result = await wialonGet("token/login", { token });
   if (result.error) throw new Error(`GPS-Trace login failed (code ${result.error})`);
   return result.eid as string;
 }
@@ -74,7 +77,7 @@ interface WialonUnit {
 // ── GET /api/gpstrace/devices ─────────────────────────────────────────────────
 // Returns GPS-Trace devices enriched with which vehicle each is linked to.
 router.get("/api/gpstrace/devices", requireAuth, async (_req, res) => {
-  if (!TOKEN) {
+  if (!getToken()) {
     res.json({ configured: false, devices: [], vehicles: [] });
     return;
   }
@@ -116,7 +119,7 @@ router.get("/api/gpstrace/devices", requireAuth, async (_req, res) => {
 // ── POST /api/gpstrace/sync ───────────────────────────────────────────────────
 // Pulls latest position for every linked vehicle and writes to gps_track.
 router.post("/api/gpstrace/sync", requireAuth, async (_req, res) => {
-  if (!TOKEN) {
+  if (!getToken()) {
     res.json({ synced: 0, message: "GPSTRACE_TOKEN not configured" });
     return;
   }
