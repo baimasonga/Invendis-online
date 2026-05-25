@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "artifacts/field-app/**"
-      - ".github/workflows/android-native-build.yml"
+      - ".github/workflows/build-android-apk.yml"
   workflow_dispatch:
     inputs:
       domain:
@@ -47,7 +47,7 @@ jobs:
         run: pnpm --filter @workspace/field-app run typecheck
 
   build-apk:
-    name: Build APK (Gradle · no EAS)
+    name: Build APK (Gradle)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: typecheck
@@ -72,8 +72,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # ── Native project generation ─────────────────────────────────────────
-      - name: Expo prebuild (generate Android project)
+      - name: Expo prebuild
         working-directory: artifacts/field-app
         run: |
           pnpm exec expo prebuild \
@@ -92,10 +91,6 @@ jobs:
           https_proxy: ""
           all_proxy: ""
 
-      # ── Signing ───────────────────────────────────────────────────────────
-      # If ANDROID_KEYSTORE_BASE64 secret is set, use the production keystore.
-      # Otherwise auto-generate a temporary keystore so the APK can still be
-      # sideloaded for testing (sideloadable but not Play Store distributable).
       - name: Prepare signing keystore
         id: signing
         working-directory: artifacts/field-app/android/app
@@ -108,10 +103,10 @@ jobs:
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > release.keystore
             echo "store_file=$GITHUB_WORKSPACE/artifacts/field-app/android/app/release.keystore" >> $GITHUB_OUTPUT
-            echo "store_password=$STORE_PASS"  >> $GITHUB_OUTPUT
-            echo "key_alias=$KEY_ALIAS"        >> $GITHUB_OUTPUT
-            echo "key_password=$KEY_PASS"      >> $GITHUB_OUTPUT
-            echo "signed=production"           >> $GITHUB_OUTPUT
+            echo "store_password=$STORE_PASS" >> $GITHUB_OUTPUT
+            echo "key_alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
+            echo "key_password=$KEY_PASS" >> $GITHUB_OUTPUT
+            echo "signed=production" >> $GITHUB_OUTPUT
           else
             keytool -genkeypair -v \
               -keystore release.keystore \
@@ -122,12 +117,11 @@ jobs:
               2>/dev/null || true
             echo "store_file=$GITHUB_WORKSPACE/artifacts/field-app/android/app/release.keystore" >> $GITHUB_OUTPUT
             echo "store_password=invendis123" >> $GITHUB_OUTPUT
-            echo "key_alias=release"         >> $GITHUB_OUTPUT
-            echo "key_password=invendis123"  >> $GITHUB_OUTPUT
-            echo "signed=debug-keystore"     >> $GITHUB_OUTPUT
+            echo "key_alias=release" >> $GITHUB_OUTPUT
+            echo "key_password=invendis123" >> $GITHUB_OUTPUT
+            echo "signed=debug-keystore" >> $GITHUB_OUTPUT
           fi
 
-      # ── Gradle build ──────────────────────────────────────────────────────
       - name: Build release APK
         working-directory: artifacts/field-app/android
         run: |
@@ -139,33 +133,22 @@ jobs:
             "-Pandroid.injected.signing.key.password=${{ steps.signing.outputs.key_password }}"
         env:
           EXPO_PUBLIC_DOMAIN: ${{ inputs.domain || vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
-          HTTP_PROXY: ""
-          HTTPS_PROXY: ""
-          ALL_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
-          all_proxy: ""
 
-      # ── Locate & rename APK ───────────────────────────────────────────────
       - name: Locate APK
         id: apk
         run: |
-          APK=$(find artifacts/field-app/android/app/build/outputs/apk/release \
-                -name "*.apk" | head -1)
+          APK=$(find artifacts/field-app/android/app/build/outputs/apk/release -name "*.apk" | head -1)
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found in build outputs"
-            find artifacts/field-app/android/app/build/outputs -type f | head -20
-            exit 1
+            echo "ERROR: No APK found" && exit 1
           fi
           VER=$(node -p "require('./artifacts/field-app/app.json').expo.version")
           SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           NAME="invendis-field-v${VER}-${SHA}.apk"
           cp "$APK" "$NAME"
-          echo "path=$APK"   >> $GITHUB_OUTPUT
-          echo "name=$NAME"  >> $GITHUB_OUTPUT
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
 
-      # ── Upload artifact ───────────────────────────────────────────────────
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -173,7 +156,6 @@ jobs:
           path: ${{ steps.apk.outputs.name }}
           retention-days: 30
 
-      # ── GitHub Release (main branch only) ─────────────────────────────────
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -181,19 +163,13 @@ jobs:
           tag_name: field-app-v${{ steps.apk.outputs.version }}-${{ github.run_number }}
           name: "Invendis Field App v${{ steps.apk.outputs.version }} (#${{ github.run_number }})"
           body: |
-            ## Invendis Field App — Android APK
-
+            ## Invendis Field App - Android APK
             | Field | Value |
             |-------|-------|
             | Version | `${{ steps.apk.outputs.version }}` |
             | Build | `#${{ github.run_number }}` |
             | Commit | `${{ github.sha }}` |
-            | API domain | `${{ inputs.domain || vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}` |
             | Signing | `${{ steps.signing.outputs.signed }}` |
-
-            ### Install
-            Download **`${{ steps.apk.outputs.name }}`** and install on Android.
-            If prompted, enable **Install from Unknown Sources** in Settings → Apps.
           files: ${{ steps.apk.outputs.name }}
           generate_release_notes: true
           fail_on_unmatched_files: true

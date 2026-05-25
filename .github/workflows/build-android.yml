@@ -1,0 +1,147 @@
+name: Build Mobile App — Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build type"
+        required: true
+        default: "apk"
+        type: choice
+        options:
+          - apk
+          - aab
+  push:
+    branches:
+      - main
+    paths:
+      - "artifacts/field-app/**"
+      - ".github/workflows/build-android.yml"
+
+env:
+  EXPO_NO_TELEMETRY: 1
+  CI: 1
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build composite libs
+        run: pnpm run typecheck:libs
+
+      - name: Typecheck field app
+        run: pnpm --filter @workspace/field-app run typecheck
+
+  build-android:
+    name: Build Android (${{ github.event.inputs.build_type || 'apk' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: typecheck
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies (field-app only)
+        working-directory: artifacts/field-app
+        run: |
+          cd ../..
+          pnpm install --filter @workspace/field-app... --no-frozen-lockfile
+
+      - name: Generate native Android project
+        working-directory: artifacts/field-app
+        run: npx expo prebuild --platform android --clean --no-install
+        env:
+          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/field-app/android/**/*.gradle*') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build debug APK
+        if: github.event.inputs.build_type != 'aab'
+        working-directory: artifacts/field-app/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      - name: Build release AAB
+        if: github.event.inputs.build_type == 'aab'
+        working-directory: artifacts/field-app/android
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      - name: Find and upload APK
+        if: github.event.inputs.build_type != 'aab'
+        uses: actions/upload-artifact@v4
+        with:
+          name: invendis-field-app-${{ github.sha }}
+          path: artifacts/field-app/android/app/build/outputs/apk/**/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Find and upload AAB
+        if: github.event.inputs.build_type == 'aab'
+        uses: actions/upload-artifact@v4
+        with:
+          name: invendis-field-app-bundle-${{ github.sha }}
+          path: artifacts/field-app/android/app/build/outputs/bundle/**/*.aab
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Android Build" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build type:** ${{ github.event.inputs.build_type || 'apk' }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- **Status:** ✅ Success — download from Artifacts tab" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** ❌ Failed — check logs above" >> $GITHUB_STEP_SUMMARY
+          fi

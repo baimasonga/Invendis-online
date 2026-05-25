@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build composite libs
+        run: pnpm run typecheck:libs
+
       - name: Type check — api-server
         run: pnpm --filter @workspace/api-server typecheck
 
