@@ -17,8 +17,9 @@ const router = Router();
 const API_BASE = "https://api.gps-trace.com";
 
 // Use || not ?? so empty-string secrets fall through to the next var
+// GPS_TRACE_TOKEN is the primary fleet account (27 real units)
 const getToken = () =>
-  (process.env.GPS_TRACE_API_TOKEN || process.env.GPSTRACE_TOKEN || "").trim();
+  (process.env.GPS_TRACE_TOKEN || process.env.GPS_TRACE_API_TOKEN || process.env.GPSTRACE_TOKEN || "").trim();
 
 // ── Partner API helpers ───────────────────────────────────────────────────────
 
