@@ -18,7 +18,8 @@ const WIALON_HOST = process.env.GPSTRACE_HOST ?? "hst-api.wialon.com";
 const WIALON_BASE = `https://${WIALON_HOST}/wialon/ajax.html`;
 
 // Read token at request time so it picks up the env var even after process start
-const getToken = () => (process.env.GPSTRACE_TOKEN ?? process.env.GPS_TRACE_API_TOKEN ?? "").trim();
+// Use || not ?? so empty-string secrets fall through to the next var
+const getToken = () => (process.env.GPSTRACE_TOKEN || process.env.GPS_TRACE_API_TOKEN || "").trim();
 
 // ── Wialon helpers ────────────────────────────────────────────────────────────
 
