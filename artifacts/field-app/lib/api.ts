@@ -3,6 +3,12 @@ const getBase = () => {
   return `https://${domain}/api`;
 };
 
+let _unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void) {
+  _unauthorizedHandler = handler;
+}
+
 export async function apiFetch<T>(
   path: string,
   token: string,
@@ -16,6 +22,9 @@ export async function apiFetch<T>(
       ...(options.headers ?? {}),
     },
   });
+  if (res.status === 401) {
+    _unauthorizedHandler?.();
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error((err as { error?: string; message?: string }).error ?? (err as { message?: string }).message ?? "Request failed");

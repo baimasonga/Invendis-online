@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { createHash } from "crypto";
-import { supa } from "../lib/supabase.js";
+import { pool, supa } from "../lib/supabase.js";
 import { requireAnyAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
 
 const router = Router();
 
@@ -76,51 +77,42 @@ async function sendWhatsApp(to: string, text: string): Promise<void> {
 }
 
 async function dbGetActive(farmerId: number) {
-  const { data, error } = await supa
-    .from("otp_codes")
-    .select("*")
-    .eq("farmer_id", farmerId)
-    .gt("expires_at", new Date().toISOString())
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
-  if (error) return null;
-  return data ?? null;
+  const { rows } = await pool.query(
+    `SELECT * FROM otp_codes WHERE farmer_id = $1 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+    [farmerId]
+  );
+  return rows[0] ?? null;
 }
 
 async function dbInsert(farmerId: number, codeHash: string, channel: string) {
-  await supa.from("otp_codes").delete().eq("farmer_id", farmerId);
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const { data } = await supa
-    .from("otp_codes")
-    .insert({ farmer_id: farmerId, code_hash: codeHash, channel, expires_at: expiresAt, attempts: 0 })
-    .select()
-    .single();
-  return data;
+  await pool.query(`DELETE FROM otp_codes WHERE farmer_id = $1`, [farmerId]);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const { rows } = await pool.query(
+    `INSERT INTO otp_codes (farmer_id, code_hash, channel, expires_at, attempts)
+     VALUES ($1, $2, $3, $4, 0) RETURNING *`,
+    [farmerId, codeHash, channel, expiresAt]
+  );
+  return rows[0];
 }
 
 async function dbIncrementAttempts(id: number, attempts: number) {
-  await supa.from("otp_codes").update({ attempts }).eq("id", id);
+  await pool.query(`UPDATE otp_codes SET attempts = $1 WHERE id = $2`, [attempts, id]);
 }
 
 async function dbDeleteCode(id: number) {
-  await supa.from("otp_codes").delete().eq("id", id);
+  await pool.query(`DELETE FROM otp_codes WHERE id = $1`, [id]);
 }
 
 setInterval(async () => {
-  await supa.from("otp_codes").delete().lt("expires_at", new Date().toISOString());
+  await pool.query(`DELETE FROM otp_codes WHERE expires_at < NOW()`);
 }, 15 * 60 * 1000);
 
-router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
-  const { farmerId, campaignId: rawCampaignId, dispatchId: rawDispatchId } = req.body as {
-    farmerId: number;
+router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), async (req, res) => {
+  const { farmerId } = req.body as { farmerId: number };
+  const { campaignId: rawCampaignId, dispatchId: rawDispatchId } = req.body as {
     campaignId?: number;
     dispatchId?: number;
   };
-  if (!farmerId) {
-    res.status(400).json({ error: "farmerId is required" });
-    return;
-  }
 
   const { data: farmer, error: farmerErr } = await supa
     .from("farmers")
@@ -257,12 +249,8 @@ router.post("/api/pod/otp/send", requireAnyAuth, async (req, res) => {
   });
 });
 
-router.post("/api/pod/otp/verify", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/otp/verify", requireAnyAuth, validateBody(OtpVerifySchema), async (req, res) => {
   const { farmerId, code } = req.body as { farmerId: number; code: string };
-  if (!farmerId || !code) {
-    res.status(400).json({ verified: false, error: "farmerId and code are required" });
-    return;
-  }
 
   const entry = await dbGetActive(Number(farmerId));
   if (!entry) {
