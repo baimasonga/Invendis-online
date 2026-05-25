@@ -952,14 +952,22 @@ router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
 
   const { data: allocs, error: allocErr } = await supa
     .from("allocations")
-    .select("id, farmer_id, status, farmers(id, first_name, last_name, farmer_code, phone, barcode_token)")
+    .select("id, farmer_id, status")
     .eq("campaign_id", dispRow.campaign_id)
     .order("id");
 
   if (allocErr) { res.status(500).json({ error: allocErr.message }); return; }
 
+  // Fetch farmer details separately to avoid PostgREST embedded-join FK resolution issues
+  const farmerIds = (allocs ?? []).map((a: any) => a.farmer_id).filter(Boolean);
+  const { data: farmerRows } = farmerIds.length
+    ? await supa.from("farmers").select("id, first_name, last_name, farmer_code, phone, barcode_token").in("id", farmerIds)
+    : { data: [] };
+
+  const farmerMap = Object.fromEntries((farmerRows ?? []).map((f: any) => [f.id, f]));
+
   const rows = (allocs ?? []).map((a: any) => {
-    const f = a.farmers ?? {};
+    const f = farmerMap[a.farmer_id] ?? {};
     return {
       allocationId:     a.id,
       farmerId:         a.farmer_id,
