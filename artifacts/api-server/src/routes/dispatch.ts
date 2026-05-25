@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
-import { supa, snakeToCamel, pool } from "../lib/supabase.js";
+import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
@@ -60,34 +60,29 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
 
-  // Determine the effective field_officer_id filter.
-  // PostgREST schema cache does not expose field_officer_id, so any query that
-  // filters on it must use pool (raw SQL) instead of the Supabase client.
-  const officerFilter: string | null =
+  // Determine the effective field_officer_id filter (integer).
+  const officerFilter: number | null =
     req.user?.role === "FieldOfficer" && req.user?.userId
-      ? String(req.user.userId)
-      : fieldOfficerId || null;
+      ? Number(req.user.userId)
+      : fieldOfficerId ? Number(fieldOfficerId) : null;
 
   if (officerFilter !== null) {
-    // Use raw SQL to avoid the PostgREST schema-cache limitation on field_officer_id
-    const conditions: string[] = ["field_officer_id = $1"];
-    const params: unknown[] = [officerFilter];
-    let idx = 2;
+    // Use supa with eq() — field_officer_id is a regular integer column in Supabase
+    let q = supa
+      .from("dispatches")
+      .select("*", { count: "exact" })
+      .eq("field_officer_id", officerFilter)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limitN - 1);
 
-    if (campaignId)   { conditions.push(`campaign_id = $${idx++}`);                 params.push(Number(campaignId)); }
-    if (status)       { conditions.push(`status = $${idx++}`);                      params.push(status); }
-    if (manifestCode) { conditions.push(`manifest_code ILIKE $${idx++}`);           params.push(manifestCode); }
+    if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+    if (status)       q = q.eq("status", status) as typeof q;
+    if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { data: ofData, count: ofCount, error: ofErr } = await q;
+    if (ofErr) { console.error("Failed to list dispatches (officer filter):", ofErr); res.status(500).json({ error: "Operation failed" }); return; }
 
-    const countRes  = await pool.query(`SELECT COUNT(*) FROM dispatches ${where}`, params);
-    const dataRes   = await pool.query(
-      `SELECT * FROM dispatches ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, limitN, offset],
-    );
-
-    const total = Number(countRes.rows[0].count);
-    const rows  = dataRes.rows as Record<string, unknown>[];
+    const rows = ofData ?? [];
 
     const { campMap, wareMap, vehMap, drivMap, officerMap } = await fetchLookups(
       [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))],
@@ -108,7 +103,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
       fieldOfficerName:    officerMap[r.field_officer_id]?.full_name ?? null,
     }));
 
-    res.json({ data: result, total, page: pageN, limit: limitN });
+    res.json({ data: result, total: ofCount ?? 0, page: pageN, limit: limitN });
     return;
   }
 
@@ -162,46 +157,47 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
 
   const isHired = vehicleType === "hired";
 
-  // Use direct pg connection to bypass PostgREST schema cache
-  const cols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
-  const vals: unknown[] = [
-    manifestCode,
-    b.campaignId  ? Number(b.campaignId)  : null,
-    b.warehouseId ? Number(b.warehouseId) : null,
-    vehicleType,
-    b.notes ?? null,
-    createdBy,
-  ];
+  // Step 1: INSERT without field_officer_id (avoids PostgREST schema cache stale-column issue)
+  const insertObj: Record<string, unknown> = {
+    manifest_code: manifestCode,
+    campaign_id:   b.campaignId  ? Number(b.campaignId)  : null,
+    warehouse_id:  b.warehouseId ? Number(b.warehouseId) : null,
+    vehicle_type:  vehicleType,
+    notes:         b.notes ?? null,
+    created_by:    createdBy,
+    ...(isHired
+      ? {
+          hired_plate:       b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
+          hired_driver_name: b.hiredDriverName ? String(b.hiredDriverName)          : null,
+        }
+      : {
+          vehicle_id: b.vehicleId ? Number(b.vehicleId) : null,
+          driver_id:  b.driverId  ? Number(b.driverId)  : null,
+        }),
+  };
 
-  if (isHired) {
-    cols.push("hired_plate", "hired_driver_name");
-    vals.push(
-      b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
-      b.hiredDriverName ? String(b.hiredDriverName)          : null,
-    );
-  } else {
-    cols.push("vehicle_id", "driver_id");
-    vals.push(
-      b.vehicleId ? Number(b.vehicleId) : null,
-      b.driverId  ? Number(b.driverId)  : null,
-    );
-  }
+  const { data: insertedRow, error: insertErr } = await supa
+    .from("dispatches")
+    .insert(insertObj)
+    .select()
+    .single();
 
-  if (b.fieldOfficerId) {
-    cols.push("field_officer_id");
-    vals.push(Number(b.fieldOfficerId));
-  }
-
-  const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
-  const sql = `INSERT INTO dispatches (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`;
-
-  let row: Record<string, unknown>;
-  try {
-    const result = await pool.query(sql, vals);
-    row = result.rows[0];
-  } catch (pgErr: any) {
-    console.error("Failed to create dispatch:", pgErr);
+  if (insertErr || !insertedRow) {
+    console.error("Failed to create dispatch:", insertErr);
     res.status(500).json({ error: "Operation failed" }); return;
+  }
+
+  let row: Record<string, unknown> = insertedRow as Record<string, unknown>;
+
+  // Step 2: UPDATE field_officer_id separately (avoids schema cache stale-insert issue)
+  if (b.fieldOfficerId) {
+    const { data: updRow } = await supa
+      .from("dispatches")
+      .update({ field_officer_id: Number(b.fieldOfficerId), updated_at: new Date().toISOString() })
+      .eq("id", (row as any).id)
+      .select()
+      .single();
+    if (updRow) row = updRow as Record<string, unknown>;
   }
 
   await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", row.id as number);
@@ -211,17 +207,15 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
 router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
 
-  // Use pool (raw SQL) so ALL columns are returned, including newer ones that
-  // PostgREST SELECT schema cache may not expose (field_officer_id, vehicle_type, etc.)
   let row: any;
-  try {
-    const pgResult = await pool.query(`SELECT * FROM dispatches WHERE id = $1`, [id]);
-    if (!pgResult.rows.length) { res.status(404).json({ error: "Not found" }); return; }
-    row = pgResult.rows[0];
-  } catch (pgErr: any) {
-    console.error("Failed to fetch dispatch:", pgErr);
-    res.status(500).json({ error: "Operation failed" }); return;
-  }
+  const { data: dispRow, error: dispFetchErr } = await supa
+    .from("dispatches")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (dispFetchErr) { console.error("Failed to fetch dispatch:", dispFetchErr); res.status(500).json({ error: "Operation failed" }); return; }
+  if (!dispRow) { res.status(404).json({ error: "Not found" }); return; }
+  row = dispRow;
   const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap, officerMap }] = await Promise.all([
     supa.from("dispatch_items").select("*").eq("dispatch_id", id),
     fetchLookups(
@@ -293,21 +287,17 @@ router.patch("/api/dispatch/:id/assign", requireAnyAuth, requireRoleIfJwt("Admin
   const id = Number(req.params.id);
   const { fieldOfficerId } = req.body as { fieldOfficerId: string | null };
 
-  // Use pool (raw SQL) because PostgREST schema cache does not expose field_officer_id
-  let pgResult: import("pg").QueryResult;
-  try {
-    pgResult = await pool.query(
-      `UPDATE dispatches SET field_officer_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [fieldOfficerId ?? null, id],
-    );
-  } catch (pgErr: any) {
-    console.error("Failed to assign dispatch:", pgErr);
-    res.status(500).json({ error: "Operation failed" }); return;
-  }
+  const { data: assignData, error: assignErr } = await supa
+    .from("dispatches")
+    .update({ field_officer_id: fieldOfficerId ? Number(fieldOfficerId) : null, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
 
-  if (!pgResult.rows.length) { res.status(404).json({ error: "Dispatch not found" }); return; }
+  if (assignErr) { console.error("Failed to assign dispatch:", assignErr); res.status(500).json({ error: "Operation failed" }); return; }
+  if (!assignData) { res.status(404).json({ error: "Dispatch not found" }); return; }
   await logAudit(req, "ASSIGN", "Dispatch", `Assigned field officer ${fieldOfficerId ?? "none"} to dispatch ID ${id}`, "dispatch", id);
-  res.json(snakeToCamel(pgResult.rows[0]));
+  res.json(snakeToCamel(assignData));
 });
 
 router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
@@ -322,12 +312,9 @@ router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin",
 
   if (itemErr) { console.error("Failed to add dispatch item:", itemErr); res.status(500).json({ error: "Operation failed" }); return; }
 
-  await pool.query(
-    `UPDATE dispatches SET total_packages = (
-      SELECT COALESCE(SUM(quantity_loaded), 0) FROM dispatch_items WHERE dispatch_id = $1
-    ), updated_at = NOW() WHERE id = $1`,
-    [dispatchId],
-  );
+  const { data: allItems } = await supa.from("dispatch_items").select("quantity_loaded").eq("dispatch_id", dispatchId);
+  const totalPkgs = (allItems ?? []).reduce((s: number, i: any) => s + (Number(i.quantity_loaded) || 0), 0);
+  await supa.from("dispatches").update({ total_packages: totalPkgs, updated_at: new Date().toISOString() }).eq("id", dispatchId);
 
   await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
   res.status(201).json(snakeToCamel(itemData));
@@ -854,49 +841,51 @@ router.post(
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase() + randomBytes(2).toString("hex").toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    // Use direct pg pool (bypasses PostgREST schema cache entirely — same pattern as POST /api/dispatch)
-    const cols = ["manifest_code", "campaign_id", "warehouse_id", "vehicle_type", "notes", "created_by"];
-    const vals: unknown[] = [
-      manifestCode,
-      campaignId,
-      warehouseId,
-      b.vehicleType ?? "office",
-      b.notes ?? null,
-      createdBy,
-    ];
-
-    if (isHired) {
-      cols.push("hired_plate", "hired_driver_name");
-      vals.push(
-        b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
-        b.hiredDriverName ? String(b.hiredDriverName)          : null,
-      );
-    } else {
-      cols.push("vehicle_id", "driver_id");
-      vals.push(
-        b.vehicleId ? Number(b.vehicleId) : null,
-        b.driverId  ? Number(b.driverId)  : null,
-      );
-    }
-
-    if (b.fieldOfficerId) {
-      cols.push("field_officer_id");
-      vals.push(Number(b.fieldOfficerId));
-    }
-
-    const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
-    const dispSql = `INSERT INTO dispatches (${cols.join(", ")}) VALUES (${placeholders}) RETURNING id`;
+    // Step 1: INSERT without field_officer_id (avoids PostgREST schema cache stale-column issue)
+    const dispInsertObj: Record<string, unknown> = {
+      manifest_code: manifestCode,
+      campaign_id:   campaignId,
+      warehouse_id:  warehouseId,
+      vehicle_type:  b.vehicleType ?? "office",
+      notes:         b.notes ?? null,
+      created_by:    createdBy,
+      ...(isHired
+        ? {
+            hired_plate:       b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
+            hired_driver_name: b.hiredDriverName ? String(b.hiredDriverName)          : null,
+          }
+        : {
+            vehicle_id: b.vehicleId ? Number(b.vehicleId) : null,
+            driver_id:  b.driverId  ? Number(b.driverId)  : null,
+          }),
+    };
 
     let dispatchId: number;
     let dispatchRow: Record<string, unknown>;
-    try {
-      const pgResult = await pool.query(dispSql, vals);
-      dispatchId = pgResult.rows[0].id as number;
-      dispatchRow = { id: dispatchId, manifest_code: manifestCode, ...Object.fromEntries(cols.slice(1).map((c, i) => [c, vals[i + 1]])) };
-    } catch (pgErr: any) {
-      console.error("Failed to create dispatch manifest:", pgErr);
+
+    const { data: dispData, error: dispInsertErr } = await supa
+      .from("dispatches")
+      .insert(dispInsertObj)
+      .select()
+      .single();
+
+    if (dispInsertErr || !dispData) {
+      console.error("Failed to create dispatch manifest:", dispInsertErr);
       res.status(500).json({ error: "Operation failed" });
       return;
+    }
+    dispatchId = (dispData as any).id as number;
+    dispatchRow = dispData as Record<string, unknown>;
+
+    // Step 2: UPDATE field_officer_id separately (avoids schema cache stale-insert issue)
+    if (b.fieldOfficerId) {
+      const { data: updDisp } = await supa
+        .from("dispatches")
+        .update({ field_officer_id: Number(b.fieldOfficerId), updated_at: new Date().toISOString() })
+        .eq("id", dispatchId)
+        .select()
+        .single();
+      if (updDisp) dispatchRow = updDisp as Record<string, unknown>;
     }
 
     // 5. Create dispatch_items (sum total quantity per item across all communities)

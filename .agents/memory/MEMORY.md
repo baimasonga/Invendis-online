@@ -10,3 +10,4 @@
 - [pool export location](pool-export.md) — `pool` (pg Pool) is exported from `artifacts/api-server/src/lib/supabase.ts`, NOT from `db.ts`. Import as `{ pool, supa } from "../lib/supabase.js"`.
 - [EAS build setup](eas-build-setup.md) — Expo account is `medbangs`; EAS project ID `624b5084-c650-4a8f-92a2-f35cf24b3e81`; git shim required to bypass Replit git-archive restriction.
 - [fieldOfficerId is INTEGER](field-officer-id-type.md) — dispatches.field_officer_id is an INTEGER FK to users.id; NOT UUID. Always Number() when inserting, listFieldOfficers() queries users table.
+- [pool connects to wrong database](pool-wrong-db.md) — DATABASE_URL/pool = Replit local PostgreSQL (empty); NEVER use pool for app data; all data ops must use supa.
