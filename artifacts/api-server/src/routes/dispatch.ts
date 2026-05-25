@@ -28,7 +28,7 @@ async function fetchLookups(
   warehouseIds: number[],
   vehicleIds: number[],
   driverIds: number[],
-  officerIds: number[] = [],
+  officerIds: string[] = [],
 ) {
   const [camps, wares, vehs, drivs, officers] = await Promise.all([
     campaignIds.length  ? supa.from("campaigns").select("id,name,district_id").in("id", campaignIds)  : Promise.resolve({ data: [] }),
@@ -63,10 +63,10 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   // Determine the effective field_officer_id filter.
   // PostgREST schema cache does not expose field_officer_id, so any query that
   // filters on it must use pool (raw SQL) instead of the Supabase client.
-  const officerFilter: number | null =
+  const officerFilter: string | null =
     req.user?.role === "FieldOfficer" && req.user?.userId
-      ? req.user.userId
-      : fieldOfficerId ? Number(fieldOfficerId) : null;
+      ? String(req.user.userId)
+      : fieldOfficerId || null;
 
   if (officerFilter !== null) {
     // Use raw SQL to avoid the PostgREST schema-cache limitation on field_officer_id
@@ -189,7 +189,7 @@ router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectM
 
   if (b.fieldOfficerId) {
     cols.push("field_officer_id");
-    vals.push(Number(b.fieldOfficerId));
+    vals.push(String(b.fieldOfficerId));
   }
 
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
@@ -291,7 +291,7 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
 // Assign / reassign a field officer to a dispatch
 router.patch("/api/dispatch/:id/assign", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
-  const { fieldOfficerId } = req.body as { fieldOfficerId: number | null };
+  const { fieldOfficerId } = req.body as { fieldOfficerId: string | null };
 
   // Use pool (raw SQL) because PostgREST schema cache does not expose field_officer_id
   let pgResult: import("pg").QueryResult;
@@ -485,7 +485,7 @@ router.post(
       driverId?: number;
       hiredPlate?: string;
       hiredDriverName?: string;
-      fieldOfficerId?: number;
+      fieldOfficerId?: string;
       notes?: string;
       force?: boolean;
       columns: Array<{ colIndex: number; name: string; unit: string; itemId: number | null }>;
@@ -881,7 +881,7 @@ router.post(
 
     if (b.fieldOfficerId) {
       cols.push("field_officer_id");
-      vals.push(Number(b.fieldOfficerId));
+      vals.push(String(b.fieldOfficerId));
     }
 
     const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
