@@ -296,7 +296,7 @@ router.post("/api/pod/otp/bulk-generate", requireAnyAuth, async (req, res) => {
   const query = supa
     .from("farmers")
     .select("id, first_name, last_name, farmer_code, phone")
-    .eq("status", "Approved")
+    .in("status", ["approved", "Approved"])
     .order("first_name");
 
   const { data: farmers, error: farmersErr } = farmerIds.length > 0
