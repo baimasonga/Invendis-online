@@ -393,7 +393,29 @@ function TrackerSetup() {
     );
   }
 
-  if (error || !data?.configured) {
+  if (error) {
+    return (
+      <Card className="mt-4 border-red-200 bg-red-50/50">
+        <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
+          <PlugZap className="h-10 w-10 text-red-400 opacity-60" />
+          <div>
+            <p className="text-sm font-semibold">GPS-Trace temporarily unavailable</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Could not reach the GPS-Trace API. This is usually a temporary rate limit — wait 60 seconds and click Refresh.
+            </p>
+            <button
+              onClick={() => refetch()}
+              className="mt-3 text-xs underline text-muted-foreground hover:text-foreground"
+            >
+              Try again
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data?.configured) {
     return (
       <Card className="mt-4 border-amber-200 bg-amber-50/50">
         <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
@@ -401,7 +423,7 @@ function TrackerSetup() {
           <div>
             <p className="text-sm font-semibold">GPS-Trace not configured</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Set the <code className="bg-muted px-1 rounded text-[11px]">GPSTRACE_TOKEN</code> environment variable on the API server to connect your GPS-Trace account.
+              Set the <code className="bg-muted px-1 rounded text-[11px]">GPS_TRACE_API_TOKEN</code> environment variable on the API server to connect your GPS-Trace account.
               <br />Generate a token in GPS-Trace → My Account → API Access.
             </p>
           </div>

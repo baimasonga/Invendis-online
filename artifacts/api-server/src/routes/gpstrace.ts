@@ -64,10 +64,22 @@ async function fetchTelemetry(unitId: number): Promise<Telemetry> {
   return partnerGet(`/provider/units/${unitId}/telemetry`);
 }
 
+// ── 45-second server-side cache for devices (prevents rate-limit hammering) ───
+let _devicesCache: { ts: number; payload: object } | null = null;
+const DEVICES_TTL_MS = 45_000;
+
+function invalidateDevicesCache() { _devicesCache = null; }
+
 // ── GET /api/gpstrace/devices ─────────────────────────────────────────────────
 router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
   if (!getToken()) {
     res.json({ configured: false, devices: [], vehicles: [] });
+    return;
+  }
+
+  // Serve from cache if fresh
+  if (_devicesCache && Date.now() - _devicesCache.ts < DEVICES_TTL_MS) {
+    res.json(_devicesCache.payload);
     return;
   }
 
@@ -108,7 +120,9 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
       };
     });
 
-    res.json({ configured: true, devices, vehicles: vehicles ?? [] });
+    const payload = { configured: true, devices, vehicles: vehicles ?? [] };
+    _devicesCache = { ts: Date.now(), payload };
+    res.json(payload);
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "GPS-Trace unavailable" });
   }
@@ -202,6 +216,7 @@ router.post("/api/gpstrace/link", requireAnyAuth, async (req, res) => {
 
   if (error) { res.status(500).json({ error: error.message }); return; }
 
+  invalidateDevicesCache();
   res.json({ success: true, vehicleId, deviceId, deviceName });
 });
 
@@ -213,6 +228,7 @@ router.delete("/api/gpstrace/unlink/:vehicleId", requireAnyAuth, async (req, res
     .eq("id", Number(req.params.vehicleId));
 
   if (error) { res.status(500).json({ error: error.message }); return; }
+  invalidateDevicesCache();
   res.json({ success: true });
 });
 
