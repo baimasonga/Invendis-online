@@ -483,6 +483,25 @@ export async function updateCampaign(id: number, payload: any) {
   return cc(data);
 }
 
+export async function addCampaignItem(campaignId: number, inputItemId: number) {
+  const { data: mx } = await supabase.from("campaign_items").select("id").order("id", { ascending: false }).limit(1);
+  const nextId = ((mx as any)?.[0]?.id ?? 0) + 1;
+  const { data, error } = await supabase.from("campaign_items").insert({
+    id: nextId,
+    campaign_id: campaignId,
+    input_item_id: inputItemId,
+  }).select().single();
+  if (error) throw new Error(error.message);
+  await logAudit("CREATE", "campaign_items", `Added item to campaign #${campaignId}`, "campaign", campaignId);
+  return cc(data);
+}
+
+export async function removeCampaignItem(itemId: number, campaignId: number) {
+  const { error } = await supabase.from("campaign_items").delete().eq("id", itemId);
+  if (error) throw new Error(error.message);
+  await logAudit("DELETE", "campaign_items", `Removed item from campaign #${campaignId}`, "campaign", campaignId);
+}
+
 export async function deleteCampaign(id: number) {
   const { data: existing, error: fetchErr } = await supabase
     .from("campaigns").select("status,campaign_code").eq("id", id).single();
@@ -543,7 +562,7 @@ export async function listAllocations(page = 1, limit = 20, campaignId?: number)
   // Build campaignId → [{name, itemCode, unit}] map
   const campaignItemsMap: Record<number, { name: string; itemCode: string; unit: string }[]> = {};
   for (const ci of (ciRows ?? []) as any[]) {
-    const it = inputItemMap[ci.input_item_id];
+    const it = (inputItemMap as Record<string, any>)[ci.input_item_id];
     if (!it) continue;
     if (!campaignItemsMap[ci.campaign_id]) campaignItemsMap[ci.campaign_id] = [];
     campaignItemsMap[ci.campaign_id].push({

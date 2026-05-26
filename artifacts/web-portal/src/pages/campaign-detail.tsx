@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getCampaign, submitCampaign, approveCampaign, listAllocations, removeAllocation, KEYS } from "@/lib/db";
+import { getCampaign, submitCampaign, approveCampaign, listAllocations, removeAllocation, addCampaignItem, removeCampaignItem, listInputItems, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck, TrendingUp, Trash2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, CalendarDays, MapPin, Sprout, Users, Send, CheckCircle2, Plus, UserCheck, TrendingUp, Trash2, Package } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -54,6 +55,8 @@ export default function CampaignDetail() {
   const [allocationOpen, setAllocationOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<any>(null);
+  const [selectedInputItemId, setSelectedInputItemId] = useState<string>("none");
+  const [removeItemTarget, setRemoveItemTarget] = useState<any>(null);
 
   const removeMutation = useMutation({
     mutationFn: (allocationId: number) => removeAllocation(allocationId),
@@ -83,6 +86,31 @@ export default function CampaignDetail() {
 
   const submitMutation  = useMutation({ mutationFn: () => submitCampaign(id) });
   const approveMutation = useMutation({ mutationFn: () => approveCampaign(id) });
+
+  const { data: allInputItems } = useQuery({
+    queryKey: ["inputItems"],
+    queryFn: listInputItems,
+  });
+
+  const addItemMutation = useMutation({
+    mutationFn: (inputItemId: number) => addCampaignItem(id, inputItemId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.campaign(id) });
+      setSelectedInputItemId("none");
+      toast({ title: "Item added to campaign" });
+    },
+    onError: (err: any) => toast({ title: "Failed to add item", description: err.message, variant: "destructive" }),
+  });
+
+  const removeItemMutation = useMutation({
+    mutationFn: (itemId: number) => removeCampaignItem(itemId, id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEYS.campaign(id) });
+      toast({ title: "Item removed" });
+      setRemoveItemTarget(null);
+    },
+    onError: (err: any) => toast({ title: "Failed to remove item", description: err.message, variant: "destructive" }),
+  });
 
   async function handleAction(action: "submit" | "approve") {
     setActionLoading(true);
@@ -126,8 +154,13 @@ export default function CampaignDetail() {
   const c = campaign as any;
   const status = (c.status ?? "").toLowerCase();
   const allocationList = (allocations as any)?.data ?? [];
-  // Allow removing farmers only while the campaign hasn't been fully approved/closed
+  const campaignItemsList: any[] = c.campaignItems ?? [];
+  const canManageItems = can.manageAllocations;
   const canRemoveFarmer = can.manageAllocations && !["approved", "closed", "completed"].includes(status);
+
+  // Input items not yet added to this campaign
+  const usedItemIds = new Set(campaignItemsList.map((ci: any) => ci.inputItemId ?? ci.input_item_id));
+  const availableItems = (allInputItems as any[] ?? []).filter((i: any) => !usedItemIds.has(i.id));
 
   return (
     <div className="space-y-5">
@@ -159,6 +192,12 @@ export default function CampaignDetail() {
       <Tabs defaultValue="details">
         <TabsList className="h-8">
           <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+          <TabsTrigger value="items" className="text-xs">
+            Input Items
+            {campaignItemsList.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 font-medium">{campaignItemsList.length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="farmers" className="text-xs">
             Farmers
             {allocationList.length > 0 && (
@@ -267,6 +306,87 @@ export default function CampaignDetail() {
           </div>
         </TabsContent>
 
+        <TabsContent value="items" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Package className="h-4 w-4 text-muted-foreground" /> Input Items
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Items configured here appear on every allocation in this campaign.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Add item row */}
+              {canManageItems && (
+                <div className="flex gap-2 items-center">
+                  <Select value={selectedInputItemId} onValueChange={setSelectedInputItemId}>
+                    <SelectTrigger className="h-8 text-xs flex-1">
+                      <SelectValue placeholder="Select an input item to add…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" disabled>Select an input item…</SelectItem>
+                      {availableItems.map((item: any) => (
+                        <SelectItem key={item.id} value={String(item.id)}>
+                          {item.name}{item.unit ? ` (${item.unit})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-green-700 hover:bg-green-800 text-white shrink-0"
+                    disabled={selectedInputItemId === "none" || addItemMutation.isPending}
+                    onClick={() => addItemMutation.mutate(Number(selectedInputItemId))}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Add Item
+                  </Button>
+                </div>
+              )}
+
+              {/* Items list */}
+              {campaignItemsList.length === 0 ? (
+                <div className="h-28 flex flex-col items-center justify-center gap-2 text-muted-foreground border rounded-lg">
+                  <Package className="h-7 w-7 opacity-30" />
+                  <span className="text-sm">No input items configured yet</span>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="pl-4">Item Name</TableHead>
+                      <TableHead>Unit</TableHead>
+                      {canManageItems && <TableHead className="w-[48px] pr-3" />}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {campaignItemsList.map((ci: any) => (
+                      <TableRow key={ci.id} className="hover:bg-muted/40">
+                        <TableCell className="pl-4 text-sm font-medium">{ci.inputItemName ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{ci.unit ?? "—"}</TableCell>
+                        {canManageItems && (
+                          <TableCell className="pr-3 text-right">
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                              title="Remove item"
+                              disabled={removeItemMutation.isPending}
+                              onClick={() => setRemoveItemTarget(ci)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="farmers" className="mt-4">
           <Card>
             <CardHeader className="pb-3 pt-4 flex flex-row items-center justify-between">
@@ -334,6 +454,28 @@ export default function CampaignDetail() {
       </Tabs>
 
       <AddAllocationModal open={allocationOpen} onClose={() => setAllocationOpen(false)} campaignId={id} />
+
+      {/* Remove input item dialog */}
+      <AlertDialog open={!!removeItemTarget} onOpenChange={(v) => { if (!v) setRemoveItemTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove input item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{removeItemTarget?.inputItemName}</strong> will be removed from this campaign. Existing allocation records will show "None configured" until another item is added.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeItemMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={removeItemMutation.isPending}
+              onClick={() => removeItemTarget && removeItemMutation.mutate(removeItemTarget.id)}
+            >
+              {removeItemMutation.isPending ? "Removing…" : "Remove item"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!removeTarget} onOpenChange={(v) => { if (!v) setRemoveTarget(null); }}>
         <AlertDialogContent>
