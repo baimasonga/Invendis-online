@@ -16,16 +16,17 @@ const router = Router();
 
 const API_BASE = "https://api.gps-trace.com";
 
-// Use || not ?? so empty-string secrets fall through to the next var
-// GPS_TRACE_TOKEN is the primary fleet account (27 real units)
-const getToken = () =>
+// Primary token — main fleet account
+const getToken  = () =>
   (process.env.GPS_TRACE_TOKEN || process.env.GPS_TRACE_API_TOKEN || process.env.GPSTRACE_TOKEN || "").trim();
+
+// Secondary token — distributor devices (GPS_TRACE_API_TOKEN_2)
+const getToken2 = () =>
+  (process.env.GPS_TRACE_API_TOKEN_2 || "").trim();
 
 // ── Partner API helpers ───────────────────────────────────────────────────────
 
-async function partnerGet(path: string): Promise<any> {
-  const token = getToken();
-  if (!token) throw new Error("GPS_TRACE_API_TOKEN is not set");
+async function apiGet(token: string, path: string): Promise<any> {
   const resp = await fetch(`${API_BASE}${path}`, {
     headers: { "X-AccessToken": token, Accept: "application/json" },
     signal: AbortSignal.timeout(12_000),
@@ -35,6 +36,12 @@ async function partnerGet(path: string): Promise<any> {
     throw new Error(`GPS-Trace API error ${resp.status}: ${body.slice(0, 200)}`);
   }
   return resp.json();
+}
+
+async function partnerGet(path: string): Promise<any> {
+  const token = getToken();
+  if (!token) throw new Error("GPS_TRACE_API_TOKEN is not set");
+  return apiGet(token, path);
 }
 
 interface PartnerUnit {
@@ -56,12 +63,36 @@ interface Telemetry {
   timestamp?: { ts: number; value: number };
 }
 
-async function fetchUnits(): Promise<PartnerUnit[]> {
-  return partnerGet("/provider/units");
+// Tagged unit: deviceId is prefixed "t2-<id>" for secondary-token units to avoid collisions
+interface TaggedUnit extends PartnerUnit {
+  deviceId: string;
+  token: string;
 }
 
-async function fetchTelemetry(unitId: number): Promise<Telemetry> {
-  return partnerGet(`/provider/units/${unitId}/telemetry`);
+async function fetchAllUnits(): Promise<TaggedUnit[]> {
+  const t1 = getToken();
+  const t2 = getToken2();
+
+  const [r1, r2] = await Promise.allSettled([
+    t1 ? apiGet(t1, "/provider/units") as Promise<PartnerUnit[]> : Promise.resolve([] as PartnerUnit[]),
+    t2 ? apiGet(t2, "/provider/units") as Promise<PartnerUnit[]> : Promise.resolve([] as PartnerUnit[]),
+  ]);
+
+  const units1: TaggedUnit[] = (r1.status === "fulfilled" ? r1.value : [])
+    .map(u => ({ ...u, deviceId: String(u.id), token: t1 }));
+  const units2: TaggedUnit[] = (r2.status === "fulfilled" ? r2.value : [])
+    .map(u => ({ ...u, deviceId: `t2-${u.id}`, token: t2 }));
+
+  return [...units1, ...units2];
+}
+
+async function fetchTelemetry(unit: TaggedUnit): Promise<Telemetry> {
+  return apiGet(unit.token, `/provider/units/${unit.id}/telemetry`);
+}
+
+// Legacy single-token helpers (used by sync route)
+async function fetchUnits(): Promise<PartnerUnit[]> {
+  return partnerGet("/provider/units");
 }
 
 // ── 45-second server-side cache for devices (prevents rate-limit hammering) ───
@@ -84,7 +115,7 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
   }
 
   try {
-    const units = await fetchUnits();
+    const units = await fetchAllUnits();
 
     const { data: vehicles } = await supa
       .from("vehicles")
@@ -95,9 +126,9 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
       if (v.gps_device_id) vehicleMap[v.gps_device_id] = v;
     }
 
-    // Fetch telemetry for each unit in parallel
+    // Fetch telemetry for each unit in parallel (each unit carries its own token)
     const telemetries = await Promise.allSettled(
-      units.map(u => fetchTelemetry(u.id))
+      units.map(u => fetchTelemetry(u))
     );
 
     const devices = units.map((u, i) => {
@@ -109,14 +140,14 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
       const ts  = tel["position.latitude"]?.ts ?? tel["timestamp"]?.value ?? null;
 
       return {
-        deviceId:      String(u.id),
+        deviceId:      u.deviceId,
         deviceName:    u.name,
         lastSeen:      ts ? new Date(ts * 1000).toISOString() : null,
         latitude:      lat,
         longitude:     lng,
         speed:         tel["position.speed"]?.value ?? null,
         heading:       tel["position.direction"]?.value ?? null,
-        linkedVehicle: vehicleMap[String(u.id)] ?? null,
+        linkedVehicle: vehicleMap[u.deviceId] ?? null,
       };
     });
 
