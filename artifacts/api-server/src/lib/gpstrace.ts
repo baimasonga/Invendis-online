@@ -1,18 +1,31 @@
 /**
  * GPS poller — Partner Console API (api.gps-trace.com, X-AccessToken).
  * Runs on a background interval; writes positions to gps_track + vehicles.
+ *
+ * Device IDs in the DB:
+ *   "<number>"    → primary account  (GPS_TRACE_API_TOKEN)
+ *   "t2-<number>" → secondary account (GPS_TRACE_API_TOKEN_2)
  */
 import { supa } from "./supabase.js";
 import { logger } from "./logger.js";
 
 const API_BASE = "https://api.gps-trace.com";
 
-const getToken = () =>
+const getToken  = () =>
   (process.env["GPS_TRACE_TOKEN"] || process.env["GPS_TRACE_API_TOKEN"] || process.env["GPSTRACE_TOKEN"] || "").trim();
 
-async function partnerGet(path: string): Promise<any> {
-  const token = getToken();
-  if (!token) throw new Error("GPS_TRACE_API_TOKEN is not set");
+const getToken2 = () =>
+  (process.env["GPS_TRACE_API_TOKEN_2"] || "").trim();
+
+/** Pick the right token + numeric unit ID for a stored deviceId. */
+function resolveDevice(deviceId: string): { token: string; unitId: string } {
+  if (deviceId.startsWith("t2-")) {
+    return { token: getToken2(), unitId: deviceId.slice(3) };
+  }
+  return { token: getToken(), unitId: deviceId };
+}
+
+async function apiGet(token: string, path: string): Promise<any> {
   const resp = await fetch(`${API_BASE}${path}`, {
     headers: { "X-AccessToken": token, Accept: "application/json" },
     signal: AbortSignal.timeout(12_000),
@@ -32,7 +45,9 @@ interface Telemetry {
 }
 
 export async function syncAllVehicles(): Promise<{ synced: number; skipped: number; source: string }> {
-  if (!getToken()) return { synced: 0, skipped: 0, source: "no-token" };
+  const t1 = getToken();
+  const t2 = getToken2();
+  if (!t1 && !t2) return { synced: 0, skipped: 0, source: "no-token" };
 
   const { data: vehicles, error } = await supa
     .from("vehicles")
@@ -52,10 +67,14 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
   const deviceMap = new Map<string, typeof vList[number]>();
   for (const v of vList) deviceMap.set(v.gps_device_id, v);
 
-  // Fetch telemetry in parallel for all linked devices
+  // Fetch telemetry in parallel — each device picks the right token
   const deviceIds = [...deviceMap.keys()];
   const telemetries = await Promise.allSettled(
-    deviceIds.map(id => partnerGet(`/provider/units/${id}/telemetry`) as Promise<Telemetry>)
+    deviceIds.map(deviceId => {
+      const { token, unitId } = resolveDevice(deviceId);
+      if (!token) return Promise.reject(new Error("no token for device"));
+      return apiGet(token, `/provider/units/${unitId}/telemetry`) as Promise<Telemetry>;
+    })
   );
 
   let synced = 0;

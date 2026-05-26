@@ -90,7 +90,15 @@ async function fetchTelemetry(unit: TaggedUnit): Promise<Telemetry> {
   return apiGet(unit.token, `/provider/units/${unit.id}/telemetry`);
 }
 
-// Legacy single-token helpers (used by sync route)
+/** Pick the right token + numeric unit ID from a stored deviceId. */
+function resolveDevice(deviceId: string): { token: string; unitId: string } {
+  if (deviceId.startsWith("t2-")) {
+    return { token: getToken2(), unitId: deviceId.slice(3) };
+  }
+  return { token: getToken(), unitId: deviceId };
+}
+
+// Legacy single-token helpers (used internally)
 async function fetchUnits(): Promise<PartnerUnit[]> {
   return partnerGet("/provider/units");
 }
@@ -161,45 +169,49 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
 
 // ── POST /api/gpstrace/sync ───────────────────────────────────────────────────
 router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
-  if (!getToken()) {
-    res.json({ synced: 0, message: "GPS_TRACE_API_TOKEN not configured" });
+  if (!getToken() && !getToken2()) {
+    res.json({ synced: 0, message: "No GPS-Trace tokens configured" });
     return;
   }
 
   try {
-    const units = await fetchUnits();
-
     const { data: vehicles } = await supa
       .from("vehicles")
       .select("id, gps_device_id, last_ping")
-      .not("gps_device_id", "is", null);
+      .not("gps_device_id", "is", null)
+      .neq("gps_device_id", "");
 
     const linkedVehicles = new Map<string, { id: number; lastPing: string | null }>();
     for (const v of vehicles ?? []) {
       if (v.gps_device_id) linkedVehicles.set(v.gps_device_id, { id: v.id, lastPing: v.last_ping });
     }
 
+    const deviceIds = [...linkedVehicles.keys()];
+
+    // Fetch telemetry in parallel — each device uses the right token
+    const telResults = await Promise.allSettled(
+      deviceIds.map(deviceId => {
+        const { token, unitId } = resolveDevice(deviceId);
+        if (!token) return Promise.reject(new Error("no token"));
+        return apiGet(token, `/provider/units/${unitId}/telemetry`) as Promise<Telemetry>;
+      })
+    );
+
     let synced = 0;
 
-    for (const unit of units) {
-      const vehicle = linkedVehicles.get(String(unit.id));
-      if (!vehicle) continue;
+    for (let i = 0; i < deviceIds.length; i++) {
+      const vehicle = linkedVehicles.get(deviceIds[i])!;
+      const result  = telResults[i];
+      if (result.status === "rejected") continue;
 
-      let tel: Telemetry;
-      try {
-        tel = await fetchTelemetry(unit.id);
-      } catch {
-        continue;
-      }
-
-      const lat = tel["position.latitude"]?.value;
-      const lng = tel["position.longitude"]?.value;
-      const ts  = tel["position.latitude"]?.ts;
+      const tel = result.value;
+      const lat = tel["position.latitude"]?.value ?? null;
+      const lng = tel["position.longitude"]?.value ?? null;
+      const ts  = tel["position.latitude"]?.ts ?? null;
 
       if (lat == null || lng == null || ts == null) continue;
 
       const posTime = new Date(ts * 1000);
-
       if (vehicle.lastPing && posTime <= new Date(vehicle.lastPing)) continue;
 
       await supa.from("gps_track").insert({
@@ -222,7 +234,7 @@ router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
       synced++;
     }
 
-    res.json({ synced, total: units.length, linked: linkedVehicles.size });
+    res.json({ synced, total: deviceIds.length, linked: linkedVehicles.size });
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "GPS-Trace sync failed" });
   }
