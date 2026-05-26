@@ -24,43 +24,38 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-async function twilioSend(to: string, text: string, channel: "sms" | "whatsapp"): Promise<void> {
-  const sid    = process.env.TWILIO_ACCOUNT_SID;
-  const token  = process.env.TWILIO_AUTH_TOKEN;
-  const from   = process.env.TWILIO_PHONE_NUMBER;
-
-  if (!sid || !token || !from) {
-    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
-  }
-
-  const e164 = "+" + normalisePhone(to);
-  const fromAddr = channel === "whatsapp" ? `whatsapp:${from}` : from;
-  const toAddr   = channel === "whatsapp" ? `whatsapp:${e164}` : e164;
-
-  const body = new URLSearchParams({ From: fromAddr, To: toAddr, Body: text });
-  const resp = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-    }
-  );
-  const json = await resp.json() as { status?: string; error_message?: string; sid?: string };
-  if (!resp.ok || json.error_message) {
-    throw new Error(`Twilio ${channel} error: ${json.error_message ?? resp.status}`);
-  }
-}
-
 async function sendSms(to: string, text: string): Promise<void> {
-  return twilioSend(to, text, "sms");
-}
+  const username = process.env.EASYSENDSMS_USERNAME;
+  const password = process.env.EASYSENDSMS_PASSWORD;
+  const sender   = process.env.EASYSENDSMS_SENDER ?? "AgriPoD";
 
-async function sendWhatsApp(to: string, text: string): Promise<void> {
-  return twilioSend(to, text, "whatsapp");
+  if (!username || !password) {
+    throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
+  }
+
+  const toNum = normalisePhone(to);
+  const params = new URLSearchParams({
+    username,
+    password,
+    to:     toNum,
+    text,
+    type:   "0",
+    sender: sender.slice(0, 11),
+  });
+
+  const resp = await fetch(
+    `https://api.easysendsms.app/bulksms?${params.toString()}`,
+    { method: "GET" }
+  );
+
+  const body = await resp.text();
+  // EasySendSMS returns "OK" or an error description
+  if (!resp.ok || (!body.toUpperCase().startsWith("OK") && body.trim() !== "")) {
+    // Some error responses are non-200; others are 200 with an error string
+    if (!body.toUpperCase().startsWith("OK")) {
+      throw new Error(`EasySendSMS error: ${body.trim() || resp.status}`);
+    }
+  }
 }
 
 async function dbGetActive(farmerId: number) {
@@ -201,37 +196,27 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
     ? `AVDP PoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
     : `AVDP PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
 
-  const [smsResult, waResult] = await Promise.allSettled([
-    sendSms(f.phone, message),
-    sendWhatsApp(f.phone, message),
-  ]);
-
-  const smsSent = smsResult.status === "fulfilled";
-  const waSent  = waResult.status  === "fulfilled";
+  const smsResult = await Promise.allSettled([sendSms(f.phone, message)]);
+  const smsSent = smsResult[0].status === "fulfilled";
 
   if (smsSent) {
-    req.log.info({ to: f.phone }, "OTP sent via SMS");
+    req.log.info({ to: f.phone }, "OTP sent via EasySendSMS");
   } else {
-    req.log.warn({ err: (smsResult as PromiseRejectedResult).reason?.message }, "SMS delivery failed");
-  }
-  if (waSent) {
-    req.log.info({ to: f.phone }, "OTP sent via WhatsApp");
-  } else {
-    req.log.warn({ err: (waResult as PromiseRejectedResult).reason?.message }, "WhatsApp delivery failed");
+    req.log.warn(
+      { err: (smsResult[0] as PromiseRejectedResult).reason?.message },
+      "EasySendSMS delivery failed"
+    );
   }
 
-  const deliveryFailed = !smsSent && !waSent && !isDev;
-  let channel = "none";
-  if (smsSent && waSent) channel = "sms+whatsapp";
-  else if (smsSent)       channel = "sms";
-  else if (waSent)        channel = "whatsapp";
+  const deliveryFailed = !smsSent && !isDev;
+  const channel = smsSent ? "sms" : "none";
 
   await dbInsert(Number(farmerId), hashCode(code), channel);
 
   res.json({
     sent:          true,
     smsSent,
-    whatsappSent:  waSent,
+    whatsappSent:  false,
     deliveryFailed,
     channel,
     maskedPhone:   maskPhone(f.phone),
