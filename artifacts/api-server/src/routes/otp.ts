@@ -25,36 +25,41 @@ function hashCode(code: string): string {
 }
 
 async function sendSms(to: string, text: string): Promise<void> {
-  const username = process.env.EASYSENDSMS_USERNAME;
-  const password = process.env.EASYSENDSMS_PASSWORD;
-  const sender   = process.env.EASYSENDSMS_SENDER ?? "AgriPoD";
+  const username = process.env.AT_USERNAME;
+  const apiKey   = process.env.AT_API_KEY;
+  const sender   = (process.env.AT_SENDER_ID ?? "AgriPoD").slice(0, 11);
 
-  if (!username || !password) {
-    throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
+  if (!username || !apiKey) {
+    throw new Error("Africa's Talking credentials not configured (AT_USERNAME / AT_API_KEY)");
   }
 
-  const toNum = normalisePhone(to);
-  const params = new URLSearchParams({
-    username,
-    password,
-    to:     toNum,
-    text,
-    type:   "0",
-    sender: sender.slice(0, 11),
+  const e164 = "+" + normalisePhone(to);
+  const body = new URLSearchParams({ username, to: e164, message: text, from: sender });
+
+  const resp = await fetch("https://api.africastalking.com/version1/messaging", {
+    method: "POST",
+    headers: {
+      apiKey,
+      "Content-Type":  "application/x-www-form-urlencoded",
+      "Accept":        "application/json",
+    },
+    body,
   });
 
-  const resp = await fetch(
-    `https://api.easysendsms.app/bulksms?${params.toString()}`,
-    { method: "GET" }
-  );
+  const json = await resp.json() as {
+    SMSMessageData?: { Recipients?: { status: string; number: string }[] };
+  };
 
-  const body = await resp.text();
-  // EasySendSMS returns "OK" or an error description
-  if (!resp.ok || (!body.toUpperCase().startsWith("OK") && body.trim() !== "")) {
-    // Some error responses are non-200; others are 200 with an error string
-    if (!body.toUpperCase().startsWith("OK")) {
-      throw new Error(`EasySendSMS error: ${body.trim() || resp.status}`);
-    }
+  if (!resp.ok) {
+    throw new Error(`Africa's Talking HTTP error: ${resp.status}`);
+  }
+
+  const recipients = json.SMSMessageData?.Recipients ?? [];
+  const failed = recipients.filter(r => r.status !== "Success");
+  if (recipients.length === 0 || failed.length === recipients.length) {
+    throw new Error(
+      `Africa's Talking delivery failed: ${failed.map(r => r.status).join(", ") || "no recipients"}`
+    );
   }
 }
 
