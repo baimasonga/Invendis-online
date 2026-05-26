@@ -39,7 +39,7 @@ async function sendSms(to: string, text: string): Promise<void> {
   const resp = await fetch("https://api.africastalking.com/version1/messaging", {
     method: "POST",
     headers: {
-      apiKey,
+      "apikey":        apiKey,
       "Content-Type":  "application/x-www-form-urlencoded",
       "Accept":        "application/json",
     },
