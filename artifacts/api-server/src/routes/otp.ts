@@ -25,41 +25,31 @@ function hashCode(code: string): string {
 }
 
 async function sendSms(to: string, text: string): Promise<void> {
-  const username = process.env.AT_USERNAME;
-  const apiKey   = process.env.AT_API_KEY;
-  const sender   = (process.env.AT_SENDER_ID ?? "AgriPoD").slice(0, 11);
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken  = process.env.TWILIO_AUTH_TOKEN;
+  const from       = process.env.TWILIO_PHONE_NUMBER;
 
-  if (!username || !apiKey) {
-    throw new Error("Africa's Talking credentials not configured (AT_USERNAME / AT_API_KEY)");
+  if (!accountSid || !authToken || !from) {
+    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
   }
 
   const e164 = "+" + normalisePhone(to);
-  const body = new URLSearchParams({ username, to: e164, message: text, from: sender });
+  const body = new URLSearchParams({ To: e164, From: from, Body: text });
+  const creds = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  const resp = await fetch("https://api.africastalking.com/version1/messaging", {
-    method: "POST",
-    headers: {
-      "apikey":        apiKey,
-      "Content-Type":  "application/x-www-form-urlencoded",
-      "Accept":        "application/json",
-    },
-    body,
-  });
+  const resp = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method:  "POST",
+      headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    }
+  );
 
-  const json = await resp.json() as {
-    SMSMessageData?: { Recipients?: { status: string; number: string }[] };
-  };
+  const json = await resp.json() as { sid?: string; status?: string; message?: string; code?: number };
 
   if (!resp.ok) {
-    throw new Error(`Africa's Talking HTTP error: ${resp.status}`);
-  }
-
-  const recipients = json.SMSMessageData?.Recipients ?? [];
-  const failed = recipients.filter(r => r.status !== "Success");
-  if (recipients.length === 0 || failed.length === recipients.length) {
-    throw new Error(
-      `Africa's Talking delivery failed: ${failed.map(r => r.status).join(", ") || "no recipients"}`
-    );
+    throw new Error(`Twilio error ${resp.status}: ${json.message ?? JSON.stringify(json)}`);
   }
 }
 
@@ -205,11 +195,11 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
   const smsSent = smsResult[0].status === "fulfilled";
 
   if (smsSent) {
-    req.log.info({ to: f.phone }, "OTP sent via EasySendSMS");
+    req.log.info({ to: f.phone }, "OTP sent via Twilio");
   } else {
     req.log.warn(
       { err: (smsResult[0] as PromiseRejectedResult).reason?.message },
-      "EasySendSMS delivery failed"
+      "Twilio delivery failed"
     );
   }
 
