@@ -142,6 +142,196 @@ export default function DispatchDetail() {
     } finally { setActionLoading(false); }
   }
 
+  function handlePrintReport() {
+    if (!dispatch) return;
+    const d = dispatch as any;
+    const items: any[] = d.items ?? [];
+    const podList: any[] = (podData as any)?.data ?? [];
+
+    const verified  = podList.filter((p: any) => p.status === "Verified" || p.status === "Approved").length;
+    const pending   = podList.filter((p: any) => p.status === "Pending").length;
+    const exception = podList.filter((p: any) => p.status === "Exception").length;
+
+    const statusColor = (s?: string) => {
+      const v = (s ?? "").toLowerCase();
+      if (v === "verified" || v === "approved") return "#15803d";
+      if (v === "pending") return "#d97706";
+      if (v === "exception" || v === "failed") return "#dc2626";
+      if (v === "noface" || v === "noreference") return "#6b7280";
+      return "#374151";
+    };
+
+    const win = window.open("", "_blank", "width=900,height=750");
+    if (!win) return;
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Distribution Report — ${d.manifestCode}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: system-ui, sans-serif; padding: 32px; color: #111; font-size: 13px; }
+          h1  { font-size: 20px; font-weight: 700; }
+          h2  { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin: 24px 0 8px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #16a34a; padding-bottom: 16px; margin-bottom: 4px; }
+          .header-left h1 { color: #15803d; }
+          .header-left p  { color: #6b7280; font-size: 11px; margin-top: 4px; }
+          .badge  { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #dcfce7; color: #15803d; }
+          .grid3  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 6px; }
+          .grid4  { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; margin-top: 12px; }
+          .field label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
+          .field p     { font-size: 13px; font-weight: 600; margin-top: 2px; }
+          .stat-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; text-align: center; }
+          .stat-box .num  { font-size: 22px; font-weight: 700; }
+          .stat-box .lbl  { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+          th { text-align: left; padding: 7px 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+          td { padding: 7px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+          tr:last-child td { border-bottom: none; }
+          .mono { font-family: monospace; font-size: 11px; color: #6b7280; }
+          .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+          .pill-ok  { background: #dcfce7; color: #15803d; }
+          .pill-warn { background: #fef3c7; color: #d97706; }
+          .pill-err  { background: #fee2e2; color: #dc2626; }
+          .pill-na   { background: #f3f4f6; color: #6b7280; }
+          .summary-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; background: #f9fafb; margin-top: 8px; }
+          .summary-row { display: flex; justify-content: space-between; padding: 4px 0; }
+          .summary-row.total { font-weight: 700; border-top: 1px solid #d1d5db; padding-top: 8px; margin-top: 4px; }
+          .footer { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; }
+          .sig-line { border-top: 1px solid #9ca3af; margin-top: 48px; padding-top: 4px; font-size: 11px; color: #6b7280; }
+          @media print { body { padding: 20px; } @page { margin: 15mm; } }
+        </style>
+      </head>
+      <body>
+        <!-- Header -->
+        <div class="header">
+          <div class="header-left">
+            <h1>INVENDIS — AGRI-POD</h1>
+            <p>Distribution Completion Report</p>
+          </div>
+          <div style="text-align:right">
+            <p style="font-size:18px;font-weight:700;font-family:monospace">${d.manifestCode}</p>
+            <span class="badge">${d.status ?? "—"}</span>
+            <p style="font-size:11px;color:#6b7280;margin-top:6px">Printed: ${new Date().toLocaleString("en-GB")}</p>
+          </div>
+        </div>
+
+        <!-- Dispatch details -->
+        <h2>Dispatch Details</h2>
+        <div class="grid3">
+          <div class="field"><label>Campaign</label><p>${d.campaignName ?? "—"}</p></div>
+          <div class="field"><label>Warehouse</label><p>${d.warehouseName ?? "—"}</p></div>
+          <div class="field"><label>Vehicle</label><p>${d.plateNumber ?? (d.isHired ? "Hired Vehicle" : "—")}</p></div>
+          <div class="field"><label>Driver</label><p>${d.driverName ?? "—"}</p></div>
+          <div class="field"><label>Field Officer</label><p>${d.fieldOfficerName ?? "—"}</p></div>
+          <div class="field"><label>Scheduled Date</label><p>${d.scheduledDate ? new Date(d.scheduledDate).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"}</p></div>
+        </div>
+
+        <!-- Summary stats -->
+        <h2>Delivery Summary</h2>
+        <div class="grid4">
+          <div class="stat-box"><div class="num">${podList.length}</div><div class="lbl">Total PoDs</div></div>
+          <div class="stat-box"><div class="num" style="color:#15803d">${verified}</div><div class="lbl">Verified</div></div>
+          <div class="stat-box"><div class="num" style="color:#d97706">${pending}</div><div class="lbl">Pending</div></div>
+          <div class="stat-box"><div class="num" style="color:#dc2626">${exception}</div><div class="lbl">Exceptions</div></div>
+        </div>
+
+        <!-- Stock summary -->
+        <h2>Stock Summary</h2>
+        <table>
+          <thead><tr>
+            <th>#</th><th>Input Item</th>
+            <th style="text-align:right">Loaded</th>
+            <th style="text-align:right">Delivered</th>
+            <th style="text-align:right">Returned</th>
+            <th>Unit</th>
+          </tr></thead>
+          <tbody>
+            ${items.length === 0
+              ? `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:16px">No items recorded</td></tr>`
+              : items.map((item: any, i: number) => `
+                <tr>
+                  <td class="mono">${i + 1}</td>
+                  <td style="font-weight:600">${item.itemName ?? item.inputItemName ?? "—"}</td>
+                  <td style="text-align:right">${(item.quantityLoaded ?? 0).toLocaleString()}</td>
+                  <td style="text-align:right;color:#15803d;font-weight:600">${(item.quantityDelivered ?? 0).toLocaleString()}</td>
+                  <td style="text-align:right;color:#6b7280">${(item.quantityReturned ?? 0).toLocaleString()}</td>
+                  <td style="color:#6b7280">${item.unit ?? "—"}</td>
+                </tr>`).join("")
+            }
+          </tbody>
+        </table>
+        <div class="summary-box">
+          <div class="summary-row"><span>Total Packages Loaded</span><span>${(d.totalPackages ?? 0).toLocaleString()}</span></div>
+          <div class="summary-row"><span>Total Delivered</span><span style="color:#15803d;font-weight:600">${(d.deliveredPackages ?? 0).toLocaleString()}</span></div>
+          <div class="summary-row total"><span>Balance / Returned</span><span>${((d.totalPackages ?? 0) - (d.deliveredPackages ?? 0)).toLocaleString()}</span></div>
+        </div>
+
+        <!-- PoD records -->
+        <h2>Proof of Delivery Records (${podList.length})</h2>
+        <table>
+          <thead><tr>
+            <th>#</th>
+            <th>Farmer</th>
+            <th>Code</th>
+            <th>Input Item</th>
+            <th style="text-align:right">Qty</th>
+            <th>OTP</th>
+            <th>Face</th>
+            <th>GPS</th>
+            <th>Status</th>
+            <th>Submitted</th>
+          </tr></thead>
+          <tbody>
+            ${podList.length === 0
+              ? `<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:20px">No PoD records for this dispatch</td></tr>`
+              : podList.map((p: any, i: number) => {
+                  const pillClass = (s?: string) => {
+                    const v = (s ?? "").toLowerCase();
+                    if (v === "verified" || v === "approved" || v === "passed") return "pill-ok";
+                    if (v === "pending" || v === "override") return "pill-warn";
+                    return "pill-err";
+                  };
+                  const naClass = (s?: string) => {
+                    const v = (s ?? "").toLowerCase();
+                    if (!v || v === "none" || v === "noreference" || v === "noface") return "pill-na";
+                    return pillClass(s);
+                  };
+                  return `
+                  <tr>
+                    <td class="mono">${i + 1}</td>
+                    <td style="font-weight:600;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.farmerName ?? "—"}</td>
+                    <td class="mono">${p.farmerCode ?? "—"}</td>
+                    <td style="color:#374151">${p.inputItemName ?? "—"}</td>
+                    <td style="text-align:right;font-weight:600">${p.quantityDelivered ?? "—"}</td>
+                    <td><span class="pill ${naClass(p.otpStatus)}">${p.otpStatus ?? "—"}</span></td>
+                    <td><span class="pill ${naClass(p.faceStatus)}">${p.faceStatus ?? "—"}</span></td>
+                    <td><span class="pill ${naClass(p.gpsStatus)}">${p.gpsStatus ?? "—"}</span></td>
+                    <td><span class="pill ${pillClass(p.status)}">${p.status ?? "—"}</span></td>
+                    <td style="white-space:nowrap;color:#6b7280">${p.submittedAt ? new Date(p.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  </tr>`;
+                }).join("")
+            }
+          </tbody>
+        </table>
+
+        ${d.notes ? `<div style="margin-top:16px;padding:12px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa"><p style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em">Notes</p><p style="margin-top:4px">${d.notes}</p></div>` : ""}
+
+        <!-- Signatures -->
+        <div class="footer">
+          <div><div class="sig-line">Field Officer Signature &amp; Date</div></div>
+          <div><div class="sig-line">Supervisor Signature &amp; Date</div></div>
+          <div><div class="sig-line">Warehouse Manager &amp; Date</div></div>
+        </div>
+
+        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
   function handlePrintManifest() {
     if (!dispatch) return;
     const d = dispatch as any;
@@ -294,6 +484,9 @@ export default function DispatchDetail() {
         <div className="flex items-center gap-2 ml-auto flex-wrap">
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintManifest}>
             <Printer className="h-3.5 w-3.5 mr-1" /> Print Manifest
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintReport}>
+            <Printer className="h-3.5 w-3.5 mr-1" /> Print Report
           </Button>
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
             {d.status}
