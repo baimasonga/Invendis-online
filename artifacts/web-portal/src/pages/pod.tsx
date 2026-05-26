@@ -445,7 +445,7 @@ function PodDetailBody({
 
 function FieldOtpsTab() {
   const { toast } = useToast();
-  const [campaignId, setCampaignId] = useState<string>("");
+  const [campaignId, setCampaignId] = useState<string>("all");
   const [expiryHours, setExpiryHours] = useState<string>("24");
   const [result, setResult] = useState<{
     count: number; expiresAt: string; expiryHours: number;
@@ -463,7 +463,7 @@ function FieldOtpsTab() {
     setGenerating(true);
     setResult(null);
     try {
-      const r = await bulkGenerateOtps(campaignId ? Number(campaignId) : undefined, Number(expiryHours));
+      const r = await bulkGenerateOtps(campaignId !== "all" ? Number(campaignId) : undefined, Number(expiryHours));
       setResult(r);
       setCodesVisible(false);
       toast({ title: `${r.count} OTP codes generated`, description: `Valid for ${r.expiryHours}h — expires ${new Date(r.expiresAt).toLocaleString("en-GB")}` });
@@ -509,7 +509,7 @@ function FieldOtpsTab() {
                   <SelectValue placeholder="All approved farmers" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All approved farmers</SelectItem>
+                  <SelectItem value="all">All approved farmers</SelectItem>
                   {(campaigns ?? []).map(c => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {c.name} ({c.campaignCode})
