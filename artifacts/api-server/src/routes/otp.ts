@@ -24,14 +24,39 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-async function sendSms(to: string, text: string): Promise<void> {
+async function sendViaAt(to: string, text: string): Promise<void> {
+  const apiKey   = process.env.AT_API_KEY;
+  const username = process.env.AT_USERNAME;
+  if (!apiKey || !username) throw new Error("AT credentials not configured (AT_API_KEY / AT_USERNAME)");
+
+  const norm = normalisePhone(to);
+  const e164 = "+" + norm;
+  const body = new URLSearchParams({ username, to: e164, message: text });
+  const senderId = process.env.AT_SENDER_ID;
+  if (senderId) body.set("from", senderId);
+
+  const resp = await fetch("https://api.africastalking.com/version1/messaging", {
+    method:  "POST",
+    headers: {
+      "apiKey":       apiKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Accept":       "application/json",
+    },
+    body,
+  });
+
+  const json = await resp.json() as any;
+  const recipient = json?.SMSMessageData?.Recipients?.[0];
+  if (!resp.ok || (recipient && recipient.status !== "Success")) {
+    throw new Error(`AT error: ${recipient?.status ?? json?.SMSMessageData?.Message ?? JSON.stringify(json)}`);
+  }
+}
+
+async function sendViaTwilio(to: string, text: string): Promise<void> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken  = process.env.TWILIO_AUTH_TOKEN;
   const from       = process.env.TWILIO_PHONE_NUMBER;
-
-  if (!accountSid || !authToken || !from) {
-    throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
-  }
+  if (!accountSid || !authToken || !from) throw new Error("Twilio credentials not configured");
 
   const e164 = "+" + normalisePhone(to);
   const body = new URLSearchParams({ To: e164, From: from, Body: text });
@@ -45,11 +70,21 @@ async function sendSms(to: string, text: string): Promise<void> {
       body,
     }
   );
-
   const json = await resp.json() as { sid?: string; status?: string; message?: string; code?: number };
+  if (!resp.ok) throw new Error(`Twilio error ${resp.status}: ${json.message ?? JSON.stringify(json)}`);
+}
 
-  if (!resp.ok) {
-    throw new Error(`Twilio error ${resp.status}: ${json.message ?? JSON.stringify(json)}`);
+async function sendSms(to: string, text: string): Promise<{ provider: string }> {
+  try {
+    await sendViaAt(to, text);
+    return { provider: "africastalking" };
+  } catch (atErr: any) {
+    try {
+      await sendViaTwilio(to, text);
+      return { provider: "twilio-fallback" };
+    } catch (twilioErr: any) {
+      throw new Error(`AT failed (${atErr.message}); Twilio fallback also failed (${twilioErr.message})`);
+    }
   }
 }
 
@@ -193,13 +228,14 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
 
   const smsResult = await Promise.allSettled([sendSms(f.phone, message)]);
   const smsSent = smsResult[0].status === "fulfilled";
+  const smsProvider = smsSent ? (smsResult[0] as PromiseFulfilledResult<{ provider: string }>).value.provider : null;
 
   if (smsSent) {
-    req.log.info({ to: f.phone }, "OTP sent via Twilio");
+    req.log.info({ to: f.phone, provider: smsProvider }, "OTP SMS sent");
   } else {
     req.log.warn(
       { err: (smsResult[0] as PromiseRejectedResult).reason?.message },
-      "Twilio delivery failed"
+      "OTP SMS delivery failed (AT + Twilio both failed)"
     );
   }
 
