@@ -29,13 +29,17 @@ async function sendViaAt(to: string, text: string): Promise<void> {
   const username = process.env.AT_USERNAME;
   if (!apiKey || !username) throw new Error("AT credentials not configured (AT_API_KEY / AT_USERNAME)");
 
-  const norm = normalisePhone(to);
-  const e164 = "+" + norm;
-  const body = new URLSearchParams({ username, to: e164, message: text });
-  const senderId = process.env.AT_SENDER_ID;
-  if (senderId) body.set("from", senderId);
+  const isSandbox = process.env.AT_SANDBOX === "true";
+  const endpoint  = isSandbox
+    ? "https://api.sandbox.africastalking.com/version1/messaging"
+    : "https://api.africastalking.com/version1/messaging";
+  const atUsername = isSandbox ? "sandbox" : username;
 
-  const resp = await fetch("https://api.africastalking.com/version1/messaging", {
+  const e164 = "+" + normalisePhone(to);
+  const body = new URLSearchParams({ username: atUsername, to: e164, message: text });
+  if (!isSandbox && process.env.AT_SENDER_ID) body.set("from", process.env.AT_SENDER_ID);
+
+  const resp = await fetch(endpoint, {
     method:  "POST",
     headers: {
       "apiKey":       apiKey,
@@ -48,7 +52,7 @@ async function sendViaAt(to: string, text: string): Promise<void> {
   const json = await resp.json() as any;
   const recipient = json?.SMSMessageData?.Recipients?.[0];
   if (!resp.ok || (recipient && recipient.status !== "Success")) {
-    throw new Error(`AT error: ${recipient?.status ?? json?.SMSMessageData?.Message ?? JSON.stringify(json)}`);
+    throw new Error(`AT${isSandbox ? " [sandbox]" : ""} error: ${recipient?.status ?? json?.SMSMessageData?.Message ?? JSON.stringify(json)}`);
   }
 }
 
