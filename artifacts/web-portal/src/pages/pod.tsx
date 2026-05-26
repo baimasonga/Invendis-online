@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, KEYS } from "@/lib/db";
+import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, bulkGenerateOtps, listAllCampaigns, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,8 +16,9 @@ import {
   ChevronLeft, ChevronRight, ClipboardCheck, CheckCircle2, Clock,
   AlertCircle, Plus, MapPin, ShieldCheck, ShieldX, ShieldAlert,
   ListChecks, Flag, BadgeCheck, Package, UsersRound, Download, FileSpreadsheet, ImageIcon,
-  Microscope, Leaf, Loader2, XCircle, Truck, AlertTriangle,
+  Microscope, Leaf, Loader2, XCircle, Truck, AlertTriangle, KeyRound, Eye, EyeOff, RefreshCw,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/PageHeader";
@@ -440,6 +441,176 @@ function PodDetailBody({
   );
 }
 
+// ── Field Trial OTPs ─────────────────────────────────────────────────────────
+
+function FieldOtpsTab() {
+  const { toast } = useToast();
+  const [campaignId, setCampaignId] = useState<string>("");
+  const [expiryHours, setExpiryHours] = useState<string>("24");
+  const [result, setResult] = useState<{
+    count: number; expiresAt: string; expiryHours: number;
+    rows: { farmerId: number; farmerName: string; farmerCode: string; phone: string | null; code: string }[];
+  } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [codesVisible, setCodesVisible] = useState(false);
+
+  const { data: campaigns } = useQuery({
+    queryKey: ["all-campaigns"],
+    queryFn: listAllCampaigns,
+  });
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setResult(null);
+    try {
+      const r = await bulkGenerateOtps(campaignId ? Number(campaignId) : undefined, Number(expiryHours));
+      setResult(r);
+      setCodesVisible(false);
+      toast({ title: `${r.count} OTP codes generated`, description: `Valid for ${r.expiryHours}h — expires ${new Date(r.expiresAt).toLocaleString("en-GB")}` });
+    } catch (err: any) {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function exportCSV() {
+    if (!result) return;
+    const header = "Farmer Name,Farmer Code,Phone,OTP Code";
+    const body = result.rows.map(r =>
+      [JSON.stringify(r.farmerName), JSON.stringify(r.farmerCode), JSON.stringify(r.phone ?? ""), r.code].join(",")
+    ).join("\n");
+    const blob = new Blob([header + "\n" + body], { type: "text/csv" });
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob),
+      download: `field-trial-otps-${new Date().toISOString().slice(0,10)}.csv`,
+    });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Config card */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <KeyRound className="h-4 w-4 text-green-700" />
+            Generate Field Trial OTP Codes
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Pre-generates a unique 6-digit code for every approved farmer (or just a campaign's farmers). No SMS is sent — print or download the sheet for field officers to carry.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Campaign (optional)</Label>
+              <Select value={campaignId} onValueChange={setCampaignId}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="All approved farmers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All approved farmers</SelectItem>
+                  {(campaigns ?? []).map(c => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name} ({c.campaignCode})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Code validity</Label>
+              <Select value={expiryHours} onValueChange={setExpiryHours}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="8">8 hours</SelectItem>
+                  <SelectItem value="24">24 hours</SelectItem>
+                  <SelectItem value="48">48 hours</SelectItem>
+                  <SelectItem value="72">72 hours</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-end">
+              <Button
+                className="w-full h-8 bg-green-700 hover:bg-green-800 text-white text-xs"
+                disabled={generating}
+                onClick={handleGenerate}
+              >
+                {generating
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Generating…</>
+                  : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Generate Codes</>}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Results */}
+      {result && (
+        <Card>
+          {/* Header */}
+          <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold">{result.count} codes generated</p>
+              <p className="text-xs text-muted-foreground">
+                Expires: {new Date(result.expiresAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setCodesVisible(v => !v)}>
+                {codesVisible ? <><EyeOff className="h-3.5 w-3.5" />Hide Codes</> : <><Eye className="h-3.5 w-3.5" />Show Codes</>}
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={exportCSV}>
+                <Download className="h-3.5 w-3.5" />CSV
+              </Button>
+            </div>
+          </div>
+
+          {!codesVisible && (
+            <div className="px-4 py-3">
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Codes are hidden. Click <strong>Show Codes</strong> or <strong>CSV</strong> to reveal them. Do not leave this page without downloading — codes cannot be recovered once you navigate away.
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-4">Farmer</TableHead>
+                  <TableHead>Farmer Code</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead className="pr-4">OTP Code</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result.rows.map(row => (
+                  <TableRow key={row.farmerId}>
+                    <TableCell className="pl-4 text-sm font-medium">{row.farmerName}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{row.farmerCode || "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{row.phone ?? "—"}</TableCell>
+                    <TableCell className="pr-4">
+                      {codesVisible
+                        ? <span className="font-mono text-base font-bold tracking-[0.2em] text-green-700">{row.code}</span>
+                        : <span className="font-mono text-sm tracking-widest text-muted-foreground select-none">••••••</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ── Review Queue ──────────────────────────────────────────────────────────────
 
 function ReviewQueue() {
@@ -823,7 +994,7 @@ export default function ProofOfDelivery() {
   const [podOpen, setPodOpen] = useState(false);
   const [selectedPod, setSelectedPod] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState("");
-  const [view, setView] = useState<"list" | "review">("list");
+  const [view, setView] = useState<"list" | "review" | "field-otps">("list");
   const [exporting, setExporting] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -975,9 +1146,17 @@ export default function ProofOfDelivery() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setView("field-otps")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${view === "field-otps" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <KeyRound className="h-3.5 w-3.5" /> Field Trial OTPs
+        </button>
       </div>
 
-      {view === "review" ? (
+      {view === "field-otps" ? (
+        <FieldOtpsTab />
+      ) : view === "review" ? (
         <ReviewQueue />
       ) : (
         <Card>

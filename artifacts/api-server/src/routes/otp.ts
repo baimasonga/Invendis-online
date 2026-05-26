@@ -270,6 +270,80 @@ router.get("/api/pod/otp/status", requireAnyAuth, async (req, res) => {
   res.json({ otpEnabled });
 });
 
+// ── POST /api/pod/otp/bulk-generate ──────────────────────────────────────────
+// Pre-generate OTP codes for field trials (no SMS sent).
+// Returns plain codes so admins can print/distribute them.
+router.post("/api/pod/otp/bulk-generate", requireAnyAuth, async (req, res) => {
+  const { campaignId, expiryHours = 24 } = req.body as {
+    campaignId?: number;
+    expiryHours?: number;
+  };
+
+  const clampedHours = Math.min(Math.max(Number(expiryHours) || 24, 1), 72);
+  const expiresAt = new Date(Date.now() + clampedHours * 60 * 60 * 1000).toISOString();
+
+  // Fetch target farmers
+  let farmerIds: number[] = [];
+
+  if (campaignId) {
+    const { data: allocs } = await supa
+      .from("allocations")
+      .select("farmer_id")
+      .eq("campaign_id", Number(campaignId));
+    farmerIds = (allocs ?? []).map((a: any) => a.farmer_id).filter(Boolean);
+  }
+
+  const query = supa
+    .from("farmers")
+    .select("id, first_name, last_name, farmer_code, phone")
+    .eq("status", "Approved")
+    .order("first_name");
+
+  const { data: farmers, error: farmersErr } = farmerIds.length > 0
+    ? await query.in("id", farmerIds)
+    : await query.limit(500);
+
+  if (farmersErr) {
+    res.status(500).json({ error: farmersErr.message });
+    return;
+  }
+
+  const rows: { farmerId: number; farmerName: string; farmerCode: string; phone: string | null; code: string }[] = [];
+
+  for (const farmer of farmers ?? []) {
+    const f = farmer as any;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = createHash("sha256").update(code).digest("hex");
+
+    // Replace any existing OTP for this farmer
+    await supa.from("otp_codes").delete().eq("farmer_id", f.id);
+    await supa.from("otp_codes").insert({
+      farmer_id: f.id,
+      code_hash:  codeHash,
+      channel:    "pre-generated",
+      expires_at: expiresAt,
+      attempts:   0,
+    });
+
+    rows.push({
+      farmerId:   f.id,
+      farmerName: `${f.first_name} ${f.last_name}`,
+      farmerCode: f.farmer_code ?? "",
+      phone:      f.phone ?? null,
+      code,
+    });
+  }
+
+  req.log.info({ count: rows.length, campaignId, expiryHours: clampedHours }, "Bulk OTP pre-generated");
+
+  res.json({
+    count:       rows.length,
+    expiresAt,
+    expiryHours: clampedHours,
+    rows,
+  });
+});
+
 router.post("/api/pod/otp/bypass", requireAnyAuth, async (req, res) => {
   const { farmerId, dispatchId, reason } = req.body as {
     farmerId: number;

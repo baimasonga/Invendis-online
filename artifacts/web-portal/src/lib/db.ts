@@ -1697,6 +1697,26 @@ export async function getConsolidatedDistributionReport(opts: {
   });
 }
 
+export async function bulkGenerateOtps(campaignId?: number, expiryHours = 24) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const resp = await fetch("/api/pod/otp/bulk-generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ campaignId, expiryHours }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any).error ?? `HTTP ${resp.status}`);
+  }
+  return resp.json() as Promise<{
+    count: number;
+    expiresAt: string;
+    expiryHours: number;
+    rows: { farmerId: number; farmerName: string; farmerCode: string; phone: string | null; code: string }[];
+  }>;
+}
+
 export async function listAllCampaigns() {
   const { data, error } = await supabase
     .from("campaigns").select("id,name,campaign_code,season")
