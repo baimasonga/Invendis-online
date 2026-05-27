@@ -27,7 +27,7 @@ function hashCode(code: string): string {
 async function sendViaEasySendSms(to: string, text: string): Promise<void> {
   const username = process.env.EASYSENDSMS_USERNAME;
   const password = process.env.EASYSENDSMS_PASSWORD;
-  const sender   = (process.env.EASYSENDSMS_SENDER ?? "AgriPoD").slice(0, 11);
+  const sender   = (process.env.EASYSENDSMS_SENDER ?? "AVDP").slice(0, 11);
   if (!username || !password) throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
 
   const params = new URLSearchParams({
@@ -96,7 +96,7 @@ async function dbGetActive(farmerId: number) {
 
 async function dbInsert(farmerId: number, codeHash: string, channel: string) {
   await supa.from("otp_codes").delete().eq("farmer_id", farmerId);
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 74 * 60 * 60 * 1000).toISOString();
   const { data } = await supa
     .from("otp_codes")
     .insert({ farmer_id: farmerId, code_hash: codeHash, channel, expires_at: expiresAt, attempts: 0 })
@@ -217,8 +217,8 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
   const code  = Math.floor(100000 + Math.random() * 900000).toString();
   const isDev = process.env.NODE_ENV === "development";
   const message = itemsText
-    ? `AVDP PoD code: ${code}. Items: ${itemsText}. Valid 10 min. Do not share. — Invendis SL`
-    : `AVDP PoD code: ${code}. Valid 10 min. Do not share. — Invendis SL`;
+    ? `AVDP-PoD ${code} is your delivery code for ${itemsText}. Valid for 74 hours. Do share. - Agriculture Value Chain Development Project (AVDP)`
+    : `AVDP-PoD ${code} is your delivery code. Valid for 74 hours. Do share. - Agriculture Value Chain Development Project (AVDP)`;
 
   const smsResult = await Promise.allSettled([sendSms(f.phone, message)]);
   const smsSent = smsResult[0].status === "fulfilled";

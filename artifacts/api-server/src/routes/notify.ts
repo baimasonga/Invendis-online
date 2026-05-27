@@ -24,7 +24,7 @@ function hashCode(code: string): string {
 async function sendSms(to: string, text: string): Promise<void> {
   const username = process.env["EASYSENDSMS_USERNAME"];
   const password = process.env["EASYSENDSMS_PASSWORD"];
-  const sender = (process.env["EASYSENDSMS_SENDER"] ?? "AgriPoD").slice(0, 11);
+  const sender = (process.env["EASYSENDSMS_SENDER"] ?? "AVDP").slice(0, 11);
   if (!username || !password) throw new Error("EasySendSMS credentials not configured");
   const params = new URLSearchParams({ username, password, from: sender, to: normalisePhone(to), text, type: "0" });
   const resp = await fetch(`https://api.easysendsms.app/bulksms?${params}`, { signal: AbortSignal.timeout(15_000) });
@@ -35,7 +35,7 @@ async function sendSms(to: string, text: string): Promise<void> {
 async function sendWhatsAppImage(to: string, mediaUrl: string, caption: string): Promise<void> {
   const username = process.env["EASYSENDSMS_USERNAME"];
   const password = process.env["EASYSENDSMS_PASSWORD"];
-  const sender = (process.env["EASYSENDSMS_SENDER"] ?? "AgriPoD").slice(0, 11);
+  const sender = (process.env["EASYSENDSMS_SENDER"] ?? "AVDP").slice(0, 11);
   if (!username || !password) throw new Error("EasySendSMS credentials not configured");
   const params = new URLSearchParams({ username, password, to: normalisePhone(to), from: sender, type: "image", media: mediaUrl, text: caption });
   const resp = await fetch(`https://api.easysendsms.app/whatsapp?${params}`, { signal: AbortSignal.timeout(15_000) });

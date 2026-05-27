@@ -50,4 +50,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-EASYSENDSMS_SENDER = "AVDO-PoD"
+EASYSENDSMS_SENDER = "AVDP"
