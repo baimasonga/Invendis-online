@@ -342,5 +342,9 @@ export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Prom
     headers: { "Content-Type": "image/jpeg" },
     body: blob,
   });
-  if (!putRes.ok) throw new Error(`S3 upload failed: ${putRes.status}`);
+  if (!putRes.ok) {
+    let detail = "";
+    try { detail = await putRes.text(); } catch { /* ignore */ }
+    throw new Error(`S3 upload failed: ${putRes.status}${detail ? " — " + detail.slice(0, 200) : ""}`);
+  }
 }
