@@ -90,7 +90,7 @@ export const KEYS = {
   vehicles:      () => ["vehicles"],
   gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
-  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string) => ["dispatches", page, fieldOfficerId, status, manifestCode],
+  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string, showArchived?: boolean) => ["dispatches", page, fieldOfficerId, status, manifestCode, showArchived],
   dispatch:      (id: number) => ["dispatch", id],
   pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
   podStats:      () => ["pod-stats"],
@@ -839,17 +839,42 @@ async function dispatchToken(): Promise<string> {
   return session.access_token;
 }
 
-export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number, status?: string, manifestCode?: string) {
+export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: number, status?: string, manifestCode?: string, showArchived = false) {
   const token = await dispatchToken();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (fieldOfficerId) params.set("fieldOfficerId", String(fieldOfficerId));
   if (status && status !== "all") params.set("status", status);
   if (manifestCode && manifestCode.trim()) params.set("manifestCode", manifestCode.trim());
+  if (showArchived) params.set("archived", "true");
   const resp = await fetch(`/api/dispatch?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to list dispatches: ${resp.statusText}`);
   return resp.json();
+}
+
+export async function archiveDispatch(id: number): Promise<void> {
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/archive`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to archive dispatch");
+  }
+}
+
+export async function unarchiveDispatch(id: number): Promise<void> {
+  const token = await dispatchToken();
+  const resp = await fetch(`/api/dispatch/${id}/unarchive`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to unarchive dispatch");
+  }
 }
 
 export async function getDispatch(id: number) {

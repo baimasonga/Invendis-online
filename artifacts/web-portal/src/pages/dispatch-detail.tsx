@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, notifyFarmers, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,8 +10,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
   CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
-  MessageSquare, Send, Phone, AlertCircle, Bell,
+  MessageSquare, Send, Phone, AlertCircle, Bell, Archive, ArchiveRestore,
 } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import L from "leaflet";
 import { QRCodeSVG } from "qrcode.react";
 import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
@@ -27,6 +29,88 @@ const STATUS_STYLES: Record<string, string> = {
   completed:  "bg-emerald-100 text-emerald-800 border border-emerald-200",
   cancelled:  "bg-red-100    text-red-800    border border-red-200",
 };
+
+const PIN_COLORS: Record<string, string> = {
+  approved: "#15803d", verified: "#15803d",
+  pending: "#d97706",
+  exception: "#dc2626", failed: "#dc2626",
+};
+function createPin(status?: string) {
+  const color = PIN_COLORS[(status ?? "").toLowerCase()] ?? "#6b7280";
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.35)"></div>`,
+    iconSize: [13, 13],
+    iconAnchor: [6, 6],
+  });
+}
+
+function DeliveryMap({ pods }: { pods: any[] }) {
+  const withGps = pods.filter(p => p.farmerLatitude && p.farmerLongitude);
+  const center: [number, number] = withGps.length
+    ? [
+        withGps.reduce((s, p) => s + Number(p.farmerLatitude), 0) / withGps.length,
+        withGps.reduce((s, p) => s + Number(p.farmerLongitude), 0) / withGps.length,
+      ]
+    : [8.46, -11.78]; // Sierra Leone centre fallback
+
+  if (withGps.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-72 text-muted-foreground gap-2">
+        <MapPin className="h-8 w-8 opacity-30" />
+        <p className="text-sm">No GPS coordinates captured for this dispatch yet.</p>
+        <p className="text-xs text-muted-foreground">GPS is recorded during field deliveries.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full bg-green-700 border-2 border-white shadow" />Approved / Verified</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full bg-amber-500 border-2 border-white shadow" />Pending</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow" />Exception</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full bg-slate-400 border-2 border-white shadow" />Other</span>
+        <span className="ml-auto font-medium text-foreground">{withGps.length} of {pods.length} deliveries plotted</span>
+      </div>
+      <div className="rounded-xl overflow-hidden border" style={{ height: 440 }}>
+        <MapContainer center={center} zoom={withGps.length === 1 ? 13 : 10} style={{ height: "100%", width: "100%" }}>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {withGps.map(p => (
+            <Marker
+              key={p.id}
+              position={[Number(p.farmerLatitude), Number(p.farmerLongitude)]}
+              icon={createPin(p.status)}
+            >
+              <Popup>
+                <div className="text-xs space-y-1 min-w-[160px]">
+                  <p className="font-semibold text-sm">{p.farmerName ?? "Unknown"}</p>
+                  <p className="font-mono text-muted-foreground">{p.farmerCode}</p>
+                  <p>Item: <strong>{p.inputItemName ?? "—"}</strong></p>
+                  <p>Qty: <strong>{p.quantityDelivered ?? "—"}</strong></p>
+                  <p>Status: <strong>{p.status ?? "—"}</strong></p>
+                  {p.submittedAt && (
+                    <p className="text-muted-foreground">{new Date(p.submittedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
+                  )}
+                  <a
+                    href={`https://www.google.com/maps?q=${p.farmerLatitude},${p.farmerLongitude}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline flex items-center gap-0.5"
+                  >
+                    Open in Google Maps ↗
+                  </a>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
+    </div>
+  );
+}
 
 function Field({ label, value, icon: Icon }: { label: string; value?: string | null; icon?: React.ElementType }) {
   return (
@@ -98,9 +182,11 @@ export default function DispatchDetail() {
     }
   }
 
-  const approveMutation  = useMutation({ mutationFn: () => approveDispatch(id) });
-  const dispatchMutation = useMutation({ mutationFn: () => dispatchManifest(id) });
-  const arriveMutation   = useMutation({ mutationFn: () => arriveDispatch(id) });
+  const approveMutation   = useMutation({ mutationFn: () => approveDispatch(id) });
+  const dispatchMutation  = useMutation({ mutationFn: () => dispatchManifest(id) });
+  const arriveMutation    = useMutation({ mutationFn: () => arriveDispatch(id) });
+  const archiveMutation   = useMutation({ mutationFn: () => archiveDispatch(id) });
+  const unarchiveMutation = useMutation({ mutationFn: () => unarchiveDispatch(id) });
 
   async function invalidate() {
     await Promise.all([
@@ -137,6 +223,18 @@ export default function DispatchDetail() {
       await arriveMutation.mutateAsync();
       await invalidate();
       toast({ title: "Arrival confirmed" });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally { setActionLoading(false); }
+  }
+
+  async function handleArchive(doArchive: boolean) {
+    setActionLoading(true);
+    try {
+      if (doArchive) await archiveMutation.mutateAsync();
+      else await unarchiveMutation.mutateAsync();
+      await invalidate();
+      toast({ title: doArchive ? "Manifest archived" : "Manifest restored from archive" });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
     } finally { setActionLoading(false); }
@@ -511,6 +609,16 @@ export default function DispatchDetail() {
               <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Record Delivery
             </Button>
           )}
+          {(status === "completed" || status === "cancelled") && !d.archived && (
+            <Button size="sm" variant="outline" className="h-7 text-xs text-slate-500 hover:text-slate-700" disabled={actionLoading} onClick={() => handleArchive(true)}>
+              <Archive className="h-3.5 w-3.5 mr-1" /> Archive
+            </Button>
+          )}
+          {d.archived && (
+            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 hover:text-blue-800 border-blue-200 hover:border-blue-400" disabled={actionLoading} onClick={() => handleArchive(false)}>
+              <ArchiveRestore className="h-3.5 w-3.5 mr-1" /> Restore
+            </Button>
+          )}
         </div>
       </div>
 
@@ -530,6 +638,15 @@ export default function DispatchDetail() {
             Notify Farmers
             {(dispatchFarmers as any[]).length > 0 && (
               <span className="ml-0.5 text-xs bg-muted rounded px-1">{(dispatchFarmers as any[]).length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="map" className="text-xs flex items-center gap-1">
+            <MapPin className="h-3 w-3" />
+            Delivery Map
+            {pods.filter((p: any) => p.farmerLatitude && p.farmerLongitude).length > 0 && (
+              <span className="ml-0.5 text-xs bg-muted rounded px-1">
+                {pods.filter((p: any) => p.farmerLatitude && p.farmerLongitude).length}
+              </span>
             )}
           </TabsTrigger>
         </TabsList>
@@ -896,6 +1013,20 @@ export default function DispatchDetail() {
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="map" className="mt-4">
+          <Card>
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-green-700" />
+                Delivery GPS Map
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DeliveryMap pods={pods} />
             </CardContent>
           </Card>
         </TabsContent>

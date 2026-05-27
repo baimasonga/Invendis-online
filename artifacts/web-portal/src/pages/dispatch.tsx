@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, deleteDispatch, cancelDispatch, assignDispatchOfficer, listFieldOfficers, KEYS } from "@/lib/db";
+import { listDispatches, approveDispatch, dispatchManifest, arriveDispatch, deleteDispatch, cancelDispatch, assignDispatchOfficer, listFieldOfficers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Upload, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X } from "lucide-react";
+import { Plus, Upload, ChevronLeft, ChevronRight, Package2, Truck, MapPin, Car, Trash2, XCircle, UserCheck, Search, X, Archive, ArchiveRestore } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreateManifestModal } from "@/components/modals/CreateManifestModal";
 import { ImportManifestModal } from "@/components/modals/ImportManifestModal";
@@ -55,6 +55,7 @@ export default function Dispatch() {
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -67,8 +68,8 @@ export default function Dispatch() {
   const limit = 20;
   const officerIdNum = officerFilter !== "all" ? Number(officerFilter) : undefined;
   const { data: dispatchData, isLoading } = useQuery({
-    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter, debouncedManifestSearch),
-    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter, debouncedManifestSearch),
+    queryKey: KEYS.dispatches(page, officerIdNum, statusFilter, debouncedManifestSearch, showArchived),
+    queryFn: () => listDispatches(page, limit, officerIdNum, statusFilter, debouncedManifestSearch, showArchived),
   });
 
   const { data: officersList = [] } = useQuery({
@@ -83,6 +84,8 @@ export default function Dispatch() {
   const arriveMutation   = useMutation({ mutationFn: (id: number) => arriveDispatch(id) });
   const deleteMutation   = useMutation({ mutationFn: (id: number) => deleteDispatch(id) });
   const cancelMutation   = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => cancelDispatch(id, reason) });
+  const archiveMutation  = useMutation({ mutationFn: (id: number) => archiveDispatch(id) });
+  const unarchiveMutation = useMutation({ mutationFn: (id: number) => unarchiveDispatch(id) });
 
   async function handleApprove(id: number) {
     setLoadingId(id);
@@ -139,6 +142,18 @@ export default function Dispatch() {
     } finally { setCancelTarget(null); setCancelReason(""); }
   }
 
+  async function handleArchive(id: number, doArchive: boolean) {
+    setLoadingId(id);
+    try {
+      if (doArchive) await archiveMutation.mutateAsync(id);
+      else await unarchiveMutation.mutateAsync(id);
+      await qc.invalidateQueries({ queryKey: ["dispatches"] });
+      toast({ title: doArchive ? "Manifest archived" : "Manifest restored from archive" });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally { setLoadingId(null); }
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -185,6 +200,16 @@ export default function Dispatch() {
               {!isLoading && <p className="text-xs text-muted-foreground ml-1">{total.toLocaleString()} manifests</p>}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant={showArchived ? "secondary" : "outline"}
+                className="h-8 text-xs"
+                onClick={() => { setShowArchived(v => !v); setPage(1); }}
+              >
+                {showArchived
+                  ? <><ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />Show Active</>
+                  : <><Archive className="h-3.5 w-3.5 mr-1.5" />Show Archived</>}
+              </Button>
               <span className="text-xs text-muted-foreground whitespace-nowrap">Status</span>
               <Select
                 value={statusFilter}
@@ -255,7 +280,7 @@ export default function Dispatch() {
                     const busy = loadingId === d.id;
                     const isDraft = status === "draft" || status === "pending";
                     return (
-                      <TableRow key={d.id} className="hover:bg-muted/40">
+                      <TableRow key={d.id} className={`hover:bg-muted/40 ${d.archived ? "opacity-60" : ""}`}>
                         <TableCell className="pl-4">
                           <Link href={`/dispatch/${d.id}`}>
                             <span className="font-mono text-xs text-green-700 hover:text-green-900 hover:underline cursor-pointer">
@@ -330,6 +355,28 @@ export default function Dispatch() {
                                 onClick={() => { setCancelReason(""); setCancelTarget(d); }}
                               >
                                 <XCircle className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {(status === "completed" || status === "cancelled") && can.manageDispatch && !d.archived && (
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-7 px-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                                disabled={busy}
+                                title="Archive this manifest"
+                                onClick={() => handleArchive(d.id, true)}
+                              >
+                                <Archive className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {d.archived && can.manageDispatch && (
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-7 px-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                                disabled={busy}
+                                title="Restore from archive"
+                                onClick={() => handleArchive(d.id, false)}
+                              >
+                                <ArchiveRestore className="h-3.5 w-3.5" />
                               </Button>
                             )}
                           </div>

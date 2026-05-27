@@ -55,10 +55,11 @@ async function fetchLookups(
 }
 
 router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
-  const { campaignId, status, manifestCode, fieldOfficerId, page = "1", limit = "20" } = req.query as Record<string, string>;
+  const { campaignId, status, manifestCode, fieldOfficerId, page = "1", limit = "20", archived } = req.query as Record<string, string>;
   const pageN  = Math.max(1, Number(page));
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
+  const showArchived = archived === "true";
 
   // Determine the effective field_officer_id filter (integer).
   const officerFilter: number | null =
@@ -78,6 +79,8 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
     if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
     if (status)       q = q.eq("status", status) as typeof q;
     if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
+    if (showArchived) q = q.eq("archived", true) as typeof q;
+    else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
 
     const { data: ofData, count: ofCount, error: ofErr } = await q;
     if (ofErr) { console.error("Failed to list dispatches (officer filter):", ofErr); res.status(500).json({ error: "Operation failed" }); return; }
@@ -117,6 +120,8 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (status)       q = q.eq("status", status) as typeof q;
   if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
+  if (showArchived) q = q.eq("archived", true) as typeof q;
+  else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
 
   const { data, count, error } = await q;
   if (error) { console.error("Failed to list dispatches:", error); res.status(500).json({ error: "Operation failed" }); return; }
@@ -937,6 +942,22 @@ router.post(
 
 // ── GET /api/dispatch/:id/farmers ────────────────────────────────────────────
 // Returns allocated farmers for the dispatch's campaign (for web-portal OTP sender).
+router.patch("/api/dispatch/:id/archive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const { error } = await supa.from("dispatches").update({ archived: true }).eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
+router.patch("/api/dispatch/:id/unarchive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const { error } = await supa.from("dispatches").update({ archived: false }).eq("id", id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
 router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
   if (!id) { res.status(400).json({ error: "Invalid dispatch id" }); return; }
