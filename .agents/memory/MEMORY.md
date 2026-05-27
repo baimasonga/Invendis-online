@@ -14,3 +14,4 @@
 - [pool connects to wrong database](pool-wrong-db.md) — DATABASE_URL/pool = Replit local PostgreSQL (empty); NEVER use pool for app data; all data ops must use supa.
 - [GitHub Actions broken workflow registry](gh-actions-registry-cache.md) — First push of an invalid workflow file permanently caches the broken parse under that workflow ID; even fixing the content doesn't re-register it. Must delete + recreate with a new filename.
 - [EAS lockfile rule](eas-lockfile-rule.md) — After any package.json change, run pnpm install + push pnpm-lock.yaml BEFORE triggering EAS build, or it fails with ERR_PNPM_OUTDATED_LOCKFILE.
+- [AWS S3 bucket region](aws-s3-region.md) — invendimages is in us-east-1 (not eu-west-2); wrong region → 301 on PUT; 403 → missing AmazonS3FullAccess on invendis-edge-system.
