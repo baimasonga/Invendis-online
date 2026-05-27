@@ -7,15 +7,17 @@ import {
 } from "@aws-sdk/client-rekognition";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const region = (process.env.AWS_REGION ?? "us-east-1").trim();
+// invendimages S3 bucket is in us-east-1. AWS_REGION env var is eu-west-2 (wrong).
+// Hardcode us-east-1 so server-side PutObjectCommand reaches the correct endpoint.
+const S3_REGION = "us-east-1";
 const bucket = (process.env.AWS_S3_BUCKET ?? "invendimages").trim();
 const accessKeyId = (process.env.AWS_ACCESS_KEY_ID ?? "").trim();
 const secretAccessKey = (process.env.AWS_SECRET_ACCESS_KEY ?? "").trim();
 
 const credentials = { accessKeyId, secretAccessKey };
 
-export const s3 = new S3Client({ region, credentials });
-export const rekognition = new RekognitionClient({ region, credentials });
+export const s3 = new S3Client({ region: S3_REGION, credentials });
+export const rekognition = new RekognitionClient({ region: S3_REGION, credentials });
 
 export { bucket };
 
