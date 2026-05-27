@@ -51,3 +51,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 EASYSENDSMS_SENDER = "AVDP"
+EXPO_PUBLIC_DOMAIN = "b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev"
