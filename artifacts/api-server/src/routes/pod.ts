@@ -113,6 +113,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
 
   let campaignId: number | null = body.campaign_id ?? null;
 
+  // 1. Try to derive from dispatch
   if (!campaignId && body.dispatch_id) {
     const { data: dispatch } = await supa
       .from("dispatches")
@@ -122,8 +123,21 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     campaignId = (dispatch as any)?.campaign_id ?? null;
   }
 
+  // 2. Fallback: derive from farmer's most recent active allocation (Scan-tab ad-hoc deliveries)
+  if (!campaignId && body.farmer_id) {
+    const { data: alloc } = await supa
+      .from("allocations")
+      .select("campaign_id")
+      .eq("farmer_id", body.farmer_id)
+      .in("status", ["Approved", "Pending"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    campaignId = (alloc as any)?.campaign_id ?? null;
+  }
+
   if (!campaignId) {
-    res.status(400).json({ error: "campaign_id is required — provide campaign_id directly or a valid dispatch_id" });
+    res.status(400).json({ error: "Cannot determine campaign: farmer has no active allocation and no dispatch was provided. Allocate the farmer to a campaign first, or record delivery via a dispatch." });
     return;
   }
 
@@ -210,29 +224,54 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }
   }
 
-  // Use direct pg to bypass PostgREST schema cache (same pattern as dispatch insert)
-  const insertFields: Record<string, unknown> = {
-    ...body,
-    campaign_id:      campaignId,
-    pod_code:         podCode,
-    status:           "Pending",
-    gps_status:           gpsStatus,
-    vehicle_gps_snapshot: vehicleGpsSnapshot,
-    submitted_at:         new Date().toISOString(),
-    field_officer_id:     req.user!.userId,
-  };
-  // Remove undefined values; keep null (explicit nulls are fine for pg)
-  const cols = Object.keys(insertFields).filter(k => insertFields[k] !== undefined);
-  const vals = cols.map(k => insertFields[k]);
-  const placeholders = cols.map((_, i) => `$${i + 1}`).join(", ");
-  const sql = `INSERT INTO pod (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`;
+  // Build insert payload — filter undefined values, keep nulls
+  const insertFields: Record<string, unknown> = Object.fromEntries(
+    Object.entries({
+      ...body,
+      campaign_id:          campaignId,
+      pod_code:             podCode,
+      status:               "Pending",
+      gps_status:           gpsStatus,
+      vehicle_gps_snapshot: vehicleGpsSnapshot,
+      submitted_at:         new Date().toISOString(),
+      field_officer_id:     req.user!.userId,
+    }).filter(([, v]) => v !== undefined)
+  );
 
   let podRow: Record<string, unknown>;
-  try {
-    const result = await pool.query(sql, vals);
-    podRow = result.rows[0];
-  } catch (pgErr: any) {
-    res.status(500).json({ error: pgErr.message }); return;
+
+  // Try full insert via Supabase; if PostgREST schema cache rejects a newer column,
+  // fall back to base columns then patch the extended ones.
+  const BASE_COLS = new Set([
+    "dispatch_id","campaign_id","farmer_id","input_item_id","input_barcode",
+    "quantity_delivered","farmer_latitude","farmer_longitude","face_status","notes",
+    "override_reason","otp_status","otp_verified","pod_code","status","gps_status",
+    "submitted_at","field_officer_id",
+  ]);
+  const EXTENDED_COLS = ["photo_keys","photo_gps_coords","vehicle_gps_snapshot","face_photo_key","face_similarity","otp_code"];
+
+  const { data: podInserted, error: insertErr } = await supa
+    .from("pod")
+    .insert(insertFields)
+    .select()
+    .single();
+
+  if (insertErr) {
+    if (insertErr.message?.includes("Could not find") || (insertErr as any).code === "PGRST204") {
+      // Schema cache stale — insert base columns only then UPDATE extended ones
+      const baseData = Object.fromEntries(Object.entries(insertFields).filter(([k]) => BASE_COLS.has(k)));
+      const { data: baseInserted, error: baseErr } = await supa.from("pod").insert(baseData).select().single();
+      if (baseErr) { res.status(500).json({ error: baseErr.message }); return; }
+      podRow = baseInserted as Record<string, unknown>;
+      const extData = Object.fromEntries(Object.entries(insertFields).filter(([k]) => EXTENDED_COLS.includes(k) && insertFields[k] != null));
+      if (Object.keys(extData).length > 0) {
+        await supa.from("pod").update(extData).eq("id", (podRow as any).id);
+      }
+    } else {
+      res.status(500).json({ error: insertErr.message }); return;
+    }
+  } else {
+    podRow = podInserted as Record<string, unknown>;
   }
 
   // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
@@ -246,7 +285,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
       .neq("id", podRow.id as number)
       .limit(1);
     if (dupCheck && dupCheck.length > 0) {
-      await pool.query("UPDATE pod SET duplicate_flag = true WHERE id = $1", [podRow.id]);
+      await supa.from("pod").update({ duplicate_flag: true }).eq("id", podRow.id as number);
       podRow = { ...podRow, duplicate_flag: true };
     }
   }
