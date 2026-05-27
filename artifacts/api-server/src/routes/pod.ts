@@ -3,7 +3,8 @@ import { supa, snakeToCamel, camelToSnake, pool } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
-import { getPresignedUploadUrl, bucket } from "../lib/aws.js";
+import { bucket } from "../lib/aws.js";
+import { generateProxyUploadUrl } from "../lib/auth.js";
 import { sendSms } from "../lib/sms.js";
 
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
@@ -468,7 +469,7 @@ router.post("/api/pod/photo-upload-url", requireAnyAuth, async (req, res) => {
   const idx = Number.isFinite(Number(photoIndex)) ? Number(photoIndex) : 0;
   const key = `pods/${farmerId}/${Date.now()}-photo-${idx}.jpg`;
   try {
-    const url = await getPresignedUploadUrl(key, "image/jpeg");
+    const url = generateProxyUploadUrl(key, req);
     res.json({ uploadUrl: url, key, bucket });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

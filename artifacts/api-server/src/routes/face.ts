@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { requireAnyAuth } from "../lib/auth.js";
+import { requireAnyAuth, generateProxyUploadUrl } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
-import { getPresignedUploadUrl, getPresignedViewUrl, compareFaces, detectLabels, detectFaces, bucket } from "../lib/aws.js";
+import { getPresignedViewUrl, compareFaces, detectLabels, detectFaces, bucket } from "../lib/aws.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -14,7 +14,7 @@ router.post("/api/face/upload-url", requireAnyAuth, async (req, res) => {
     ? `farmers/${farmerId}/${safeP}/${Date.now()}.jpg`
     : `identify/${Date.now()}.jpg`;
   try {
-    const url = await getPresignedUploadUrl(key, "image/jpeg");
+    const url = generateProxyUploadUrl(key, req);
     res.json({ uploadUrl: url, key, bucket });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

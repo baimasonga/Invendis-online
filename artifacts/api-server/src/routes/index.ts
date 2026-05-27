@@ -19,6 +19,7 @@ import usersRouter from "./users";
 import faceRouter from "./face";
 import incidentsRouter from "./incidents";
 import notifyRouter from "./notify";
+import uploadProxyRouter from "./upload-proxy";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(usersRouter);
 router.use(faceRouter);
 router.use(incidentsRouter);
 router.use(notifyRouter);
+router.use(uploadProxyRouter);
 
 export default router;

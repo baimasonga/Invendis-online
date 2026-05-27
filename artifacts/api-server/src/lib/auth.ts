@@ -22,6 +22,23 @@ export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
 }
 
+export function generateUploadToken(key: string): string {
+  return jwt.sign({ key }, JWT_SECRET, { expiresIn: "15m" });
+}
+
+export function verifyUploadToken(token: string): string {
+  const payload = jwt.verify(token, JWT_SECRET) as { key?: string };
+  if (!payload.key) throw new Error("Invalid upload token");
+  return payload.key;
+}
+
+export function generateProxyUploadUrl(key: string, req: Request): string {
+  const token = generateUploadToken(key);
+  const host = req.get("x-forwarded-host") ?? req.get("host") ?? "localhost";
+  const proto = (req.get("x-forwarded-proto") ?? req.protocol ?? "https").split(",")[0].trim();
+  return `${proto}://${host}/api/upload-proxy?key=${encodeURIComponent(key)}&t=${token}`;
+}
+
 export function verifyToken(token: string): JwtPayload {
   return jwt.verify(token, JWT_SECRET) as JwtPayload;
 }
