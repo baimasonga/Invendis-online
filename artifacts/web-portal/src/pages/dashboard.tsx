@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Users, Package, Flag, Truck, ClipboardList, Activity,
-  UserPlus, ClipboardCheck, TrendingUp, ArrowRight, AlertTriangle,
+  UserPlus, ClipboardCheck, TrendingUp, TrendingDown, ArrowRight,
+  AlertTriangle, Minus, PackageOpen,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -18,6 +19,7 @@ const COLORS     = ["#15803d", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#647
 const PIE_COLORS = ["#15803d", "#f59e0b", "#3b82f6", "#8b5cf6", "#ef4444", "#64748b"];
 
 type CardColor = "green" | "amber" | "blue" | "red" | "violet" | "slate";
+type Trend = { pct: number; dir: "up" | "down" | "flat" };
 
 const COLOR_MAP: Record<CardColor, { border: string; iconBg: string; iconText: string }> = {
   green:  { border: "border-l-emerald-500", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", iconText: "text-emerald-700 dark:text-emerald-400" },
@@ -28,11 +30,26 @@ const COLOR_MAP: Record<CardColor, { border: string; iconBg: string; iconText: s
   slate:  { border: "border-l-slate-400",   iconBg: "bg-slate-100   dark:bg-slate-800",      iconText: "text-slate-500   dark:text-slate-400"   },
 };
 
+function TrendBadge({ trend }: { trend: Trend }) {
+  if (trend.dir === "flat") return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-slate-400">
+      <Minus className="h-2.5 w-2.5" /> No change vs last week
+    </span>
+  );
+  const up = trend.dir === "up";
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${up ? "text-emerald-600" : "text-red-500"}`}>
+      {up ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+      {up ? "+" : "−"}{trend.pct}% vs last week
+    </span>
+  );
+}
+
 function StatCard({
-  title, value, sub, icon: Icon, color = "green", href,
+  title, value, sub, icon: Icon, color = "green", href, trend,
 }: {
   title: string; value: string | number; sub?: string;
-  icon: React.ElementType; color?: CardColor; href?: string;
+  icon: React.ElementType; color?: CardColor; href?: string; trend?: Trend | null;
 }) {
   const c = COLOR_MAP[color];
   const card = (
@@ -42,7 +59,8 @@ function StatCard({
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1 truncate">{title}</p>
             <p className="text-2xl font-bold tabular-nums">{value}</p>
-            {sub && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{sub}</p>}
+            {trend && <div className="mt-1"><TrendBadge trend={trend} /></div>}
+            {sub && <p className="text-xs text-muted-foreground mt-1 leading-snug">{sub}</p>}
           </div>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${c.iconBg}`}>
             <Icon className={`h-5 w-5 ${c.iconText}`} />
@@ -74,11 +92,30 @@ function timeAgo(date: string) {
 }
 
 const QUICK_ACTIONS = [
-  { label: "Register Farmer", href: "/farmers",  icon: UserPlus,      color: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
-  { label: "New Dispatch",    href: "/dispatch",  icon: Truck,         color: "bg-blue-50   text-blue-700   border-blue-200   hover:bg-blue-100"   },
-  { label: "Review PoDs",     href: "/pod",        icon: ClipboardCheck,color: "bg-amber-50  text-amber-700  border-amber-200  hover:bg-amber-100"  },
-  { label: "View Reports",    href: "/reports",   icon: TrendingUp,    color: "bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100" },
+  { label: "Register Farmer", href: "/farmers",  icon: UserPlus,       color: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
+  { label: "New Dispatch",    href: "/dispatch",  icon: Truck,          color: "bg-blue-50   text-blue-700   border-blue-200   hover:bg-blue-100"   },
+  { label: "Review PoDs",     href: "/pod",       icon: ClipboardCheck, color: "bg-amber-50  text-amber-700  border-amber-200  hover:bg-amber-100"  },
+  { label: "View Reports",    href: "/reports",   icon: TrendingUp,     color: "bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100" },
 ];
+
+function CampaignProgressBar({ pct, delivered, target }: { pct: number; delivered: number; target: number }) {
+  const color = pct >= 80 ? "#15803d" : pct >= 50 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[11px] text-muted-foreground">
+        <span>{delivered.toLocaleString()} delivered</span>
+        <span className="font-medium" style={{ color }}>{pct}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <p className="text-[10px] text-muted-foreground">Target: {target.toLocaleString()} farmers</p>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -92,6 +129,9 @@ export default function Dashboard() {
   const firstName = (user as any)?.fullName?.split(" ")[0] ?? (user as any)?.username ?? "";
 
   const summary               = data?.summary;
+  const trends                = data?.trends;
+  const campaignProgress: any[] = data?.campaignProgress ?? [];
+  const stockAlerts: any[]    = data?.stockAlerts ?? [];
   const farmerChartData       = (data?.charts?.farmerStatusChart ?? []).map((e: any, i: number) => ({ ...e, fill: COLORS[i % COLORS.length] }));
   const campaignChartData: any[]    = data?.charts?.campaignCompletionChart ?? [];
   const warehouseStockData: any[]   = data?.charts?.warehouseStockChart ?? [];
@@ -138,10 +178,47 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Stock alerts */}
+      {!isLoading && stockAlerts.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold">Low Stock Alerts</h2>
+            <span className="text-xs text-muted-foreground">— items below 50 units</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {stockAlerts.map((a: any) => (
+              <Link key={a.id} href="/inventory">
+                <Card className="border-l-4 border-l-amber-400 cursor-pointer hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold truncate">{a.itemName}</p>
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">{a.warehouseName}</p>
+                      </div>
+                      <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${a.available === 0 ? "bg-red-100" : "bg-amber-100"}`}>
+                        <PackageOpen className={`h-4 w-4 ${a.available === 0 ? "text-red-600" : "text-amber-600"}`} />
+                      </div>
+                    </div>
+                    <p className={`text-xl font-bold tabular-nums mt-2 ${a.available === 0 ? "text-red-600" : "text-amber-600"}`}>
+                      {a.available.toLocaleString()}
+                      <span className="text-xs font-normal text-muted-foreground ml-1">{a.unit}</span>
+                    </p>
+                    <p className={`text-[10px] font-medium mt-0.5 ${a.available === 0 ? "text-red-500" : "text-amber-500"}`}>
+                      {a.available === 0 ? "Out of stock" : "Low stock — reorder needed"}
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stat cards */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 5 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <Card key={i} className="border-l-4 border-l-muted">
               <CardContent className="p-5"><Skeleton className="h-16 w-full" /></CardContent>
             </Card>
@@ -156,6 +233,7 @@ export default function Dashboard() {
             icon={Users}
             color="green"
             href="/farmers"
+            trend={trends?.farmers}
           />
           <StatCard
             title="Active Campaigns"
@@ -172,6 +250,7 @@ export default function Dashboard() {
             icon={ClipboardList}
             color={summary.pendingPod > 0 ? "red" : "green"}
             href="/pod"
+            trend={trends?.pod}
           />
           <StatCard
             title="Total Dispatches"
@@ -180,6 +259,7 @@ export default function Dashboard() {
             icon={Truck}
             color="violet"
             href="/dispatch"
+            trend={trends?.dispatches}
           />
           <StatCard
             title="Total Allocations"
@@ -199,6 +279,44 @@ export default function Dashboard() {
           />
         </div>
       ) : null}
+
+      {/* Campaign progress */}
+      {!isLoading && campaignProgress.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Flag className="h-4 w-4 text-blue-600" />
+              Active Campaign Delivery Progress
+            </h2>
+            <Link href="/campaigns">
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
+                All campaigns <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {campaignProgress.map((c: any) => (
+              <Link key={c.id} href={`/campaigns/${c.id}`}>
+                <Card className="cursor-pointer hover:shadow-md transition-shadow">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold leading-tight line-clamp-2">{c.name}</p>
+                      <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                        c.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                      }`}>{c.status}</span>
+                    </div>
+                    <CampaignProgressBar
+                      pct={c.pct}
+                      delivered={c.deliveredCount}
+                      target={Math.max(c.allocatedFarmers, c.targetBeneficiaries, 1)}
+                    />
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Charts row 1: Farmers by Status + PoD Trend */}
       <div className="grid gap-5 lg:grid-cols-3">

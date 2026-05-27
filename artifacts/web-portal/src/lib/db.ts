@@ -116,7 +116,19 @@ export const KEYS = {
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function trendPct(now: number | null, prev: number | null): { pct: number; dir: "up" | "down" | "flat" } | null {
+  const n = now ?? 0;
+  const p = prev ?? 0;
+  if (p === 0) return n > 0 ? { pct: 100, dir: "up" } : null;
+  const raw = Math.round(((n - p) / p) * 100);
+  return { pct: Math.abs(raw), dir: raw > 0 ? "up" : raw < 0 ? "down" : "flat" };
+}
+
 export async function getDashboardData() {
+  const now      = Date.now();
+  const d7       = new Date(now - 7  * 24 * 60 * 60 * 1000).toISOString();
+  const d14      = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+
   const [
     { count: totalFarmers },
     { count: pendingFarmers },
@@ -131,6 +143,17 @@ export async function getDashboardData() {
     campaignStatuses,
     stockLedger,
     podTrendRaw,
+    // trend: this week vs prior week
+    { count: farmersThisWeek },
+    { count: farmersLastWeek },
+    { count: podThisWeek },
+    { count: podLastWeek },
+    { count: dispatchesThisWeek },
+    { count: dispatchesLastWeek },
+    // campaign progress
+    activeCampaignRows,
+    // low-stock alerts
+    lowStockRaw,
   ] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }),
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
@@ -144,7 +167,27 @@ export async function getDashboardData() {
     supabase.from("farmers").select("gender, beneficiary_type, district_id").limit(5000),
     supabase.from("campaigns").select("status").limit(500),
     supabase.from("stock_ledger").select("warehouse_id, quantity").limit(2000),
-    supabase.from("pod").select("submitted_at, status").gte("submitted_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).limit(500),
+    supabase.from("pod").select("submitted_at, status").gte("submitted_at", d7).limit(500),
+    // trends
+    supabase.from("farmers").select("*", { count: "exact", head: true }).gte("created_at", d7),
+    supabase.from("farmers").select("*", { count: "exact", head: true }).gte("created_at", d14).lt("created_at", d7),
+    supabase.from("pod").select("*", { count: "exact", head: true }).gte("submitted_at", d7),
+    supabase.from("pod").select("*", { count: "exact", head: true }).gte("submitted_at", d14).lt("submitted_at", d7),
+    supabase.from("dispatches").select("*", { count: "exact", head: true }).gte("created_at", d7),
+    supabase.from("dispatches").select("*", { count: "exact", head: true }).gte("created_at", d14).lt("created_at", d7),
+    // active campaign progress
+    supabase.from("campaigns")
+      .select("id, name, allocated_farmers, delivered_count, target_beneficiaries, status")
+      .in("status", ["Active", "Approved"])
+      .order("created_at", { ascending: false })
+      .limit(8),
+    // low stock
+    supabase.from("stock_balance")
+      .select("id, warehouse_id, input_item_id, available")
+      .lt("available", 50)
+      .gte("available", 0)
+      .order("available", { ascending: true })
+      .limit(6),
   ]);
 
   const statusMap: Record<string, number> = {};
@@ -207,20 +250,59 @@ export async function getDashboardData() {
       .slice(0, 8);
   }
 
+  // Campaign progress
+  const campaignProgress = (activeCampaignRows.data ?? []).map((c: any) => {
+    const target    = Math.max(Number(c.allocated_farmers) || 0, Number(c.target_beneficiaries) || 0, 1);
+    const delivered = Number(c.delivered_count) || 0;
+    return {
+      id:              c.id,
+      name:            c.name,
+      status:          c.status,
+      allocatedFarmers: Number(c.allocated_farmers) || 0,
+      targetBeneficiaries: Number(c.target_beneficiaries) || 0,
+      deliveredCount:  delivered,
+      pct:             Math.min(100, Math.round((delivered / target) * 100)),
+    };
+  });
+
+  // Stock alerts — resolve names
+  const lowStockRows = lowStockRaw.data ?? [];
+  let stockAlerts: { id: number; itemName: string; warehouseName: string; available: number }[] = [];
+  if (lowStockRows.length) {
+    const [whMap2, itemMap2] = await Promise.all([
+      lookupMap("warehouses",   [...new Set(lowStockRows.map((r: any) => r.warehouse_id).filter(Boolean))],  "id,name"),
+      lookupMap("input_items",  [...new Set(lowStockRows.map((r: any) => r.input_item_id).filter(Boolean))], "id,name,unit"),
+    ]);
+    stockAlerts = lowStockRows.map((r: any) => ({
+      id:            r.id,
+      itemName:      itemMap2[r.input_item_id]?.name  ?? "Unknown item",
+      unit:          itemMap2[r.input_item_id]?.unit  ?? "",
+      warehouseName: whMap2[r.warehouse_id]?.name    ?? "Unknown warehouse",
+      available:     Number(r.available),
+    }));
+  }
+
   return {
     summary: {
-      totalFarmers:    totalFarmers    ?? 0,
-      pendingFarmers:  pendingFarmers  ?? 0,
-      activeCampaigns: activeCampaigns ?? 0,
-      totalDispatches: totalDispatches ?? 0,
+      totalFarmers:     totalFarmers     ?? 0,
+      pendingFarmers:   pendingFarmers   ?? 0,
+      activeCampaigns:  activeCampaigns  ?? 0,
+      totalDispatches:  totalDispatches  ?? 0,
       totalAllocations: totalAllocations ?? 0,
-      pendingPod:      pendingPod      ?? 0,
-      openIncidents:   openIncidents   ?? 0,
+      pendingPod:       pendingPod       ?? 0,
+      openIncidents:    openIncidents    ?? 0,
       femalePct,
       femaleCount,
       indivCount,
       groupCount,
     },
+    trends: {
+      farmers:   trendPct(farmersThisWeek,   farmersLastWeek),
+      pod:       trendPct(podThisWeek,       podLastWeek),
+      dispatches: trendPct(dispatchesThisWeek, dispatchesLastWeek),
+    },
+    campaignProgress,
+    stockAlerts,
     charts: {
       farmerStatusChart,
       campaignCompletionChart,
