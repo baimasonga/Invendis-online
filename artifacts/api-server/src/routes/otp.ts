@@ -24,36 +24,26 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-async function sendViaAt(to: string, text: string): Promise<void> {
-  const apiKey   = process.env.AT_API_KEY;
-  const username = process.env.AT_USERNAME;
-  if (!apiKey || !username) throw new Error("AT credentials not configured (AT_API_KEY / AT_USERNAME)");
+async function sendViaEasySendSms(to: string, text: string): Promise<void> {
+  const username = process.env.EASYSENDSMS_USERNAME;
+  const password = process.env.EASYSENDSMS_PASSWORD;
+  const sender   = (process.env.EASYSENDSMS_SENDER ?? "AgriPoD").slice(0, 11);
+  if (!username || !password) throw new Error("EasySendSMS credentials not configured (EASYSENDSMS_USERNAME / EASYSENDSMS_PASSWORD)");
 
-  const isSandbox = process.env.AT_SANDBOX === "true";
-  const endpoint  = isSandbox
-    ? "https://api.sandbox.africastalking.com/version1/messaging"
-    : "https://api.africastalking.com/version1/messaging";
-  const atUsername = isSandbox ? "sandbox" : username;
-
-  const e164 = "+" + normalisePhone(to);
-  const body = new URLSearchParams({ username: atUsername, to: e164, message: text });
-  if (!isSandbox && process.env.AT_SENDER_ID) body.set("from", process.env.AT_SENDER_ID);
-
-  const resp = await fetch(endpoint, {
-    method:  "POST",
-    headers: {
-      "apiKey":       apiKey,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Accept":       "application/json",
-    },
-    body,
+  const params = new URLSearchParams({
+    username,
+    password,
+    from: sender,
+    to:   normalisePhone(to),
+    text,
+    type: "0",
   });
 
-  const json = await resp.json() as any;
-  const recipient = json?.SMSMessageData?.Recipients?.[0];
-  if (!resp.ok || (recipient && recipient.status !== "Success")) {
-    throw new Error(`AT${isSandbox ? " [sandbox]" : ""} error: ${recipient?.status ?? json?.SMSMessageData?.Message ?? JSON.stringify(json)}`);
-  }
+  const resp = await fetch(`https://api.easysendsms.app/bulksms?${params}`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = (await resp.text()).trim();
+  if (!body.toUpperCase().startsWith("OK")) throw new Error(`EasySendSMS error: ${body}`);
 }
 
 async function sendViaTwilio(to: string, text: string): Promise<void> {
@@ -80,14 +70,14 @@ async function sendViaTwilio(to: string, text: string): Promise<void> {
 
 async function sendSms(to: string, text: string): Promise<{ provider: string }> {
   try {
-    await sendViaAt(to, text);
-    return { provider: "africastalking" };
-  } catch (atErr: any) {
+    await sendViaEasySendSms(to, text);
+    return { provider: "easysendsms" };
+  } catch (primaryErr: any) {
     try {
       await sendViaTwilio(to, text);
       return { provider: "twilio-fallback" };
     } catch (twilioErr: any) {
-      throw new Error(`AT failed (${atErr.message}); Twilio fallback also failed (${twilioErr.message})`);
+      throw new Error(`EasySendSMS failed (${primaryErr.message}); Twilio fallback also failed (${twilioErr.message})`);
     }
   }
 }
