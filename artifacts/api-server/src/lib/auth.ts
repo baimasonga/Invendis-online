@@ -34,8 +34,28 @@ export function verifyUploadToken(token: string): string {
 
 export function generateProxyUploadUrl(key: string, req: Request): string {
   const token = generateUploadToken(key);
-  const host = req.get("x-forwarded-host") ?? req.get("host") ?? "localhost";
-  const proto = (req.get("x-forwarded-proto") ?? req.protocol ?? "https").split(",")[0].trim();
+
+  // Priority: x-forwarded-host (reverse proxy) → REPLIT_DOMAINS (deployment) → host header
+  const fwdHost = req.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const fwdProto = req.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "https";
+
+  let host: string;
+  let proto: string;
+
+  if (fwdHost && fwdHost !== "localhost") {
+    host = fwdHost;
+    proto = fwdProto;
+  } else {
+    const replitDomains = process.env.REPLIT_DOMAINS;
+    if (replitDomains) {
+      host = replitDomains.split(",")[0].trim();
+      proto = "https";
+    } else {
+      host = req.get("host") ?? "localhost";
+      proto = (req.protocol ?? "http");
+    }
+  }
+
   return `${proto}://${host}/api/upload-proxy?key=${encodeURIComponent(key)}&t=${token}`;
 }
 

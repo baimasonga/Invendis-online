@@ -5,6 +5,12 @@ import { s3, bucket } from "../lib/aws.js";
 
 const router = Router();
 
+// Log the domain config at startup so we can confirm proxy URLs are built correctly
+const replitDomains = process.env.REPLIT_DOMAINS ?? "(not set)";
+import("../lib/logger.js").then(({ logger }) =>
+  logger.info({ replitDomains }, "Upload proxy route loaded")
+).catch(() => {});
+
 router.put("/api/upload-proxy", async (req, res) => {
   const { t: token } = req.query as { t?: string };
 
