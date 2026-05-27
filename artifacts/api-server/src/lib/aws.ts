@@ -19,9 +19,12 @@ export const rekognition = new RekognitionClient({ region, credentials });
 
 export { bucket };
 
-export async function getPresignedUploadUrl(key: string, contentType: string): Promise<string> {
-  const cmd = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType });
-  return getSignedUrl(s3, cmd, { expiresIn: 300 });
+export async function getPresignedUploadUrl(key: string, _contentType?: string): Promise<string> {
+  // Do NOT include ContentType in the command — if it's a signed header,
+  // React Native's blob body overrides the explicit Content-Type header,
+  // causing a SignatureDoesNotMatch error on the S3 PUT.
+  const cmd = new PutObjectCommand({ Bucket: bucket, Key: key });
+  return getSignedUrl(s3, cmd, { expiresIn: 600 });
 }
 
 export async function getPresignedViewUrl(key: string): Promise<string> {
