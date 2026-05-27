@@ -27,6 +27,7 @@ import Users from "@/pages/users";
 import Settings from "@/pages/settings";
 import Incidents from "@/pages/incidents";
 import FarmerCardPublic from "@/pages/farmer-card-public";
+import SupervisorView from "@/pages/supervisor";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +79,7 @@ function Router() {
       <ProtectedRoute path="/users"            component={Users} />
       <ProtectedRoute path="/settings"         component={Settings} />
       <ProtectedRoute path="/incidents"        component={Incidents} />
+      <ProtectedRoute path="/supervisor"       component={SupervisorView} />
 
       <Route path="/">
         <Redirect to="/dashboard" />
