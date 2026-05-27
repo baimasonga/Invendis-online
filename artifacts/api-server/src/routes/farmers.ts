@@ -108,6 +108,158 @@ router.delete("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectMan
   res.json({ success: true });
 });
 
+// ── POST /api/farmers/bulk-check-duplicates ───────────────────────────────────
+// Checks a list of phone numbers against existing farmers.
+// Returns only the phones that are already registered.
+router.post("/api/farmers/bulk-check-duplicates", requireAnyAuth, async (req, res) => {
+  const { phones } = req.body as { phones?: string[] };
+  if (!Array.isArray(phones) || phones.length === 0) {
+    res.json({ duplicates: [] });
+    return;
+  }
+  const clean = phones.map((p: string) => String(p).trim()).filter(Boolean);
+  if (clean.length === 0) { res.json({ duplicates: [] }); return; }
+
+  const { data, error } = await supa
+    .from("farmers")
+    .select("phone, farmer_code, first_name, last_name, farmer_group")
+    .in("phone", clean);
+
+  if (error) { res.status(500).json({ error: error.message }); return; }
+
+  const duplicates = (data ?? []).map((f: any) => ({
+    phone:       f.phone,
+    farmerCode:  f.farmer_code,
+    name:        f.farmer_group || `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim(),
+  }));
+  res.json({ duplicates });
+});
+
+// ── POST /api/farmers/bulk-import ─────────────────────────────────────────────
+// Accepts a list of farmer rows plus optional districtId / valueChainId.
+// Skips rows whose phone already exists in the DB (or duplicated within the file).
+// Returns { created, skipped, duplicates, farmers }.
+router.post(
+  "/api/farmers/bulk-import",
+  requireAuth,
+  requireRoles("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"),
+  async (req, res) => {
+    const { rows, districtId, valueChainId } = req.body as {
+      rows: Array<{
+        firstName?: string; lastName?: string; gender?: string; phone?: string;
+        beneficiaryType?: string; farmerGroup?: string; groupSize?: number;
+      }>;
+      districtId?: number;
+      valueChainId?: number;
+    };
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res.status(400).json({ error: "rows must be a non-empty array" });
+      return;
+    }
+
+    // 1. Collect all non-empty phones to batch-check against DB
+    const allPhones = rows.map(r => String(r.phone ?? "").trim()).filter(Boolean);
+    let existingPhoneMap = new Map<string, { farmerCode: string; name: string }>();
+    if (allPhones.length > 0) {
+      const { data: existing } = await supa
+        .from("farmers")
+        .select("phone, farmer_code, first_name, last_name, farmer_group")
+        .in("phone", allPhones);
+      for (const f of (existing ?? []) as any[]) {
+        if (f.phone) {
+          existingPhoneMap.set(f.phone, {
+            farmerCode: f.farmer_code,
+            name:       f.farmer_group || `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim(),
+          });
+        }
+      }
+    }
+
+    // 2. Get next safe ID base (PG sequence may lag after seed imports)
+    const { data: maxRow } = await supa.from("farmers").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
+    let nextId = ((maxRow as any)?.id ?? 0) + 1;
+
+    // 3. Process rows — detect intra-file and DB duplicates
+    const seenPhonesInBatch = new Map<string, number>(); // phone → first 1-based row number
+    const toInsert: any[]   = [];
+    const duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }> = [];
+
+    rows.forEach((r, i) => {
+      const rowNum       = i + 1;
+      const phone        = String(r.phone ?? "").trim() || null;
+      const benefType    = r.beneficiaryType === "group" ? "group" : "individual";
+      const displayName  = benefType === "group"
+        ? (r.farmerGroup || "Group")
+        : `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() || "Unknown";
+
+      // Intra-file duplicate (same phone appeared earlier in this batch)
+      if (phone && seenPhonesInBatch.has(phone)) {
+        duplicates.push({
+          row:               rowNum,
+          name:              displayName,
+          phone:             phone,
+          matchedFarmerCode: `duplicate within import file (row ${seenPhonesInBatch.get(phone)})`,
+        });
+        return;
+      }
+      if (phone) seenPhonesInBatch.set(phone, rowNum);
+
+      // DB duplicate
+      if (phone && existingPhoneMap.has(phone)) {
+        const match = existingPhoneMap.get(phone)!;
+        duplicates.push({ row: rowNum, name: displayName, phone, matchedFarmerCode: match.farmerCode });
+        return;
+      }
+
+      toInsert.push({
+        id:               nextId++,
+        first_name:       r.firstName    || null,
+        last_name:        r.lastName     || null,
+        gender:           r.gender       || null,
+        phone:            phone,
+        beneficiary_type: benefType,
+        farmer_group:     r.farmerGroup  || null,
+        group_size:       r.groupSize    ?? null,
+        district_id:      districtId     ?? null,
+        value_chain_id:   valueChainId   ?? null,
+        status:           "pending",
+        farmer_code:      generateFarmerCode(),
+        barcode_token:    generateBarcode(),
+        registered_by:    req.user!.userId,
+        created_at:       new Date().toISOString(),
+        updated_at:       new Date().toISOString(),
+      });
+    });
+
+    if (toInsert.length === 0) {
+      res.json({ created: 0, skipped: duplicates.length, duplicates, farmers: [] });
+      return;
+    }
+
+    // 4. Batch insert in chunks of 100 to stay within PostgREST limits
+    const CHUNK = 100;
+    const inserted: any[] = [];
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
+      const { data, error } = await supa.from("farmers").insert(chunk).select("id, farmer_code, barcode_token, first_name, last_name, farmer_group, beneficiary_type");
+      if (error) { res.status(500).json({ error: error.message }); return; }
+      inserted.push(...(data ?? []));
+    }
+
+    await logAudit(req, "BULK_CREATE", "Farmers", `Bulk imported ${inserted.length} farmers`, "farmer", null as any);
+
+    const farmers = inserted.map((f: any) => ({
+      id:           f.id,
+      farmerCode:   f.farmer_code,
+      barcodeToken: f.barcode_token,
+      name:         f.farmer_group || `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim(),
+    }));
+
+    res.status(201).json({ created: inserted.length, skipped: duplicates.length, duplicates, farmers });
+  }
+);
+
 // ── Public ID card endpoint ───────────────────────────────────────────────────
 // Returns ID-card-safe fields for a farmer given their barcode_token.
 // Intentionally no auth: this powers the shareable mobile card view that field
