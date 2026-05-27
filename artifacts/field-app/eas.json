@@ -6,7 +6,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -14,13 +17,16 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "invendisapp.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "invendisapp.com"
       }
     }
   },
