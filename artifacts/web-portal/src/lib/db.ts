@@ -428,7 +428,6 @@ export async function createFarmer(payload: any) {
     farm_size: payload.farmSize ?? null,
     farmer_group: payload.farmerGroup ?? null,
     group_size: payload.groupSize ?? null,
-    cbo_name: payload.cboName ?? null,
     registered_by: userId,
     farmer_code: farmerCode,
     barcode_token: barcodeToken,
@@ -452,7 +451,6 @@ export async function updateFarmer(id: number, payload: any) {
     farm_size: payload.farmSize ?? null,
     farmer_group: payload.farmerGroup ?? null,
     group_size: payload.groupSize ?? null,
-    cbo_name: payload.cboName ?? null,
   }).eq("id", id).select().single();
   if (error) throw new Error(error.message);
   await logAudit("UPDATE", "farmers", `Updated farmer #${id}`, "farmer", id);
