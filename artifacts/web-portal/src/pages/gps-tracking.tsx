@@ -157,6 +157,8 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
   const mapRef       = useRef<any>(null);
   const vehicleMarkersRef = useRef<Record<number, any>>({});
   const destMarkersRef    = useRef<Record<number, any>>({});
+  // Track visual state per vehicle so we only call setIcon when it actually changes
+  const markerStateRef    = useRef<Record<number, { color: string; selected: boolean }>>({});
   const routeLineRef      = useRef<any>(null);
   const trackLineRef      = useRef<any>(null);
   const initialFitDone    = useRef(false);
@@ -192,6 +194,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
       if (!vehicles.find(v => v.id === id)) {
         vehicleMarkersRef.current[id]?.remove();
         delete vehicleMarkersRef.current[id];
+        delete markerStateRef.current[id];
       }
     });
     // Remove stale dest markers
@@ -217,18 +220,33 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
       // ── Vehicle marker ──
       if (v.lastLatitude != null && v.lastLongitude != null) {
         allLatLngs.push([v.lastLatitude, v.lastLongitude]);
-        const icon = L.divIcon({
-          className: "",
-          html: vehicleMarkerHtml(color, isSelected, plate),
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-          popupAnchor: [0, -20],
-        });
 
         if (vehicleMarkersRef.current[v.id]) {
+          // Always update position (vehicles move)
           vehicleMarkersRef.current[v.id].setLatLng([v.lastLatitude, v.lastLongitude]);
-          vehicleMarkersRef.current[v.id].setIcon(icon);
+
+          // Only rebuild the icon when visual state actually changes —
+          // setIcon() removes & re-adds the DOM element causing a visible flash.
+          const prev = markerStateRef.current[v.id];
+          if (!prev || prev.color !== color || prev.selected !== isSelected) {
+            const icon = L.divIcon({
+              className: "",
+              html: vehicleMarkerHtml(color, isSelected, plate),
+              iconSize: [36, 36],
+              iconAnchor: [18, 18],
+              popupAnchor: [0, -20],
+            });
+            vehicleMarkersRef.current[v.id].setIcon(icon);
+            markerStateRef.current[v.id] = { color, selected: isSelected };
+          }
         } else {
+          const icon = L.divIcon({
+            className: "",
+            html: vehicleMarkerHtml(color, isSelected, plate),
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            popupAnchor: [0, -20],
+          });
           const m = L.marker([v.lastLatitude, v.lastLongitude], { icon }).addTo(map);
           m.bindTooltip(
             `<b>${plate}</b><br/>${v.vehicleType ?? "Vehicle"}${v.driverName ? " · " + v.driverName : ""}<br/><span style="color:${color}">${SIGNAL_CONFIG[tier].label}</span> · ${formatAgo(v.lastPing)}`,
@@ -236,25 +254,24 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
           );
           m.on("click", () => onSelectVehicle(v.id));
           vehicleMarkersRef.current[v.id] = m;
+          markerStateRef.current[v.id] = { color, selected: isSelected };
         }
       }
 
       // ── Destination marker ──
+      // Destinations don't move — create once, never update position or icon.
       if (v.effectiveDestLat != null && v.effectiveDestLng != null) {
         allLatLngs.push([v.effectiveDestLat, v.effectiveDestLng]);
-        const destLabel = v.destinationLabel ?? "Destination";
-        const dIcon = L.divIcon({
-          className: "",
-          html: destMarkerHtml(destLabel),
-          iconSize: [30, 40],
-          iconAnchor: [15, 40],
-          popupAnchor: [0, -44],
-        });
 
-        if (destMarkersRef.current[v.id]) {
-          destMarkersRef.current[v.id].setLatLng([v.effectiveDestLat, v.effectiveDestLng]);
-          destMarkersRef.current[v.id].setIcon(dIcon);
-        } else {
+        if (!destMarkersRef.current[v.id]) {
+          const destLabel = v.destinationLabel ?? "Destination";
+          const dIcon = L.divIcon({
+            className: "",
+            html: destMarkerHtml(destLabel),
+            iconSize: [30, 40],
+            iconAnchor: [15, 40],
+            popupAnchor: [0, -44],
+          });
           const dm = L.marker([v.effectiveDestLat, v.effectiveDestLng], { icon: dIcon }).addTo(map);
           dm.bindTooltip(
             `<b>${destLabel}</b><br/>${v.effectiveDestLat?.toFixed(4)}, ${v.effectiveDestLng?.toFixed(4)}`,
@@ -582,6 +599,7 @@ export default function GpsTracking() {
     queryKey: KEYS.gpsVehicles(),
     queryFn: listVehicleGpsStatus,
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const { data: track, isLoading: loadingTrack } = useQuery({
@@ -589,6 +607,7 @@ export default function GpsTracking() {
     queryFn: () => listGpsTrack(selectedVehicle ?? undefined, 50),
     enabled: !!selectedVehicle,
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const handleSelectVehicle = useCallback((id: number) => {
