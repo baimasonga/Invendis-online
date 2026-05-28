@@ -38,6 +38,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
   const [gender, setGender]           = useState("");
   const [phone, setPhone]             = useState("");
   const [nationalId, setNationalId]   = useState("");
+  const [cboName, setCboName]         = useState("");
   const [districtId, setDistrictId]   = useState("");
   const [chiefdomId, setChiefdomId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
@@ -58,7 +59,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
     setStep("details");
     setCreatedFarmer(null);
     setFirstName(""); setLastName(""); setGender(""); setPhone("");
-    setNationalId(""); setDistrictId(""); setChiefdomId(""); setValueChainId("");
+    setNationalId(""); setCboName(""); setDistrictId(""); setChiefdomId(""); setValueChainId("");
   }
 
   function handleClose() { resetAll(); onClose(); }
@@ -76,6 +77,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
         gender: gender || undefined,
         phone: phone || undefined,
         nationalId: nationalId || undefined,
+        cboName: cboName || undefined,
         districtId: districtId ? Number(districtId) : undefined,
         chiefdomId: chiefdomId ? Number(chiefdomId) : undefined,
         valueChainId: valueChainId ? Number(valueChainId) : undefined,
@@ -168,6 +170,11 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
             <div className="space-y-1.5">
               <Label htmlFor="rf-nid">National ID</Label>
               <Input id="rf-nid" value={nationalId} onChange={e => setNationalId(e.target.value)} placeholder="SL-ID-…" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="rf-cbo">Name of CBO</Label>
+              <Input id="rf-cbo" value={cboName} onChange={e => setCboName(e.target.value)} placeholder="Community Based Organisation name" />
             </div>
 
             <div className="space-y-1.5">
