@@ -33,10 +33,12 @@ import {
   bypassOtp,
   inputByBarcode,
   listInputItems,
+  getDispatch,
   type OtpSendResult,
   type FaceCompareResult,
   type PoD,
   type InputItem,
+  type DispatchItem,
 } from "@/lib/api";
 
 let CameraView: React.ComponentType<{
@@ -191,12 +193,29 @@ export default function ConfirmPodScreen() {
 
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [dispatchItems, setDispatchItems] = useState<DispatchItem[]>([]);
+  const [itemQtys, setItemQtys] = useState<Record<number, string>>({});
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+
   useEffect(() => {
     captureGPS();
     if (token) {
       getOtpStatus(token)
         .then((s) => setOtpEnabled(s.otpEnabled))
         .catch(() => {});
+      if (dispatchId) {
+        setDispatchLoading(true);
+        getDispatch(token, Number(dispatchId))
+          .then(d => {
+            const items = (d.items ?? []).filter(i => i.inputItemId != null);
+            setDispatchItems(items);
+            const initial: Record<number, string> = {};
+            for (const item of items) initial[item.inputItemId!] = "0";
+            setItemQtys(initial);
+          })
+          .catch(() => {})
+          .finally(() => setDispatchLoading(false));
+      }
     }
   }, []);
 
@@ -248,10 +267,12 @@ export default function ConfirmPodScreen() {
   };
 
   const handleSendOtp = async () => {
-    const qty = Number(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      Alert.alert("Invalid Quantity", "Please enter a valid quantity before verifying.");
-      return;
+    if (dispatchItems.length === 0) {
+      const qty = Number(quantity);
+      if (isNaN(qty) || qty <= 0) {
+        Alert.alert("Invalid Quantity", "Please enter a valid quantity before verifying.");
+        return;
+      }
     }
     setSendingOtp(true);
     setOtpError(null);
@@ -490,24 +511,41 @@ export default function ConfirmPodScreen() {
     }
   };
 
-  const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => ({
-    farmerId: Number(farmerId),
-    ...(farmerName ? { farmerName } : {}),
-    ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
-    quantityDelivered: Number(quantity),
-    otpStatus,
-    faceStatus,
-    ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
-    ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
-    ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
-    ...(notes.trim() ? { notes: notes.trim() } : {}),
-    ...(verifiedOtpCode ? { otpCode: verifiedOtpCode } : {}),
-    photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
-    photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
-    ...(facePhotoKey ? { facePhotoKey } : {}),
-    ...(faceResult?.similarity != null ? { faceSimilarity: faceResult.similarity } : {}),
-    ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
-  });
+  const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => {
+    const hasDispatchItems = dispatchItems.length > 0;
+    const itemsPayload = hasDispatchItems
+      ? dispatchItems
+          .filter(item => item.inputItemId != null)
+          .map(item => ({ inputItemId: item.inputItemId!, quantity: Number(itemQtys[item.inputItemId!] ?? 0) }))
+          .filter(i => i.quantity > 0)
+      : [];
+    const totalQty = hasDispatchItems
+      ? itemsPayload.reduce((s, i) => s + i.quantity, 0)
+      : Number(quantity);
+    return {
+      farmerId: Number(farmerId),
+      ...(farmerName ? { farmerName } : {}),
+      ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
+      quantityDelivered: totalQty,
+      ...(hasDispatchItems && itemsPayload.length > 0
+        ? { inputItemId: itemsPayload[0].inputItemId, items: itemsPayload }
+        : {
+            ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
+            ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
+          }
+      ),
+      otpStatus,
+      faceStatus,
+      ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
+      ...(notes.trim() ? { notes: notes.trim() } : {}),
+      ...(verifiedOtpCode ? { otpCode: verifiedOtpCode } : {}),
+      photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
+      photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
+      ...(facePhotoKey ? { facePhotoKey } : {}),
+      ...(faceResult?.similarity != null ? { faceSimilarity: faceResult.similarity } : {}),
+      ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
+    };
+  };
 
   const doSubmit = async (otpStatus: string, faceStatus: string, offline = false) => {
     const payload = buildPayload(otpStatus, faceStatus);
@@ -543,7 +581,9 @@ export default function ConfirmPodScreen() {
   const StepIndicator = () => {
     const steps = [
       { key: "details", label: "Details", icon: "clipboard" as const },
-      { key: "scan",    label: "Input",   icon: "package" as const },
+      ...(dispatchItems.length === 0
+        ? [{ key: "scan", label: "Input", icon: "package" as const }]
+        : []),
       { key: "otp",     label: "OTP",     icon: "shield" as const },
       { key: "photos",  label: "Photos",  icon: "image" as const },
       { key: "face",    label: "Face ID", icon: "camera" as const },
@@ -763,30 +803,90 @@ export default function ConfirmPodScreen() {
             )}
           </View>
 
-          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
-            <View style={styles.qtyRow}>
-              <TouchableOpacity
-                style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-                onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
-              >
-                <Feather name="minus" size={18} color={colors.foreground} />
-              </TouchableOpacity>
-              <TextInput
-                style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
-                value={quantity}
-                onChangeText={setQuantity}
-                keyboardType="numeric"
-                textAlign="center"
-              />
-              <TouchableOpacity
-                style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
-                onPress={() => setQuantity((v) => String(Number(v) + 1))}
-              >
-                <Feather name="plus" size={18} color={colors.foreground} />
-              </TouchableOpacity>
+          {/* Quantity — multi-item when dispatch items loaded, single otherwise */}
+          {dispatchItems.length > 0 ? (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                {dispatchLoading ? "Loading dispatch items…" : "Quantities to Issue"}
+              </Text>
+              {dispatchLoading ? (
+                <ActivityIndicator color={colors.primary} style={{ alignSelf: "flex-start" }} />
+              ) : (
+                dispatchItems.map((item) => {
+                  const id = item.inputItemId!;
+                  const qty = itemQtys[id] ?? "0";
+                  return (
+                    <View
+                      key={id}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        paddingVertical: 8,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.border,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>
+                          {item.inputItemName ?? `Item #${id}`}
+                        </Text>
+                        {(item.unit || item.quantityLoaded != null) && (
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                            {[item.unit, item.quantityLoaded != null ? `Loaded: ${item.quantityLoaded}` : null].filter(Boolean).join(" · ")}
+                          </Text>
+                        )}
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                        onPress={() => setItemQtys(prev => ({ ...prev, [id]: String(Math.max(0, Number(prev[id] ?? 0) - 1)) }))}
+                      >
+                        <Feather name="minus" size={16} color={colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, width: 56 }]}
+                        value={qty}
+                        onChangeText={v => setItemQtys(prev => ({ ...prev, [id]: v }))}
+                        keyboardType="numeric"
+                        textAlign="center"
+                      />
+                      <TouchableOpacity
+                        style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                        onPress={() => setItemQtys(prev => ({ ...prev, [id]: String(Number(prev[id] ?? 0) + 1) }))}
+                      >
+                        <Feather name="plus" size={16} color={colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
             </View>
-          </View>
+          ) : (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
+              <View style={styles.qtyRow}>
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
+                >
+                  <Feather name="minus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+                <TextInput
+                  style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  keyboardType="numeric"
+                  textAlign="center"
+                />
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setQuantity((v) => String(Number(v) + 1))}
+                >
+                  <Feather name="plus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Notes (optional)</Text>
@@ -840,12 +940,26 @@ export default function ConfirmPodScreen() {
             )}
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
-              onPress={() => setStep("scan")}
-              disabled={submitting}
+              onPress={() => {
+                if (dispatchItems.length > 0) {
+                  const anyQty = dispatchItems.some(
+                    item => item.inputItemId != null && Number(itemQtys[item.inputItemId] ?? 0) > 0
+                  );
+                  if (!anyQty) {
+                    Alert.alert("No Quantities", "Enter at least one item quantity before continuing.");
+                    return;
+                  }
+                  if (otpEnabled) handleSendOtp();
+                  else handleSkipOtp();
+                } else {
+                  setStep("scan");
+                }
+              }}
+              disabled={submitting || dispatchLoading}
               activeOpacity={0.85}
             >
-              <Feather name="package" size={18} color="#fff" />
-              <Text style={styles.submitBtnText}>Next: Scan Input</Text>
+              <Feather name={dispatchItems.length > 0 ? "shield" : "package"} size={18} color="#fff" />
+              <Text style={styles.submitBtnText}>{dispatchItems.length > 0 ? "Next: Verify" : "Next: Scan Input"}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -1181,7 +1295,7 @@ export default function ConfirmPodScreen() {
           <StepIndicator />
           <TouchableOpacity
             style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-            onPress={() => { setStep("scan"); setOtpError(null); }}
+            onPress={() => { setStep(dispatchItems.length > 0 ? "details" : "scan"); setOtpError(null); }}
           >
             <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
             <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
@@ -1279,10 +1393,23 @@ export default function ConfirmPodScreen() {
               <Feather name="user" size={14} color={colors.mutedForeground} />
               <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{farmerName} · {farmerCode}</Text>
             </View>
-            <View style={styles.summaryRow}>
-              <Feather name="package" size={14} color={colors.mutedForeground} />
-              <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{quantity} unit{Number(quantity) !== 1 ? "s" : ""} to be issued</Text>
-            </View>
+            {dispatchItems.length > 0 ? (
+              dispatchItems
+                .filter(item => item.inputItemId != null && Number(itemQtys[item.inputItemId] ?? 0) > 0)
+                .map(item => (
+                  <View key={item.inputItemId} style={styles.summaryRow}>
+                    <Feather name="package" size={14} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>
+                      {item.inputItemName ?? `Item #${item.inputItemId}`}: {itemQtys[item.inputItemId!] ?? 0} {item.unit ?? ""}
+                    </Text>
+                  </View>
+                ))
+            ) : (
+              <View style={styles.summaryRow}>
+                <Feather name="package" size={14} color={colors.mutedForeground} />
+                <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>{quantity} unit{Number(quantity) !== 1 ? "s" : ""} to be issued</Text>
+              </View>
+            )}
             {gps && (
               <View style={styles.summaryRow}>
                 <Feather name="map-pin" size={14} color={colors.mutedForeground} />
@@ -1364,7 +1491,7 @@ export default function ConfirmPodScreen() {
 
           <TouchableOpacity
             style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-            onPress={() => setStep(otpBypassed ? "scan" : "otp")}
+            onPress={() => setStep(otpBypassed ? (dispatchItems.length > 0 ? "details" : "scan") : "otp")}
           >
             <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
             <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>

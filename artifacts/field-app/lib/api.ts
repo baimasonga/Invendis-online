@@ -112,6 +112,15 @@ export interface InputItem {
   barcode: string | null;
 }
 
+export interface PodItem {
+  id: number;
+  inputItemId: number;
+  quantityDelivered: number;
+  inputItemName: string | null;
+  unit: string | null;
+  category: string | null;
+}
+
 export interface PoD {
   id: number;
   podCode: string;
@@ -134,6 +143,7 @@ export interface PoD {
   farmerGroup: string | null;
   farmerBeneficiaryType: string | null;
   communityName: string | null;
+  items?: PodItem[];
 }
 
 export const listDispatches = (token: string, params?: Record<string, string>) => {

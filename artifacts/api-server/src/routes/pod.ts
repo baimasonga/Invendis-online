@@ -32,7 +32,10 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 router.get("/api/pod", requireAuth, async (req, res) => {
   const { campaignId, dispatchId, status, faceStatus, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
-  let q = supa.from("pod").select("*, farmers(first_name, last_name, farmer_group, beneficiary_type, group_size, photo_url)", { count: "exact" }).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
+  let q = supa.from("pod").select(
+    "*, farmers(first_name, last_name, farmer_group, beneficiary_type, group_size, photo_url), pod_items(id, input_item_id, quantity_delivered, input_items(name, unit, category))",
+    { count: "exact" }
+  ).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (dispatchId) q = q.eq("dispatch_id", Number(dispatchId)) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
@@ -40,7 +43,7 @@ router.get("/api/pod", requireAuth, async (req, res) => {
   const { data, count, error } = await q;
   if (error) { res.status(500).json({ error: error.message }); return; }
   const flat = (data ?? []).map((row: any) => {
-    const { farmers, ...rest } = row;
+    const { farmers, pod_items, ...rest } = row;
     const firstName = farmers?.first_name ?? null;
     const lastName  = farmers?.last_name  ?? null;
     return {
@@ -53,6 +56,14 @@ router.get("/api/pod", requireAuth, async (req, res) => {
       beneficiary_type:        farmers?.beneficiary_type ?? null,
       group_size:              farmers?.group_size       ?? null,
       reference_photo_key:     farmers?.photo_url        ?? null,
+      items: (pod_items ?? []).map((pi: any) => ({
+        id:                 pi.id,
+        input_item_id:      pi.input_item_id,
+        quantity_delivered: pi.quantity_delivered,
+        input_item_name:    pi.input_items?.name ?? null,
+        unit:               pi.input_items?.unit ?? null,
+        category:           pi.input_items?.category ?? null,
+      })),
     };
   });
   res.json({ data: snakeToCamel(flat), total: count ?? 0, page: Number(page), limit: Number(limit) });
@@ -70,22 +81,47 @@ router.get("/api/pod/stats", requireAuth, async (_req, res) => {
 });
 
 router.get("/api/pod/:id", requireAuth, async (req, res) => {
-  const { data: rows, error } = await supa.from("pod").select("*").eq("id", Number(req.params.id)).limit(1);
+  const { data: rows, error } = await supa.from("pod")
+    .select("*, pod_items(id, input_item_id, quantity_delivered, input_items(name, unit, category))")
+    .eq("id", Number(req.params.id)).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(snakeToCamel(rows[0]));
+  const { pod_items, ...rest } = rows[0] as any;
+  const result = {
+    ...rest,
+    items: (pod_items ?? []).map((pi: any) => ({
+      id:                 pi.id,
+      input_item_id:      pi.input_item_id,
+      quantity_delivered: pi.quantity_delivered,
+      input_item_name:    pi.input_items?.name ?? null,
+      unit:               pi.input_items?.unit ?? null,
+      category:           pi.input_items?.category ?? null,
+    })),
+  };
+  res.json(snakeToCamel(result));
 });
 
 router.post("/api/pod/submit", requireAuth, async (req, res) => {
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
   // Whitelist allowed fields — never spread req.body directly to prevent mass-assignment attacks
   const raw = req.body as Record<string, any>;
+
+  // Multi-item PoD: items array [{inputItemId, quantity}]
+  const items = Array.isArray(raw.items)
+    ? (raw.items as { inputItemId: number; quantity: number }[]).filter(i => Number(i.quantity) > 0)
+    : null;
+
   const body: Record<string, any> = {
     dispatch_id:       raw.dispatchId      != null ? Number(raw.dispatchId)      : null,
     campaign_id:       raw.campaignId      != null ? Number(raw.campaignId)      : null,
     farmer_id:         raw.farmerId        != null ? Number(raw.farmerId)        : null,
-    input_item_id:     raw.inputItemId     != null ? Number(raw.inputItemId)     : null,
+    // For multi-item: use first item id; for single item: use inputItemId directly
+    input_item_id:     raw.inputItemId     != null ? Number(raw.inputItemId)
+                       : (items && items[0]) ? Number(items[0].inputItemId)      : null,
     input_barcode:     raw.inputBarcode    ?? null,
-    quantity_delivered: raw.quantityDelivered != null ? Number(raw.quantityDelivered) : null,
+    // For multi-item: total of all items; for single: direct value
+    quantity_delivered: items && items.length > 0
+                       ? items.reduce((s, i) => s + Number(i.quantity), 0)
+                       : raw.quantityDelivered != null ? Number(raw.quantityDelivered) : null,
     farmer_latitude:   raw.farmerLatitude  != null ? Number(raw.farmerLatitude)  : null,
     farmer_longitude:  raw.farmerLongitude != null ? Number(raw.farmerLongitude) : null,
     face_status:       raw.faceStatus      ?? null,
@@ -295,6 +331,19 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     } catch { /* best-effort: don't fail PoD submit if group_size update fails */ }
   }
 
+  // Insert per-item breakdown into pod_items (non-fatal: table may not exist yet)
+  if (items && items.length > 0) {
+    try {
+      await supa.from("pod_items").insert(
+        items.map(i => ({
+          pod_id:            (podRow as any).id,
+          input_item_id:     Number(i.inputItemId),
+          quantity_delivered: Number(i.quantity),
+        }))
+      );
+    } catch { /* non-fatal */ }
+  }
+
   await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);
   res.status(201).json({ ...snakeToCamel(podRow), communityName });
 });
@@ -363,22 +412,39 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
     // Update dispatch_items.quantity_delivered and dispatches.delivered_packages per dispatch
     const dispatchIds = [...new Set((pods ?? []).map((p: any) => p.dispatch_id).filter(Boolean))];
     for (const did of dispatchIds) {
-      const dispPods = (pods ?? []).filter((p: any) => p.dispatch_id === did && p.input_item_id && p.quantity_delivered);
+      const dispPods = (pods ?? []).filter((p: any) => p.dispatch_id === did);
+
+      // Collect items to process per pod: prefer pod_items, fall back to pod row fields
+      const dispatchItemUpdates: { input_item_id: number; qty: number }[] = [];
       for (const p of dispPods as any[]) {
-        const qty = Number(p.quantity_delivered);
+        const { data: podItemRows } = await supa
+          .from("pod_items")
+          .select("input_item_id, quantity_delivered")
+          .eq("pod_id", p.id);
+        if (podItemRows && podItemRows.length > 0) {
+          for (const pi of podItemRows as any[]) {
+            if (pi.input_item_id) dispatchItemUpdates.push({ input_item_id: pi.input_item_id, qty: Number(pi.quantity_delivered) });
+          }
+        } else if (p.input_item_id && p.quantity_delivered) {
+          dispatchItemUpdates.push({ input_item_id: p.input_item_id, qty: Number(p.quantity_delivered) });
+        }
+      }
+
+      for (const item of dispatchItemUpdates) {
         const { data: dispItem } = await supa
           .from("dispatch_items")
           .select("id, quantity_delivered")
           .eq("dispatch_id", did)
-          .eq("input_item_id", p.input_item_id)
+          .eq("input_item_id", item.input_item_id)
           .single();
         if (dispItem) {
-          const newQty = ((dispItem as any).quantity_delivered ?? 0) + qty;
+          const newQty = ((dispItem as any).quantity_delivered ?? 0) + item.qty;
           await supa.from("dispatch_items")
             .update({ quantity_delivered: newQty })
             .eq("id", (dispItem as any).id);
         }
       }
+
       const { data: allItems } = await supa
         .from("dispatch_items")
         .select("quantity_delivered")
@@ -448,20 +514,35 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
     await supa.from("campaigns").update({ delivered_count: count ?? 0 }).eq("id", campaign_id);
 
     // Update dispatch_items.quantity_delivered and dispatches.delivered_packages
-    if (dispatch_id && input_item_id && quantity_delivered) {
-      const qty = Number(quantity_delivered);
-      const { data: dispItem } = await supa
-        .from("dispatch_items")
-        .select("id, quantity_delivered")
-        .eq("dispatch_id", dispatch_id)
-        .eq("input_item_id", input_item_id)
-        .single();
-      if (dispItem) {
-        const newQty = ((dispItem as any).quantity_delivered ?? 0) + qty;
-        await supa.from("dispatch_items")
-          .update({ quantity_delivered: newQty })
-          .eq("id", (dispItem as any).id);
+    if (dispatch_id) {
+      // Prefer pod_items (multi-item PoD) over legacy single-item fields
+      const { data: podItemRows } = await supa
+        .from("pod_items")
+        .select("input_item_id, quantity_delivered")
+        .eq("pod_id", podId);
+
+      const itemsToProcess = (podItemRows && podItemRows.length > 0)
+        ? (podItemRows as any[]).map(pi => ({ input_item_id: pi.input_item_id, qty: Number(pi.quantity_delivered) }))
+        : (input_item_id && quantity_delivered)
+          ? [{ input_item_id, qty: Number(quantity_delivered) }]
+          : [];
+
+      for (const item of itemsToProcess) {
+        if (!item.input_item_id) continue;
+        const { data: dispItem } = await supa
+          .from("dispatch_items")
+          .select("id, quantity_delivered")
+          .eq("dispatch_id", dispatch_id)
+          .eq("input_item_id", item.input_item_id)
+          .single();
+        if (dispItem) {
+          const newQty = ((dispItem as any).quantity_delivered ?? 0) + item.qty;
+          await supa.from("dispatch_items")
+            .update({ quantity_delivered: newQty })
+            .eq("id", (dispItem as any).id);
+        }
       }
+
       // Recalculate dispatches.delivered_packages
       const { data: allItems } = await supa
         .from("dispatch_items")

@@ -1254,6 +1254,23 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
   };
 }
 
+export async function getPodItems(podId: number) {
+  const { data, error } = await supabase
+    .from("pod_items")
+    .select("id, input_item_id, quantity_delivered, input_items(name, unit, category)")
+    .eq("pod_id", podId)
+    .order("id");
+  if (error) return [];
+  return (data ?? []).map((pi: any) => ({
+    id: pi.id,
+    inputItemId: pi.input_item_id,
+    quantityDelivered: Number(pi.quantity_delivered),
+    inputItemName: pi.input_items?.name ?? null,
+    unit: pi.input_items?.unit ?? null,
+    category: pi.input_items?.category ?? null,
+  }));
+}
+
 export async function getPodStats() {
   const [total, verified, pending, exception] = await Promise.all([
     supabase.from("pod").select("*", { count: "exact", head: true }),

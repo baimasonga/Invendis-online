@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listPod, getPodStats, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, bulkGenerateOtps, listAllCampaigns, KEYS } from "@/lib/db";
+import { listPod, getPodStats, getPodItems, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, bulkGenerateOtps, listAllCampaigns, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -282,6 +282,14 @@ function PodDetailBody({
   onFlag?: () => void;
   onOverride: () => void;
 }) {
+  const { data: podItems } = useQuery({
+    queryKey: ["pod-items", pod.id],
+    queryFn: () => getPodItems(pod.id),
+    enabled: !!pod.id,
+    staleTime: 60_000,
+  });
+  const resolvedItems = podItems ?? (pod.items as any[] | undefined);
+
   const deliveryFacePhotoKey = pod.facePhotoKey ?? pod.photoUrl;
   const faceStatusKey = (pod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "");
   const canOverride = pod.status === "Pending" && ["failed", "noface"].includes(faceStatusKey);
@@ -360,7 +368,27 @@ function PodDetailBody({
           </div>
           <div><p className="text-xs text-muted-foreground mb-0.5">Campaign</p><p className="font-medium">{pod.campaignName ?? "—"}</p></div>
         </div>
-        {(pod.inputItemName || pod.inputBarcode) && (
+        {/* Multi-item breakdown (new PoDs) */}
+        {resolvedItems && resolvedItems.length > 0 ? (
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <Package className="h-3 w-3" /> Items Delivered ({resolvedItems.length})
+            </p>
+            <div className="rounded-lg border divide-y text-sm overflow-hidden">
+              {resolvedItems.map((item: any, idx: number) => (
+                <div key={item.id ?? idx} className="flex items-center justify-between px-3 py-2 gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{item.inputItemName ?? `Item #${item.inputItemId}`}</p>
+                    {(item.unit || item.category) && (
+                      <p className="text-[10px] text-muted-foreground">{[item.category, item.unit].filter(Boolean).join(" · ")}</p>
+                    )}
+                  </div>
+                  <span className="font-semibold tabular-nums shrink-0">{item.quantityDelivered} {item.unit ?? ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (pod.inputItemName || pod.inputBarcode) ? (
           <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2.5">
             <Package className="h-4 w-4 text-emerald-700 shrink-0" />
             <div>
@@ -369,7 +397,7 @@ function PodDetailBody({
               {pod.inputItemCategory && <p className="text-xs text-emerald-600">{pod.inputItemCategory}</p>}
             </div>
           </div>
-        )}
+        ) : null}
         <div className="grid grid-cols-3 gap-3 text-sm">
           <div><p className="text-xs text-muted-foreground mb-0.5">Qty</p><p className="font-semibold text-lg leading-none">{pod.quantityDelivered ?? "—"}</p></div>
           <div>
