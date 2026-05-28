@@ -3,6 +3,7 @@ import { supa, snakeToCamel, camelToSnake, pool } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
+import { districtCoords, DISTRICT_GEOFENCE_RADIUS_M } from "../lib/district-coords.js";
 import { bucket } from "../lib/aws.js";
 import { generateProxyUploadUrl } from "../lib/auth.js";
 import { sendSms } from "../lib/sms.js";
@@ -171,14 +172,8 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }
 
     if ((destLat == null || destLng == null) && (campaign as any)?.district_id) {
-      const { data: district } = await supa
-        .from("districts")
-        .select("latitude, longitude")
-        .eq("id", (campaign as any).district_id)
-        .single();
-      destLat = (district as any)?.latitude ?? null;
-      destLng = (district as any)?.longitude ?? null;
-      geofenceRadius = 2000;
+      const dc = districtCoords((campaign as any).district_id);
+      if (dc) { destLat = dc.lat; destLng = dc.lng; geofenceRadius = DISTRICT_GEOFENCE_RADIUS_M; }
     }
 
     if (destLat != null && destLng != null) {

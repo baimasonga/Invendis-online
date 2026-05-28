@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
+import { districtCoords, DISTRICT_GEOFENCE_RADIUS_M } from "../lib/district-coords.js";
 
 const router = Router();
 
@@ -68,24 +69,14 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
         destLng = site?.longitude ?? null;
         geofenceRadius = site?.geofence_radius ?? 500;
 
-        if ((destLat == null || destLng == null) && (site?.district_id ?? camp?.district_id)) {
-          const distId = site?.district_id ?? camp?.district_id;
-          const { data: dist } = await supa
-            .from("districts")
-            .select("latitude, longitude")
-            .eq("id", distId)
-            .single();
-          destLat = destLat ?? dist?.latitude ?? null;
-          destLng = destLng ?? dist?.longitude ?? null;
+        if (destLat == null || destLng == null) {
+          const distId = site?.district_id ?? camp?.district_id ?? null;
+          const dc = districtCoords(distId);
+          if (dc) { destLat = destLat ?? dc.lat; destLng = destLng ?? dc.lng; }
         }
       } else if (camp?.district_id) {
-        const { data: dist } = await supa
-          .from("districts")
-          .select("latitude, longitude")
-          .eq("id", camp.district_id)
-          .single();
-        destLat = dist?.latitude ?? null;
-        destLng = dist?.longitude ?? null;
+        const dc = districtCoords(camp.district_id);
+        if (dc) { destLat = dc.lat; destLng = dc.lng; geofenceRadius = DISTRICT_GEOFENCE_RADIUS_M; }
       }
 
       if (destLat != null && destLng != null) {

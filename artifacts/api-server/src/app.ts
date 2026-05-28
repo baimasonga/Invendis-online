@@ -44,7 +44,13 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(router);
 
-if (process.env["GPSTRACE_TOKEN"]) {
+// Start GPS poller if any GPS-Trace token is configured
+const _hasGpsToken =
+  process.env["GPS_TRACE_API_TOKEN"] ||
+  process.env["GPS_TRACE_API_TOKEN_2"] ||
+  process.env["GPS_TRACE_TOKEN"] ||
+  process.env["GPSTRACE_TOKEN"];
+if (_hasGpsToken) {
   startGpsPoller(30_000);
 }
 

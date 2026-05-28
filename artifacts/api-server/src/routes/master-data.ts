@@ -9,7 +9,13 @@ const router = Router();
 router.get("/api/master-data/districts", requireAnyAuth, async (_req, res) => {
   const { data, error } = await supa.from("districts").select("*").order("name");
   if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json(snakeToCamel(data ?? []));
+  // Merge in static coordinates (lat/lng stored in-code, not in DB)
+  const { DISTRICT_COORDS } = await import("../lib/district-coords.js");
+  const rows = (snakeToCamel(data ?? []) as any[]).map((d: any) => {
+    const coords = DISTRICT_COORDS[d.id];
+    return coords ? { ...d, latitude: coords.lat, longitude: coords.lng } : d;
+  });
+  res.json(rows);
 });
 router.post("/api/master-data/districts", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, code } = req.body;

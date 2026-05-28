@@ -1,6 +1,8 @@
 /**
  * GPS poller — Partner Console API (api.gps-trace.com, X-AccessToken).
  * Runs on a background interval; writes positions to gps_track + vehicles.
+ * Also checks auto-arrival: marks In Transit dispatches as Arrived when
+ * the vehicle enters the campaign's geofence.
  *
  * Device IDs in the DB:
  *   "<number>"    → primary account  (GPS_TRACE_API_TOKEN)
@@ -8,6 +10,7 @@
  */
 import { supa } from "./supabase.js";
 import { logger } from "./logger.js";
+import { districtCoords, DISTRICT_GEOFENCE_RADIUS_M } from "./district-coords.js";
 
 const API_BASE = "https://api.gps-trace.com";
 
@@ -44,6 +47,83 @@ interface Telemetry {
   "position.direction"?: { ts: number; value: number };
 }
 
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * After a vehicle position is updated, check whether any of its In Transit
+ * dispatches have entered the campaign geofence — and mark them Arrived.
+ */
+async function checkArrival(vehicleId: number, lat: number, lng: number): Promise<void> {
+  const { data: dispatches } = await supa
+    .from("dispatches")
+    .select("id, campaign_id")
+    .eq("vehicle_id", vehicleId)
+    .eq("status", "In Transit")
+    .is("arrived_at", null);
+
+  if (!dispatches || dispatches.length === 0) return;
+
+  for (const dispatch of dispatches as { id: number; campaign_id: number }[]) {
+    const { data: camp } = await supa
+      .from("campaigns")
+      .select("distribution_site_id, district_id")
+      .eq("id", dispatch.campaign_id)
+      .single();
+
+    let destLat: number | null = null;
+    let destLng: number | null = null;
+    let geofenceRadius = 500;
+
+    if (camp?.distribution_site_id) {
+      const { data: site } = await supa
+        .from("distribution_sites")
+        .select("latitude, longitude, geofence_radius, district_id")
+        .eq("id", camp.distribution_site_id)
+        .single();
+      destLat = (site as any)?.latitude ?? null;
+      destLng = (site as any)?.longitude ?? null;
+      geofenceRadius = (site as any)?.geofence_radius ?? 500;
+
+      if (destLat == null || destLng == null) {
+        const distId = (site as any)?.district_id ?? camp?.district_id ?? null;
+        const dc = districtCoords(distId);
+        if (dc) { destLat = dc.lat; destLng = dc.lng; geofenceRadius = DISTRICT_GEOFENCE_RADIUS_M; }
+      }
+    } else if (camp?.district_id) {
+      const dc = districtCoords(camp.district_id);
+      if (dc) { destLat = dc.lat; destLng = dc.lng; geofenceRadius = DISTRICT_GEOFENCE_RADIUS_M; }
+    }
+
+    if (destLat == null || destLng == null) continue;
+
+    const distM = haversineMeters(lat, lng, destLat, destLng);
+    if (distM <= geofenceRadius) {
+      await supa
+        .from("dispatches")
+        .update({
+          status:     "Arrived",
+          arrived_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", dispatch.id)
+        .is("arrived_at", null);
+      logger.info(
+        { dispatchId: dispatch.id, vehicleId, distM: Math.round(distM), geofenceRadius },
+        "GPS poller: dispatch auto-arrived"
+      );
+    }
+  }
+}
+
 export async function syncAllVehicles(): Promise<{ synced: number; skipped: number; source: string }> {
   const t1 = getToken();
   const t2 = getToken2();
@@ -63,11 +143,9 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
   const vList = (vehicles ?? []) as { id: number; gps_device_id: string; last_ping: string | null }[];
   if (!vList.length) return { synced: 0, skipped: 0, source: "none" };
 
-  // Build a map of deviceId → vehicle
   const deviceMap = new Map<string, typeof vList[number]>();
   for (const v of vList) deviceMap.set(v.gps_device_id, v);
 
-  // Fetch telemetry in parallel — each device picks the right token
   const deviceIds = [...deviceMap.keys()];
   const telemetries = await Promise.allSettled(
     deviceIds.map(deviceId => {
@@ -119,6 +197,11 @@ export async function syncAllVehicles(): Promise<{ synced: number; skipped: numb
       last_ping:      posTime.toISOString(),
     }).eq("id", vehicle.id);
 
+    // Check auto-arrival for any In Transit dispatches on this vehicle
+    checkArrival(vehicle.id, lat, lng).catch((err: any) =>
+      logger.warn({ vehicleId: vehicle.id, err: err.message }, "GPS poller: arrival check error")
+    );
+
     synced++;
   }
 
@@ -135,6 +218,7 @@ export function startGpsPoller(intervalMs = 30_000): void {
     try { await syncAllVehicles(); }
     catch (err: any) { logger.warn({ err: err.message }, "GPS poller error"); }
   }, intervalMs);
+  // Run immediately on startup
   syncAllVehicles().catch((err: any) =>
     logger.warn({ err: err.message }, "GPS initial sync error")
   );
