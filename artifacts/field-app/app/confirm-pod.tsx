@@ -894,8 +894,7 @@ export default function ConfirmPodScreen() {
                       </TouchableOpacity>
                     </View>
                   );
-                })
-              )}
+                })}
             </View>
           ) : (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
