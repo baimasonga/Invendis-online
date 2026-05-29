@@ -196,6 +196,7 @@ export default function ConfirmPodScreen() {
   const [dispatchItems, setDispatchItems] = useState<DispatchItem[]>([]);
   const [itemQtys, setItemQtys] = useState<Record<number, string>>({});
   const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchLoadError, setDispatchLoadError] = useState(false);
 
   useEffect(() => {
     captureGPS();
@@ -205,6 +206,7 @@ export default function ConfirmPodScreen() {
         .catch(() => {});
       if (dispatchId) {
         setDispatchLoading(true);
+        setDispatchLoadError(false);
         getDispatch(token, Number(dispatchId))
           .then(d => {
             const items = (d.items ?? []).filter(i => i.inputItemId != null);
@@ -213,7 +215,10 @@ export default function ConfirmPodScreen() {
             for (const item of items) initial[item.inputItemId!] = "0";
             setItemQtys(initial);
           })
-          .catch(() => {})
+          .catch((e) => {
+            console.error("Failed to load dispatch items:", e);
+            setDispatchLoadError(true);
+          })
           .finally(() => setDispatchLoading(false));
       }
     }
@@ -804,15 +809,46 @@ export default function ConfirmPodScreen() {
           </View>
 
           {/* Quantity — multi-item when dispatch items loaded, single otherwise */}
-          {dispatchItems.length > 0 ? (
+          {dispatchId && dispatchLoading ? (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantities to Issue</Text>
+              <ActivityIndicator color={colors.primary} style={{ alignSelf: "flex-start", marginTop: 8 }} />
+              <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 6 }}>
+                Loading dispatch items…
+              </Text>
+            </View>
+          ) : dispatchId && dispatchLoadError ? (
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantities to Issue</Text>
+              <Text style={{ fontSize: 13, color: colors.destructive, marginBottom: 8 }}>
+                Could not load dispatch items. Check connection and retry.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!token || !dispatchId) return;
+                  setDispatchLoading(true);
+                  setDispatchLoadError(false);
+                  getDispatch(token, Number(dispatchId))
+                    .then(d => {
+                      const items = (d.items ?? []).filter(i => i.inputItemId != null);
+                      setDispatchItems(items);
+                      const initial: Record<number, string> = {};
+                      for (const item of items) initial[item.inputItemId!] = "0";
+                      setItemQtys(initial);
+                    })
+                    .catch((e) => { console.error("Retry failed:", e); setDispatchLoadError(true); })
+                    .finally(() => setDispatchLoading(false));
+                }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_600SemiBold" }}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : dispatchItems.length > 0 ? (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-                {dispatchLoading ? "Loading dispatch items…" : "Quantities to Issue"}
+                Quantities to Issue
               </Text>
-              {dispatchLoading ? (
-                <ActivityIndicator color={colors.primary} style={{ alignSelf: "flex-start" }} />
-              ) : (
-                dispatchItems.map((item) => {
+              {dispatchItems.map((item) => {
                   const id = item.inputItemId!;
                   const qty = itemQtys[id] ?? "0";
                   return (

@@ -29,7 +29,7 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-router.get("/api/pod", requireAuth, async (req, res) => {
+router.get("/api/pod", requireAnyAuth, async (req, res) => {
   const { campaignId, dispatchId, status, faceStatus, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
   let q = supa.from("pod").select(
