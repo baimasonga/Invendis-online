@@ -331,17 +331,18 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     } catch { /* best-effort: don't fail PoD submit if group_size update fails */ }
   }
 
-  // Insert per-item breakdown into pod_items (non-fatal: table may not exist yet)
+  // Insert per-item breakdown into pod_items
   if (items && items.length > 0) {
-    try {
-      await supa.from("pod_items").insert(
-        items.map(i => ({
-          pod_id:            (podRow as any).id,
-          input_item_id:     Number(i.inputItemId),
-          quantity_delivered: Number(i.quantity),
-        }))
-      );
-    } catch { /* non-fatal */ }
+    const { error: itemsInsertErr } = await supa.from("pod_items").insert(
+      items.map(i => ({
+        pod_id:             (podRow as any).id,
+        input_item_id:      Number(i.inputItemId),
+        quantity_delivered: Number(i.quantity),
+      }))
+    );
+    if (itemsInsertErr) {
+      req.log.error({ err: itemsInsertErr }, "Failed to insert pod_items — pod_items table may not exist yet; run migration");
+    }
   }
 
   await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);

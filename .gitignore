@@ -51,3 +51,8 @@ Thumbs.db
 
 # EAS / Google Play credentials — never commit these
 artifacts/field-app/google-service-account.json
+
+# Data files that may contain PII (farmer names, phone numbers, etc.)
+attached_assets/*.csv
+attached_assets/*.xlsx
+attached_assets/*.xls
