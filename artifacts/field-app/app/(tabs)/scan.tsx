@@ -122,24 +122,49 @@ export default function ScanScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
+  // ─── Shared QR-type detection ─────────────────────────────────────────────
+  // Returns the type of code scanned so lookups can auto-route regardless of
+  // which mode tab is active.
+  const detectCodeType = (raw: string): "dispatch" | "manifest" | "farmer" => {
+    const t = raw.trim();
+    if (/^dispatch:\d+:.+$/.test(t)) return "dispatch";
+    if (/^MAN-/i.test(t)) return "manifest";
+    return "farmer";
+  };
+
   // ─── Farmer lookup ────────────────────────────────────────────────────────
   const lookupFarmer = async (code: string) => {
     if (!token || loading) return;
+    const trimmed = code.trim();
+
+    // Auto-detect dispatch QR (dispatch:ID:MANIFEST_CODE) scanned on Farmer tab
+    const dispatchQrMatch = trimmed.match(/^dispatch:(\d+):(.+)$/);
+    if (dispatchQrMatch) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push(`/distribution/${Number(dispatchQrMatch[1])}`);
+      return;
+    }
+    // Auto-detect manifest code (MAN-...) scanned on Farmer tab
+    if (/^MAN-/i.test(trimmed)) {
+      setScanMode("manifest");
+      await lookupManifest(trimmed);
+      return;
+    }
+
     // ID-card QR codes encode the full share URL (".../card/<token>"). Pull
     // the token segment out so the lookup still hits a barcode_token.
-    const trimmed = code.trim();
     const urlMatch = trimmed.match(/\/card\/([^/?#]+)/);
-    const scanned = urlMatch ? decodeURIComponent(urlMatch[1]) : trimmed;
+    const barcode = urlMatch ? decodeURIComponent(urlMatch[1]) : trimmed;
     setLoading(true);
     setFarmer(null);
     setDispatch(null);
     try {
-      const result = await farmerByBarcode(token, scanned);
+      const result = await farmerByBarcode(token, barcode);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       try {
-        const results = await searchFarmers(token, scanned);
+        const results = await searchFarmers(token, barcode);
         if (results.data.length > 0) {
           setFarmer(results.data[0]);
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -158,15 +183,23 @@ export default function ScanScreen() {
   // ─── Manifest / dispatch lookup ───────────────────────────────────────────
   const lookupManifest = async (code: string) => {
     if (!token || loading) return;
+    const trimmed = code.trim();
+
+    // Auto-detect farmer QR ("/card/<token>") scanned on Manifest tab
+    if (trimmed.includes("/card/")) {
+      setScanMode("farmer");
+      await lookupFarmer(trimmed);
+      return;
+    }
+
     setLoading(true);
     setFarmer(null);
     setDispatch(null);
     try {
       // QR format from web portal: "dispatch:ID:MANIFEST_CODE"
-      const dispatchMatch = code.match(/^dispatch:(\d+):(.+)$/);
+      const dispatchMatch = trimmed.match(/^dispatch:(\d+):(.+)$/);
       if (dispatchMatch) {
         const id = Number(dispatchMatch[1]);
-        // Navigate directly — no extra API call needed
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setLoading(false);
         router.push(`/distribution/${id}`);
@@ -174,12 +207,12 @@ export default function ScanScreen() {
       }
 
       // Fallback: search by manifest code text
-      const result = await getDispatchByManifestCode(token, code);
+      const result = await getDispatchByManifestCode(token, trimmed);
       if (result) {
         setDispatch(result);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        Alert.alert("Not Found", `No manifest found for "${code}". Check the code and try again.`);
+        Alert.alert("Not Found", `No manifest found for "${trimmed}". Check the code and try again.`);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } catch {
@@ -192,10 +225,23 @@ export default function ScanScreen() {
   const handleBarcode = async ({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
-    if (scanMode === "farmer") {
-      await lookupFarmer(data);
-    } else {
+    // Auto-detect QR type — no need to be on the right tab
+    const type = detectCodeType(data);
+    if (type === "dispatch") {
+      // Dispatch QR: navigate immediately regardless of mode tab
+      const m = data.trim().match(/^dispatch:(\d+):(.+)$/);
+      if (m) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setScanned(false);
+        router.push(`/distribution/${Number(m[1])}`);
+        return;
+      }
+    } else if (type === "manifest") {
+      setScanMode("manifest");
       await lookupManifest(data);
+    } else {
+      setScanMode("farmer");
+      await lookupFarmer(data);
     }
     setTimeout(() => setScanned(false), 2000);
   };
