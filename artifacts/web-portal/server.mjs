@@ -5,7 +5,7 @@
  */
 import { createServer } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { resolve, extname, join } from "node:path";
+import { resolve, extname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -42,9 +42,17 @@ function tryFile(filePath) {
 createServer((req, res) => {
   const rawPath = req.url.split("?")[0];
 
+  // Never disguise a misrouted API request as a successful HTML response.
+  if (rawPath === "/api" || rawPath.startsWith("/api/")) {
+    res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "API route is not served by the web portal" }));
+    return;
+  }
+
   // Security: prevent path traversal
   const safePath = resolve(distDir, "." + rawPath);
-  if (!safePath.startsWith(distDir)) {
+  const relativePath = relative(distDir, safePath);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -75,6 +83,8 @@ createServer((req, res) => {
   res.writeHead(200, {
     "Content-Type": MIME[resolvedExt] || "application/octet-stream",
     "Cache-Control": resolvedExt === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
   });
   res.end(content);
 }).listen(port, () => {

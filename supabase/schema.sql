@@ -527,18 +527,118 @@ BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
   EXECUTE 'ALTER TABLE ' || t || ' ENABLE ROW LEVEL SECURITY';
 END LOOP; END; $$;
 
--- Profiles: users see their own; authenticated see all (for admin purposes)
-DROP POLICY IF EXISTS "profiles_select" ON profiles;
-CREATE POLICY "profiles_select" ON profiles FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
-CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE USING (auth.uid() = id);
+-- Role lookups live outside the exposed public schema. The function returns
+-- NULL for missing or deactivated profiles, which denies every policy below.
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
 
--- All other tables: authenticated users have full access
-DO $$ DECLARE t text;
-BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'profiles' LOOP
-  EXECUTE 'DROP POLICY IF EXISTS "auth_all_' || t || '" ON ' || t;
-  EXECUTE 'CREATE POLICY "auth_all_' || t || '" ON ' || t || ' FOR ALL USING (auth.role() = ''authenticated'')';
+CREATE OR REPLACE FUNCTION private.current_profile_role()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT lower(regexp_replace(p.role, '[\s_-]', '', 'g'))
+  FROM public.profiles p
+  WHERE p.id = (SELECT auth.uid()) AND p.is_active = true
+  LIMIT 1
+$$;
+REVOKE ALL ON FUNCTION private.current_profile_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.current_profile_role() TO authenticated;
+
+-- Remove policies from earlier schema versions before defining least-privilege
+-- access. Profiles cannot be updated directly by browser clients.
+DO $$ DECLARE p record;
+BEGIN FOR p IN
+  SELECT tablename, policyname FROM pg_policies
+  WHERE schemaname = 'public' AND (
+    policyname LIKE 'auth_all_%' OR
+    policyname IN ('profiles_select', 'profiles_update_own') OR
+    policyname LIKE 'invendis_%'
+  )
+LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p.policyname, p.tablename);
 END LOOP; END; $$;
+
+CREATE POLICY invendis_profiles_read ON profiles FOR SELECT TO authenticated
+USING (id = (SELECT auth.uid()) OR (SELECT private.current_profile_role()) = 'admin');
+
+-- Preserve read access expected by the portal, but only for active accounts.
+DO $$ DECLARE t text;
+BEGIN FOREACH t IN ARRAY ARRAY[
+  'districts','chiefdoms','sections','communities','value_chains','warehouses',
+  'distribution_sites','farmers','input_items','stock_ledger','stock_balance',
+  'procurement_orders','procurement_items','campaigns','campaign_items',
+  'allocations','vehicles','drivers','gps_track','dispatches','dispatch_items',
+  'pod','reconciliations','audit_logs','users','incidents','otp_codes','system_settings'
+] LOOP
+  EXECUTE format(
+    'CREATE POLICY invendis_active_read ON public.%I FOR SELECT TO authenticated USING ((SELECT private.current_profile_role()) IS NOT NULL)', t
+  );
+END LOOP; END; $$;
+
+-- Write roles mirror artifacts/web-portal/src/hooks/use-permissions.ts.
+DO $$ DECLARE a record;
+BEGIN FOR a IN SELECT * FROM (VALUES
+  ('farmers',             ARRAY['admin','projectmanager','districtcoordinator']::text[]),
+  ('allocations',         ARRAY['admin','projectmanager','districtcoordinator']::text[]),
+  ('incidents',           ARRAY['admin','projectmanager','districtcoordinator']::text[]),
+  ('campaigns',           ARRAY['admin','projectmanager']::text[]),
+  ('campaign_items',      ARRAY['admin','projectmanager']::text[]),
+  ('input_items',         ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('stock_ledger',        ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('stock_balance',       ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('procurement_orders',  ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('procurement_items',   ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('vehicles',            ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('drivers',             ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('dispatches',          ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('dispatch_items',      ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('reconciliations',     ARRAY['admin','projectmanager','warehousemanager']::text[]),
+  ('pod',                 ARRAY['admin','projectmanager','districtcoordinator','warehousemanager']::text[]),
+  ('districts',           ARRAY['admin','projectmanager']::text[]),
+  ('chiefdoms',           ARRAY['admin','projectmanager']::text[]),
+  ('sections',            ARRAY['admin','projectmanager']::text[]),
+  ('communities',         ARRAY['admin','projectmanager']::text[]),
+  ('value_chains',        ARRAY['admin','projectmanager']::text[]),
+  ('warehouses',          ARRAY['admin','projectmanager']::text[]),
+  ('distribution_sites',  ARRAY['admin','projectmanager']::text[]),
+  ('system_settings',     ARRAY['admin','projectmanager']::text[])
+) AS access(table_name, roles)
+LOOP
+  EXECUTE format('CREATE POLICY invendis_role_insert ON public.%I FOR INSERT TO authenticated WITH CHECK ((SELECT private.current_profile_role()) = ANY (%L::text[]))', a.table_name, a.roles);
+  EXECUTE format('CREATE POLICY invendis_role_update ON public.%I FOR UPDATE TO authenticated USING ((SELECT private.current_profile_role()) = ANY (%L::text[])) WITH CHECK ((SELECT private.current_profile_role()) = ANY (%L::text[]))', a.table_name, a.roles, a.roles);
+  EXECUTE format('CREATE POLICY invendis_role_delete ON public.%I FOR DELETE TO authenticated USING ((SELECT private.current_profile_role()) = ANY (%L::text[]))', a.table_name, a.roles);
+END LOOP; END; $$;
+
+-- Receive stock and update its balance in one transaction.
+CREATE OR REPLACE FUNCTION public.receive_stock_atomic(
+  p_warehouse_id integer, p_input_item_id integer, p_quantity double precision,
+  p_reference text DEFAULT NULL, p_notes text DEFAULT NULL
+) RETURNS SETOF public.stock_ledger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
+DECLARE balance_id integer; ledger_row public.stock_ledger;
+BEGIN
+  IF NOT coalesce((SELECT private.current_profile_role()) = ANY (ARRAY['admin','projectmanager','warehousemanager']), false) THEN
+    RAISE EXCEPTION 'Insufficient permissions' USING ERRCODE = '42501';
+  END IF;
+  IF p_quantity IS NULL OR p_quantity <= 0 THEN
+    RAISE EXCEPTION 'Quantity must be greater than zero' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(p_warehouse_id, p_input_item_id);
+  SELECT sb.id INTO balance_id FROM public.stock_balance sb
+  WHERE sb.warehouse_id = p_warehouse_id AND sb.input_item_id = p_input_item_id
+  ORDER BY sb.id LIMIT 1 FOR UPDATE;
+  IF balance_id IS NULL THEN
+    INSERT INTO public.stock_balance (warehouse_id,input_item_id,available)
+    VALUES (p_warehouse_id,p_input_item_id,p_quantity);
+  ELSE
+    UPDATE public.stock_balance SET available = available + p_quantity, updated_at = pg_catalog.now()
+    WHERE id = balance_id;
+  END IF;
+  INSERT INTO public.stock_ledger (warehouse_id,input_item_id,txn_type,quantity,reference,notes)
+  VALUES (p_warehouse_id,p_input_item_id,'RECEIVE',p_quantity,p_reference,p_notes)
+  RETURNING * INTO ledger_row;
+  RETURN NEXT ledger_row;
+END $$;
+REVOKE ALL ON FUNCTION public.receive_stock_atomic(integer,integer,double precision,text,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.receive_stock_atomic(integer,integer,double precision,text,text) TO authenticated;
 
 -- ── SEED DATA ────────────────────────────────────────────────
 INSERT INTO districts (name, code) VALUES

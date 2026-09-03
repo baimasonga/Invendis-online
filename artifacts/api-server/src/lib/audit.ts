@@ -13,7 +13,7 @@ export async function logAudit(
   try {
     await supa.from("audit_logs").insert({
       user_id: req.user?.userId ?? null,
-      username: req.user?.username ?? null,
+      username: req.user?.username ?? req.supabaseProfile?.email ?? req.supabaseUser?.email ?? null,
       action,
       module,
       description,
