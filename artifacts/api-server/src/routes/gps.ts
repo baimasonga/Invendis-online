@@ -253,26 +253,67 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
     .in("status", ["In Transit", "Arrived"]);
 
   if (dispErr) { res.status(500).json({ error: dispErr.message }); return; }
-  if (!dispatches || dispatches.length === 0) { res.json([]); return; }
+  const dispatchRows = dispatches ?? [];
 
-  // 2. Collect IDs
-  const vehicleIds  = [...new Set(dispatches.map(d => d.vehicle_id).filter(Boolean))];
-  const campaignIds = [...new Set(dispatches.map(d => d.campaign_id).filter(Boolean))];
-  const driverIds   = [...new Set(dispatches.map(d => d.driver_id).filter(Boolean))];
+  // 2. Live Tracking is vehicle-driven, not dispatch-driven. A vehicle earns a
+  //    place on the map if it has a linked hardware tracker or a known position,
+  //    even with no active dispatch — otherwise linking a tracker appears to do
+  //    nothing, which is exactly how this looked before: trackers reporting
+  //    positions minutes ago were invisible because their vehicle was idle.
+  //    Filtering happens in JS rather than via a PostgREST .or(...) filter: the
+  //    vehicle table is small, and this avoids depending on null-negation filter
+  //    syntax that would fail silently and empty the map if it were wrong.
+  const { data: allVehicles, error: trackedErr } = await supa
+    .from("vehicles")
+    .select("id, plate_number, vehicle_code, vehicle_type, gps_device_id, last_latitude, last_longitude, last_ping");
+  if (trackedErr) console.error("GPS vehicles: vehicle lookup failed:", trackedErr);
 
-  // 3. Parallel lookups
-  const [vehiclesRes, campaignsRes, driversRes] = await Promise.all([
-    supa.from("vehicles").select("id, plate_number, vehicle_code, vehicle_type, last_latitude, last_longitude, last_ping").in("id", vehicleIds),
-    supa.from("campaigns").select("id, name, distribution_site_id, district_id").in("id", campaignIds),
+  const trackedVehicles = (allVehicles ?? []).filter(
+    (v: any) => v.gps_device_id != null || v.last_ping != null,
+  );
+
+  const dispatchVehicleIds = [...new Set(dispatchRows.map(d => d.vehicle_id).filter(Boolean))];
+  const campaignIds        = [...new Set(dispatchRows.map(d => d.campaign_id).filter(Boolean))];
+  const driverIds          = [...new Set(dispatchRows.map(d => d.driver_id).filter(Boolean))];
+
+  // Any vehicle on an active dispatch also belongs here, even with no tracker and
+  // no position yet — it should show as "no signal" rather than vanish.
+  const trackedIds = new Set(trackedVehicles.map((v: any) => v.id));
+  const dispatchOnlyVehicles = (allVehicles ?? []).filter(
+    (v: any) => !trackedIds.has(v.id) && dispatchVehicleIds.includes(v.id),
+  );
+
+  const vehiclesRes = { data: [...trackedVehicles, ...dispatchOnlyVehicles] };
+  if (vehiclesRes.data.length === 0) { res.json([]); return; }
+
+  // 3. Parallel lookups for dispatch enrichment
+  const [campaignsRes, driversRes] = await Promise.all([
+    campaignIds.length > 0
+      ? supa.from("campaigns").select("id, name, distribution_site_id, district_id").in("id", campaignIds)
+      : Promise.resolve({ data: [] }),
     driverIds.length > 0
       ? supa.from("drivers").select("id, full_name").in("id", driverIds)
       : Promise.resolve({ data: [] }),
   ]);
 
-  const vehicleMap:  Record<number, any> = {};
+  // Most relevant active dispatch per vehicle: In Transit outranks Arrived, then
+  // most recently departed/created.
+  const dispatchByVehicle: Record<number, any> = {};
+  for (const d of dispatchRows) {
+    if (!d.vehicle_id) continue;
+    const cur = dispatchByVehicle[d.vehicle_id];
+    if (!cur) { dispatchByVehicle[d.vehicle_id] = d; continue; }
+    const rank = (x: any) => (x.status === "In Transit" ? 1 : 0);
+    if (rank(d) !== rank(cur)) {
+      if (rank(d) > rank(cur)) dispatchByVehicle[d.vehicle_id] = d;
+      continue;
+    }
+    const t = (x: any) => new Date(x.departed_at ?? x.arrived_at ?? 0).getTime();
+    if (t(d) > t(cur)) dispatchByVehicle[d.vehicle_id] = d;
+  }
+
   const campaignMap: Record<number, any> = {};
   const driverMap:   Record<number, any> = {};
-  for (const v of vehiclesRes.data  ?? []) vehicleMap[v.id]  = v;
   for (const c of campaignsRes.data ?? []) campaignMap[c.id] = c;
   for (const d of driversRes.data   ?? []) driverMap[d.id]   = d;
 
@@ -310,12 +351,12 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
     districtMap[d.id] = { ...d, latitude: dc?.lat ?? null, longitude: dc?.lng ?? null };
   }
 
-  // 6. Assemble rows
-  const rows = dispatches
-    .map(d => {
-      const vehicle  = vehicleMap[d.vehicle_id];
-      const campaign = campaignMap[d.campaign_id];
-      const driver   = d.driver_id ? driverMap[d.driver_id] : null;
+  // 6. Assemble rows — one per vehicle, enriched with its active dispatch if any
+  const rows = vehiclesRes.data
+    .map((vehicle: any) => {
+      const d        = dispatchByVehicle[vehicle.id] ?? null;
+      const campaign = d?.campaign_id ? campaignMap[d.campaign_id] : null;
+      const driver   = d?.driver_id ? driverMap[d.driver_id] : null;
       const site     = campaign?.distribution_site_id ? siteMap[campaign.distribution_site_id] : null;
 
       const districtId = site?.district_id ?? campaign?.district_id ?? null;
@@ -349,11 +390,15 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
         lastLatitude:     vehicle?.last_latitude ?? null,
         lastLongitude:    vehicle?.last_longitude ?? null,
         lastPing:         vehicle?.last_ping ?? null,
-        dispatchId:       d.id,
-        manifestCode:     d.manifest_code,
-        dispatchStatus:   d.status,
-        departedAt:       d.departed_at,
-        arrivedAt:        d.arrived_at,
+        // A tracker linked to an idle vehicle is legitimate — these are null and
+        // the UI already renders that case (manifest/campaign are conditional).
+        hasTracker:       vehicle?.gps_device_id != null,
+        hasActiveDispatch: d != null,
+        dispatchId:       d?.id ?? null,
+        manifestCode:     d?.manifest_code ?? null,
+        dispatchStatus:   d?.status ?? null,
+        departedAt:       d?.departed_at ?? null,
+        arrivedAt:        d?.arrived_at ?? null,
         campaignName:     campaign?.name ?? null,
         destinationName:  site?.name ?? null,
         districtName:     district?.name ?? null,
