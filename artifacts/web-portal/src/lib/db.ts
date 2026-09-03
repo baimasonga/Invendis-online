@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────
 
 export function farmerDisplayName(farmer: any): string {
   if (!farmer) return "—";
@@ -68,14 +68,14 @@ async function throwOnError<T>(promise: Promise<{ data: T | null; error: any; co
   return { data: data as T, count };
 }
 
-// ── lookup helpers (replaces Supabase FK joins) ───────────────────────────────
+// ── lookup helpers (replaces Supabase FK joins) ──────────────────────────────────────
 async function lookupMap(table: string, ids: (number | string)[], cols: string): Promise<Record<string | number, any>> {
   if (!ids.length) return {};
   const { data } = await supabase.from(table).select(cols).in("id", ids);
   return Object.fromEntries((data ?? []).map((r: any) => [r.id, r]));
 }
 
-// ── QUERY KEYS ───────────────────────────────────────────────────────────────
+// ── QUERY KEYS ──────────────────────────────────────────────────────────────
 export const KEYS = {
   dashboard:     () => ["dashboard"],
   alertCounts:   () => ["alert-counts"],
@@ -115,7 +115,7 @@ export const KEYS = {
   farmerTypeCounts:  () => ["farmer-type-counts"],
 };
 
-// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+// ── DASHBOARD ──────────────────────────────────────────────────────────────
 function trendPct(now: number | null, prev: number | null): { pct: number; dir: "up" | "down" | "flat" } | null {
   const n = now ?? 0;
   const p = prev ?? 0;
@@ -318,16 +318,38 @@ export async function getDashboardData() {
   };
 }
 
-export async function checkFarmerDuplicate(phone?: string, nationalId?: string): Promise<any[]> {
-  if (!phone?.trim() && !nationalId?.trim()) return [];
-  const params = new URLSearchParams();
-  if (phone?.trim())      params.set("phone",      phone.trim());
-  if (nationalId?.trim()) params.set("nationalId", nationalId.trim());
-  const result = await mdFetch<{ matches: any[] }>(`/api/farmers/check-duplicate?${params}`);
-  return result.matches ?? [];
+export async function checkFarmerDuplicate(
+  phone?: string,
+  nationalId?: string,
+): Promise<{ duplicate: boolean; existingFarmer?: { id: number; name: string } }> {
+  const cleanPhone      = phone?.trim();
+  const cleanNationalId = nationalId?.trim();
+  if (!cleanPhone && !cleanNationalId) return { duplicate: false };
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { duplicate: false };
+
+  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      phones:      cleanPhone      ? [cleanPhone]      : [],
+      nationalIds: cleanNationalId ? [cleanNationalId] : [],
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Duplicate check failed");
+  }
+  const json = await resp.json();
+  const matches = (json.duplicates ?? []) as Array<{ id: number; phone: string; nationalId: string; farmerCode: string; name: string }>;
+  if (matches.length === 0) return { duplicate: false };
+  const match = matches[0];
+  return { duplicate: true, existingFarmer: { id: match.id, name: match.name || match.farmerCode || "Unknown" } };
 }
 
-// ── FARMERS ───────────────────────────────────────────────────────────────────
+// ── FARMERS ────────────────────────────────────────────────────────────────
 export async function listFarmers(page = 1, limit = 20, search?: string, status?: string, districtId?: number, beneficiaryType?: string) {
   let q = supabase
     .from("farmers")
@@ -484,7 +506,7 @@ export async function deleteFarmer(id: number) {
   await logAudit("DELETE", "farmers", `Deleted farmer #${id}`, "farmer", id);
 }
 
-// ── CAMPAIGNS ─────────────────────────────────────────────────────────────────
+// ── CAMPAIGNS ──────────────────────────────────────────────────────────────
 export async function listCampaigns(page = 1, limit = 20) {
   const { data, error, count } = await supabase
     .from("campaigns")
@@ -601,6 +623,7 @@ export async function submitCampaign(id: number) {
   const { data, error } = await supabase.from("campaigns")
     .update({ status: "Submitted" }).eq("id", id).select().single();
   if (error) throw new Error(error.message);
+  await logAudit("SUBMIT", "campaigns", `Submitted campaign #${id}`, "campaign", id);
   return cc(data);
 }
 
@@ -610,10 +633,11 @@ export async function approveCampaign(id: number) {
     .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString() })
     .eq("id", id).select().single();
   if (error) throw new Error(error.message);
+  await logAudit("APPROVE", "campaigns", `Approved campaign #${id}`, "campaign", id);
   return cc(data);
 }
 
-// ── ALLOCATIONS ───────────────────────────────────────────────────────────────
+// ── ALLOCATIONS ──────────────────────────────────────────────────────────────────
 export async function listAllocations(page = 1, limit = 20, campaignId?: number) {
   let q = supabase
     .from("allocations")
@@ -678,6 +702,7 @@ export async function createAllocation(payload: any) {
     allocated_by: userId,
   }).select().single();
   if (error) throw new Error(error.message);
+  await logAudit("CREATE", "allocations", `Created allocation #${(data as any).id}`, "allocation", (data as any).id);
   return cc(data);
 }
 
@@ -697,7 +722,7 @@ export async function updateAllocation(id: number, payload: { notes?: string; st
   return cc(data);
 }
 
-// ── INVENTORY ─────────────────────────────────────────────────────────────────
+// ── INVENTORY ───────────────────────────────────────────────────────────────────
 export async function getStockBalance() {
   const { data, error } = await supabase
     .from("stock_balance")
@@ -776,7 +801,7 @@ export async function transferStock(payload: {
   return resp.json();
 }
 
-// ── PROCUREMENT ───────────────────────────────────────────────────────────────
+// ── PROCUREMENT ─────────────────────────────────────────────────────────────────
 export async function listProcurementOrders() {
   const { data, error } = await supabase
     .from("procurement_orders")
@@ -829,7 +854,7 @@ export async function deleteProcurementOrder(id: number) {
   await logAudit("DELETE", "procurement", `Deleted PO #${id}`, "procurement", id);
 }
 
-// ── VEHICLES ──────────────────────────────────────────────────────────────────
+// ── VEHICLES ──────────────────────────────────────────────────────────────────────
 export async function listVehicles(page = 1, limit = 50) {
   const { data, error, count } = await supabase
     .from("vehicles").select("*", { count: "exact" })
@@ -852,6 +877,7 @@ export async function createVehicle(payload: any) {
     status: payload.status ?? "Active",
   }).select().single();
   if (error) throw new Error(error.message);
+  await logAudit("CREATE", "vehicles", `Created vehicle ${(data as any).vehicle_code}`, "vehicle", (data as any).id);
   return cc(data);
 }
 
@@ -892,7 +918,7 @@ export async function updateDriver(id: number, payload: any) {
     is_active: payload.isActive ?? 1,
   }).eq("id", id).select().single();
   if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "vehicles", `Updated driver #${id}`, "driver", id);
+  await logAudit("UPDATE", "drivers", `Updated driver #${id}`, "driver", id);
   return cc(data);
 }
 
@@ -905,16 +931,17 @@ export async function createDriver(payload: any) {
     is_active: 1,
   }).select().single();
   if (error) throw new Error(error.message);
+  await logAudit("CREATE", "drivers", `Created driver ${(data as any).driver_code}`, "driver", (data as any).id);
   return cc(data);
 }
 
 export async function deleteDriver(id: number) {
   const { error } = await supabase.from("drivers").delete().eq("id", id);
   if (error) throw new Error(error.message);
-  await logAudit("DELETE", "vehicles", `Deleted driver #${id}`, "driver", id);
+  await logAudit("DELETE", "drivers", `Deleted driver #${id}`, "driver", id);
 }
 
-// ── DISPATCH ──────────────────────────────────────────────────────────────────
+// ── DISPATCH ──────────────────────────────────────────────────────────────────────
 async function dispatchToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
@@ -1115,7 +1142,7 @@ export async function addDispatchItem(payload: any) {
   return resp.json();
 }
 
-// ── GIS ───────────────────────────────────────────────────────────────────────
+// ── GIS ──────────────────────────────────────────────────────────────────────────────
 async function gisToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
@@ -1156,7 +1183,7 @@ export function buildGisExportUrl(format: "geojson" | "kml" | "gpx" | "csv", par
   return `/api/gis/export/${format}?${qs}`;
 }
 
-// ── GPS ───────────────────────────────────────────────────────────────────────
+// ── GPS ──────────────────────────────────────────────────────────────────────────────
 async function gpsToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
@@ -1220,7 +1247,7 @@ export async function unlinkGpsTraceDevice(vehicleId: number) {
   return resp.json();
 }
 
-// ── POD ───────────────────────────────────────────────────────────────────────
+// ── POD ──────────────────────────────────────────────────────────────────────────────
 export async function listPod(page = 1, limit = 20, dispatchId?: number, status?: string, faceStatus?: string) {
   let q = supabase
     .from("pod")
@@ -1384,7 +1411,7 @@ export async function notifyFarmers(dispatchId: number): Promise<{
   return apiPost(`/api/dispatches/${dispatchId}/notify-farmers`, {});
 }
 
-// ── RECONCILIATION ────────────────────────────────────────────────────────────
+// ── RECONCILIATION ─────────────────────────────────────────────────────────────────────────
 export async function listReconciliations() {
   const { data, error } = await supabase
     .from("reconciliations")
@@ -1451,7 +1478,7 @@ export async function deleteReconciliation(id: number) {
   await logAudit("DELETE", "reconciliations", `Deleted reconciliation #${id}`, "reconciliation", id);
 }
 
-// ── REPORTS ───────────────────────────────────────────────────────────────────
+// ── REPORTS ───────────────────────────────────────────────────────────────────────────
 export async function getFarmerBeneficiaryReport() {
   const { data, error } = await supabase
     .from("farmers")
@@ -1526,7 +1553,7 @@ export async function getFarmerBeneficiaryReport() {
   };
 }
 
-// ── M&E REPORT ────────────────────────────────────────────────────────────────
+// ── M&E REPORT ──────────────────────────────────────────────────────────────
 export async function getMEReport() {
   const [campaignsRes, podsRes] = await Promise.all([
     supabase.from("campaigns")
@@ -1657,7 +1684,7 @@ export async function getDistributionReport(from?: string, to?: string) {
   }));
 }
 
-// ── DISTRIBUTION CONSOLIDATION REPORT ────────────────────────────────────────
+// ── DISTRIBUTION CONSOLIDATION REPORT ──────────────────────────────────────
 
 export type ConsolidatedDispatch = {
   id: number;
@@ -1868,7 +1895,7 @@ export async function listAllCampaigns() {
   return (data ?? []).map((r) => ({ id: r.id as number, name: r.name as string, campaignCode: r.campaign_code as string, season: r.season as string }));
 }
 
-// ── AUDIT LOGS ────────────────────────────────────────────────────────────────
+// ── AUDIT LOGS ─────────────────────────────────────────────────────────────────────
 export type AuditFilters = {
   search?:   string;
   action?:   string;
@@ -1939,7 +1966,7 @@ export async function getAuditStats(days = 30): Promise<AuditStats> {
   };
 }
 
-// ── USERS (profiles) ──────────────────────────────────────────────────────────
+// ── USERS (profiles) ───────────────────────────────────────────────────────────
 export async function listUsers() {
   const { data, error } = await supabase
     .from("profiles").select("*").order("created_at", { ascending: false });
@@ -2056,8 +2083,8 @@ export async function resetUserPassword(profileId: string, password: string): Pr
   }
 }
 
-// ── MASTER DATA ───────────────────────────────────────────────────────────────
-// ── shared API token helper for master-data mutations ─────────────────────────
+// ── MASTER DATA ──────────────────────────────────────────────────────────────────────
+// ── shared API token helper for master-data mutations ─────────────────────────────────────
 async function mdToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
@@ -2073,7 +2100,7 @@ async function mdFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T
   return res.json();
 }
 
-// ── Districts ─────────────────────────────────────────────────────────────────
+// ── Districts ─────────────────────────────────────────────────────────────────────────
 export async function listDistricts() {
   const { data, error } = await supabase.from("districts").select("*").order("name");
   if (error) throw new Error(error.message);
@@ -2083,7 +2110,7 @@ export async function createDistrict(payload: { name: string; code: string }) {
   return mdFetch("/api/master-data/districts", { method: "POST", body: JSON.stringify(payload) });
 }
 
-// ── Chiefdoms ─────────────────────────────────────────────────────────────────
+// ── Chiefdoms ─────────────────────────────────────────────────────────────────────────
 export async function listChiefdoms(districtId?: number) {
   const url = districtId ? `/api/master-data/chiefdoms?districtId=${districtId}` : "/api/master-data/chiefdoms";
   return mdFetch(url, { method: "GET" });
@@ -2098,7 +2125,7 @@ export async function deleteChiefdom(id: number) {
   return mdFetch(`/api/master-data/chiefdoms/${id}`, { method: "DELETE" });
 }
 
-// ── Value Chains ──────────────────────────────────────────────────────────────
+// ── Value Chains ─────────────────────────────────────────────────────────────────────
 export async function listValueChains() {
   const { data, error } = await supabase.from("value_chains").select("*").order("name");
   if (error) throw new Error(error.message);
@@ -2114,7 +2141,7 @@ export async function toggleValueChain(id: number) {
   return mdFetch(`/api/master-data/value-chains/${id}/toggle`, { method: "PATCH" });
 }
 
-// ── Warehouses ────────────────────────────────────────────────────────────────
+// ── Warehouses ──────────────────────────────────────────────────────────────────────
 export async function listWarehouses() {
   return mdFetch("/api/master-data/warehouses", { method: "GET" });
 }
@@ -2131,7 +2158,7 @@ export async function importWarehouses(rows: any[]) {
   return mdFetch("/api/master-data/warehouses/import", { method: "POST", body: JSON.stringify({ rows }) });
 }
 
-// ── Distribution Sites ────────────────────────────────────────────────────────
+// ── Distribution Sites ──────────────────────────────────────────────────────────────────
 export async function listDistributionSites() {
   return mdFetch("/api/master-data/distribution-sites", { method: "GET" });
 }
@@ -2148,7 +2175,7 @@ export async function importDistributionSites(rows: any[]) {
   return mdFetch("/api/master-data/distribution-sites/import", { method: "POST", body: JSON.stringify({ rows }) });
 }
 
-// ── Input Items ───────────────────────────────────────────────────────────────
+// ── Input Items ─────────────────────────────────────────────────────────────────────
 export async function listInputItems() {
   return mdFetch<any[]>("/api/master-data/input-items");
 }
@@ -2165,7 +2192,7 @@ export async function deleteInputItem(id: number) {
   return mdFetch(`/api/master-data/input-items/${id}`, { method: "DELETE" });
 }
 
-// ── System Settings ───────────────────────────────────────────────────────────
+// ── System Settings ────────────────────────────────────────────────────────────────────
 export async function listSystemSettings(): Promise<{ key: string; value: string; description: string }[]> {
   return mdFetch("/api/master-data/system-settings", { method: "GET" });
 }
@@ -2302,7 +2329,7 @@ export async function getAlertCounts(): Promise<{ pendingFarmers: number; pendin
   return { pendingFarmers: farmers.count ?? 0, pendingPod: pod.count ?? 0, openIncidents: incidents.count ?? 0 };
 }
 
-// ── INCIDENTS ─────────────────────────────────────────────────────────────────
+// ── INCIDENTS ─────────────────────────────────────────────────────────────────────────
 export async function listIncidents(page = 1, limit = 50, status?: string) {
   let q = supabase
     .from("incidents")
