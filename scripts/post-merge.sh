@@ -1,5 +1,9 @@
 #!/bin/bash
 set -e
+
+# Runs after Replit pulls new code. Replit is a RUNTIME ONLY — it does not
+# author or publish code. All development happens outside Replit and lands on
+# GitHub main; Replit's job is to install deps and run what it was given.
 pnpm install --frozen-lockfile
 
 # Schema management is handled via Supabase SQL Editor directly.
@@ -7,49 +11,14 @@ pnpm install --frozen-lockfile
 # tables created outside its schema (otp_codes, system_settings) and will
 # prompt to drop them, causing data loss.
 
-# Push the latest code to GitHub after every Replit checkpoint.
-# Requires GITHUB_PAT (repo scope) to be set in Replit Secrets.
-# Missing PAT is a warning — it skips the backup without failing the post-merge.
+# ── Why there is no git push here ────────────────────────────────────────────
+# This script used to push Replit's working tree back to GitHub main, and would
+# `git push --force` whenever histories had diverged. That silently destroyed
+# work: any commit pushed to main from elsewhere made the histories diverge, so
+# the next Replit checkpoint force-pushed over it. Fixes that were lost this way
+# include the GPS geofence coordinate fix and the babel-preset-expo dependency
+# (whose loss broke ~26 consecutive Android builds).
 #
-# Note: git remote add/set-url writes temporarily to .git/config;
-# the remote is removed immediately after the push.
-if [ -z "$GITHUB_PAT" ]; then
-  echo "WARN: GITHUB_PAT not set — skipping GitHub backup (set it in Replit Secrets)." >&2
-  exit 0
-fi
-
-GITHUB_REPO_URL="https://x-access-token:${GITHUB_PAT}@github.com/baimasonga/Invendis-online.git"
-
-# Register (or refresh) the transient 'github' remote
-# All git operations run in a subshell so errors never propagate through set -e.
-# The backup is best-effort — failure is a warning, not a blocker.
-github_backup() {
-  local REPO_URL="$1"
-  local push_result=0
-
-  if git remote get-url github >/dev/null 2>&1; then
-    git remote set-url github "$REPO_URL" || return 1
-  else
-    git remote add github "$REPO_URL" || return 1
-  fi
-
-  # Try normal push first; force only if remote history diverged.
-  if ! git push github HEAD:main 2>push_err.txt; then
-    if grep -qE "(non-fast-forward|fetch first|unrelated histories)" push_err.txt 2>/dev/null; then
-      echo "Remote history diverged — force-pushing to resolve"
-      git push --force github HEAD:main 2>>push_err.txt || push_result=1
-    else
-      push_result=1
-    fi
-  fi
-
-  git remote remove github 2>/dev/null || true
-  rm -f push_err.txt
-  return $push_result
-}
-
-if github_backup "$GITHUB_REPO_URL"; then
-  echo "GitHub backup: pushed HEAD to baimasonga/Invendis-online:main"
-else
-  echo "WARN: GitHub backup push failed — check GITHUB_PAT has 'Contents: write' (fine-grained) or 'repo' (classic) scope on baimasonga/Invendis-online." >&2
-fi
+# main is the source of truth and Replit consumes it one-way. If you need to
+# capture work done inside Replit, commit it and open a PR — never force-push.
+echo "post-merge: dependencies installed (Replit runs code; it does not publish it)"

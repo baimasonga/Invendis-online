@@ -11,10 +11,11 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
-[agent]
-stack = "PNPM_WORKSPACE"
-expertMode = true
-integrations = ["github:1.0.0"]
+# NOTE: the [agent] block was removed deliberately. Replit hosts and runs this
+# system; it does not author or publish code. Development happens outside Replit
+# and lands on GitHub main, which Replit then pulls. Re-enabling the agent (and
+# especially its github integration) risks it committing over work done
+# elsewhere — see the comments in scripts/post-merge.sh for what that cost us.
 
 [postMerge]
 path = "scripts/post-merge.sh"
@@ -51,4 +52,9 @@ channel = "stable-25_05"
 
 [userenv.shared]
 EASYSENDSMS_SENDER = "AVDP"
-EXPO_PUBLIC_DOMAIN = "b7ece2c4-2373-4648-805b-f6e25baec468-00-3eqa6pask6sdc.worf.replit.dev"
+# Production API domain the mobile app talks to. This was previously a transient
+# *.replit.dev tunnel URL, which dies with the workspace. The field-app "dev"
+# script still overrides this with $REPLIT_DEV_DOMAIN for local Replit dev, and
+# the GitHub Actions APK build uses vars.EXPO_PUBLIC_DOMAIN, so this is the
+# production default only.
+EXPO_PUBLIC_DOMAIN = "www.invendisapp.com"
