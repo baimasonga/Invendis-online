@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, KEYS } from "@/lib/db";
+import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, KEYS, farmerDisplayName } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -88,7 +88,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const farmers    = (farmersData as any)?.data   ?? [];
   const dispatches = (dispatchesData as any)?.data ?? [];
   const filteredFarmers = farmerSearch
-    ? farmers.filter((f: any) => `${f.firstName} ${f.lastName} ${f.farmerCode}`.toLowerCase().includes(farmerSearch.toLowerCase()))
+    ? farmers.filter((f: any) => `${farmerDisplayName(f)} ${f.farmerCode}`.toLowerCase().includes(farmerSearch.toLowerCase()))
     : farmers;
 
   const selectedDispatch = dispatches.find((d: any) => String(d.id) === dispatchId);
@@ -309,7 +309,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
                   <SelectContent className="max-h-52">
                     {filteredFarmers.slice(0, 50).map((f: any) => (
                       <SelectItem key={f.id} value={String(f.id)}>
-                        {f.firstName} {f.lastName}
+                        {farmerDisplayName(f)}
                         <span className="text-muted-foreground text-xs ml-1.5">{f.farmerCode}</span>
                       </SelectItem>
                     ))}
@@ -334,7 +334,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
               <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
                 <p className="text-sm font-medium text-blue-900">SMS Verification</p>
                 <p className="text-xs text-blue-700 mt-0.5">
-                  {farmer ? `Farmer: ${farmer.firstName} ${farmer.lastName} (${farmer.farmerCode})` : "Loading farmer…"}
+                  {farmer ? `Farmer: ${farmerDisplayName(farmer)} (${farmer.farmerCode})` : "Loading farmer…"}
                 </p>
                 {farmer?.phone && (
                   <p className="text-xs text-blue-700">Phone: {farmer.phone}</p>
@@ -436,7 +436,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
               {!faceResult ? (
                 <FaceVerification
                   farmerPhotoUrl={farmer?.photoUrl}
-                  farmerName={farmer ? `${farmer.firstName} ${farmer.lastName}` : ""}
+                  farmerName={farmer ? farmerDisplayName(farmer) : ""}
                   onResult={handleFaceResult}
                   onBypass={handleFaceBypass}
                 />
@@ -502,7 +502,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
               <div className="rounded-lg border divide-y text-sm">
                 <div className="px-3 py-2 flex justify-between">
                   <span className="text-muted-foreground">Farmer</span>
-                  <span className="font-medium">{farmer ? `${farmer.firstName} ${farmer.lastName}` : farmerId}</span>
+                  <span className="font-medium">{farmer ? farmerDisplayName(farmer) : farmerId}</span>
                 </div>
                 <div className="px-3 py-2 flex justify-between">
                   <span className="text-muted-foreground">Dispatch</span>

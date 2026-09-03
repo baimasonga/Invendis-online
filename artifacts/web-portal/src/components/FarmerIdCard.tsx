@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Printer, Download, Share2, Copy, Check, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { farmerDisplayName } from "@/lib/db";
 
 interface FarmerIdCardProps {
   farmer: {
     firstName: string;
     lastName: string;
+    beneficiaryType?: string | null;
+    farmerGroup?: string | null;
     farmerCode: string;
     barcodeToken?: string | null;
     gender?: string | null;
@@ -26,6 +29,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
   const { toast } = useToast();
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const displayName = farmerDisplayName(farmer);
 
   // QR encodes the full public card URL so a phone-camera scan opens the
   // mobile card view directly. Falls back to bare token in SSR or if window
@@ -97,7 +101,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
           <div class="card-body">
             ${photoBlock}
             <div style="text-align:center">
-              <div class="farmer-name">${farmer.firstName} ${farmer.lastName}</div>
+              <div class="farmer-name">${displayName}</div>
               <div class="farmer-code">${farmer.farmerCode}</div>
             </div>
             <div class="qr-wrap">
@@ -198,7 +202,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
 
     // Name + code
     ctx.fillStyle = "#111827"; ctx.font = "bold 17px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(`${farmer.firstName} ${farmer.lastName}`, W / 2, y + 20);
+    ctx.fillText(displayName, W / 2, y + 20);
     ctx.font = "11px monospace"; ctx.fillStyle = "#6b7280";
     ctx.fillText(farmer.farmerCode, W / 2, y + 38);
     y += 55;
@@ -274,7 +278,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
           </DialogHeader>
           <div className="space-y-4 pt-1">
             <p className="text-xs text-muted-foreground">
-              Have field staff scan this QR code with their phone camera, or share the short link below — it opens a mobile-friendly version of <strong>{farmer.firstName} {farmer.lastName}</strong>'s ID card.
+              Have field staff scan this QR code with their phone camera, or share the short link below — it opens a mobile-friendly version of <strong>{displayName}</strong>'s ID card.
             </p>
 
             <div className="flex justify-center p-4 bg-white rounded-lg border-2 border-slate-200">
@@ -330,7 +334,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
         <div className="bg-white p-4 flex flex-col items-center gap-3">
           <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-green-300 bg-slate-100 shrink-0 flex items-center justify-center">
             {photoUrl ? (
-              <img src={photoUrl} alt={`${farmer.firstName} ${farmer.lastName}`} className="w-full h-full object-cover" />
+              <img src={photoUrl} alt={displayName} className="w-full h-full object-cover" />
             ) : (
               <svg viewBox="0 0 24 24" className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="8" r="4" />
@@ -339,7 +343,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
             )}
           </div>
           <div className="text-center">
-            <p className="font-bold text-base leading-tight">{farmer.firstName} {farmer.lastName}</p>
+            <p className="font-bold text-base leading-tight">{displayName}</p>
             <p className="font-mono text-xs text-muted-foreground mt-0.5">{farmer.farmerCode}</p>
           </div>
 
