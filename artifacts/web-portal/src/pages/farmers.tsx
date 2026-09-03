@@ -46,7 +46,10 @@ export default function Farmers() {
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get("status") ?? "";
+    return STATUS_CHIPS.some((chip) => chip.value === requested) ? requested : "";
+  });
   const [districtFilter, setDistrictFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);

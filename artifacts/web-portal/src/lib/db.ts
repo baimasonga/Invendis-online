@@ -1,5 +1,18 @@
 import { supabase } from "./supabase";
 
+// All API calls must use the configured API origin in split-service deployments.
+// An empty VITE_API_URL preserves the existing same-origin /api behaviour used
+// by local and Replit environments.
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const API_BASE = API_ORIGIN.endsWith("/api") ? API_ORIGIN : `${API_ORIGIN}/api`;
+
+export function apiUrl(path: string): string {
+  const suffix = path.startsWith("/api/")
+    ? path.slice(4)
+    : path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${suffix}`;
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 export function farmerDisplayName(farmer: any): string {
@@ -50,16 +63,19 @@ export function logAudit(
   action: string, module: string, description: string,
   entityType?: string, entityId?: number
 ): void {
-  // Fire-and-forget — never block the caller or throw
-  Promise.all([intUid(), sessionEmail()]).then(([userId, email]) =>
-    supabase.from("audit_logs").insert({
-      user_id: userId,
-      username: email,
-      action, module, description,
-      entity_type: entityType ?? null,
-      entity_id: entityId ?? null,
-    })
-  ).catch(() => { /* audit failures are non-fatal */ });
+  // The API derives the actor from the verified session and writes with its
+  // service credential. Browser clients cannot edit or delete audit records.
+  void supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session?.access_token) return;
+    return fetch(apiUrl("/audit"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, module, description, entityType, entityId }),
+    });
+  }).catch(() => { /* audit failures remain non-fatal to the business action */ });
 }
 
 async function throwOnError<T>(promise: Promise<{ data: T | null; error: any; count?: number | null }>): Promise<{ data: T; count?: number | null }> {
@@ -330,7 +346,7 @@ export async function checkFarmerDuplicate(
   const token = session?.access_token;
   if (!token) return { duplicate: false };
 
-  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+  const resp = await fetch(apiUrl("/farmers/bulk-check-duplicates"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -746,36 +762,17 @@ export async function getStockBalance() {
 
 export async function receiveStock(payload: any) {
   if (!payload.quantity || payload.quantity <= 0) throw new Error("Quantity must be greater than zero");
-  const userId = await intUid();
-  const { data: ledger, error } = await supabase.from("stock_ledger").insert({
-    warehouse_id: payload.warehouseId,
-    input_item_id: payload.inputItemId,
-    txn_type: "RECEIVE",
-    quantity: payload.quantity,
-    reference: payload.reference ?? null,
-    notes: payload.notes ?? null,
-    created_by: userId,
-  }).select().single();
+  const { data: ledger, error } = await supabase.rpc("receive_stock_atomic", {
+    p_warehouse_id: payload.warehouseId,
+    p_input_item_id: payload.inputItemId,
+    p_quantity: payload.quantity,
+    p_reference: payload.reference ?? null,
+    p_notes: payload.notes ?? null,
+  });
   if (error) throw new Error(error.message);
-
-  const { data: bal } = await supabase.from("stock_balance")
-    .select("id, available")
-    .eq("warehouse_id", payload.warehouseId)
-    .eq("input_item_id", payload.inputItemId).single();
-
-  if (bal) {
-    await supabase.from("stock_balance")
-      .update({ available: (bal as any).available + payload.quantity, updated_at: new Date().toISOString() })
-      .eq("id", (bal as any).id);
-  } else {
-    await supabase.from("stock_balance").insert({
-      warehouse_id: payload.warehouseId,
-      input_item_id: payload.inputItemId,
-      available: payload.quantity,
-    });
-  }
-  await logAudit("RECEIVE", "inventory", `Received ${payload.quantity} units`, "stock", (ledger as any).id);
-  return cc(ledger);
+  const row = Array.isArray(ledger) ? ledger[0] : ledger;
+  await logAudit("RECEIVE", "inventory", `Received ${payload.quantity} units`, "stock", (row as any)?.id);
+  return cc(row);
 }
 
 export async function transferStock(payload: {
@@ -789,7 +786,7 @@ export async function transferStock(payload: {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/inventory/transfer-stock", {
+  const resp = await fetch(apiUrl("/inventory/transfer-stock"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
@@ -955,7 +952,7 @@ export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: numb
   if (status && status !== "all") params.set("status", status);
   if (manifestCode && manifestCode.trim()) params.set("manifestCode", manifestCode.trim());
   if (showArchived) params.set("archived", "true");
-  const resp = await fetch(`/api/dispatch?${params}`, {
+  const resp = await fetch(apiUrl(`/dispatch?${params}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to list dispatches: ${resp.statusText}`);
@@ -964,7 +961,7 @@ export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: numb
 
 export async function archiveDispatch(id: number): Promise<void> {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/archive`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/archive`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -976,7 +973,7 @@ export async function archiveDispatch(id: number): Promise<void> {
 
 export async function unarchiveDispatch(id: number): Promise<void> {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/unarchive`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/unarchive`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -988,7 +985,7 @@ export async function unarchiveDispatch(id: number): Promise<void> {
 
 export async function getDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to get dispatch: ${resp.statusText}`);
@@ -1000,7 +997,7 @@ export async function createDispatch(payload: any) {
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
 
-  const resp = await fetch("/api/dispatch", {
+  const resp = await fetch(apiUrl("/dispatch"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1020,7 +1017,7 @@ export async function importDispatch(payload: any) {
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
 
-  const resp = await fetch("/api/dispatch/import", {
+  const resp = await fetch(apiUrl("/dispatch/import"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1042,7 +1039,7 @@ export async function importDispatch(payload: any) {
 
 export async function approveDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/approve`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/approve`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1055,7 +1052,7 @@ export async function approveDispatch(id: number) {
 
 export async function dispatchManifest(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/dispatch`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/dispatch`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1068,7 +1065,7 @@ export async function dispatchManifest(id: number) {
 
 export async function arriveDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/arrive`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/arrive`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1098,7 +1095,7 @@ export async function listFieldOfficers() {
 
 export async function assignDispatchOfficer(id: number, fieldOfficerId: number | null) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/assign`, {
+  const resp = await fetch(apiUrl(`/dispatch/${id}/assign`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ fieldOfficerId }),
@@ -1127,7 +1124,7 @@ export async function removeDispatchItem(dispatchId: number, itemId: number) {
 
 export async function addDispatchItem(payload: any) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${payload.dispatchId}/items`, {
+  const resp = await fetch(apiUrl(`/dispatch/${payload.dispatchId}/items`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -1163,7 +1160,7 @@ export async function listGpsRoutes(params?: {
   if (params?.from)       qs.set("from",       params.from);
   if (params?.to)         qs.set("to",         params.to);
   if (params?.limit)      qs.set("limit",      String(params.limit));
-  const resp = await fetch(`/api/gis/routes?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/gis/routes?${qs}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error((err as any).error ?? "Failed to fetch GIS routes");
@@ -1180,7 +1177,7 @@ export function buildGisExportUrl(format: "geojson" | "kml" | "gpx" | "csv", par
   if (params?.vehicleId) qs.set("vehicleId", String(params.vehicleId));
   if (params?.from)      qs.set("from",      params.from);
   if (params?.to)        qs.set("to",        params.to);
-  return `/api/gis/export/${format}?${qs}`;
+  return apiUrl(`/gis/export/${format}?${qs}`);
 }
 
 // ── GPS ──────────────────────────────────────────────────────────────────────────────
@@ -1192,7 +1189,7 @@ async function gpsToken(): Promise<string> {
 
 export async function listVehicleGpsStatus() {
   const token = await gpsToken();
-  const resp = await fetch("/api/gps/vehicles", { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/gps/vehicles"), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS vehicles fetch failed: ${resp.statusText}`);
   return resp.json();
 }
@@ -1200,35 +1197,35 @@ export async function listVehicleGpsStatus() {
 export async function listGpsTrack(vehicleId?: number, limit = 50) {
   if (!vehicleId) return [];
   const token = await gpsToken();
-  const resp = await fetch(`/api/gps/track/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/gps/track/${vehicleId}?limit=${limit}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS track fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function listGpsVehicleHistory(vehicleId: number, limit = 20) {
   const token = await gpsToken();
-  const resp = await fetch(`/api/gps/history/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/gps/history/${vehicleId}?limit=${limit}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS history fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function listGpsTraceDevices(): Promise<{ configured: boolean; devices: any[]; vehicles: any[] }> {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/devices", { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/gpstrace/devices"), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS-Trace devices fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function syncGpsTrace(): Promise<{ synced: number; total: number; linked: number }> {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/sync", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/gpstrace/sync"), { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS-Trace sync failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, deviceName?: string) {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/link", {
+  const resp = await fetch(apiUrl("/gpstrace/link"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ vehicleId, deviceId, deviceName }),
@@ -1239,7 +1236,7 @@ export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, de
 
 export async function unlinkGpsTraceDevice(vehicleId: number) {
   const token = await gpsToken();
-  const resp = await fetch(`/api/gpstrace/unlink/${vehicleId}`, {
+  const resp = await fetch(apiUrl(`/gpstrace/unlink/${vehicleId}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1870,7 +1867,7 @@ export async function getConsolidatedDistributionReport(opts: {
 export async function bulkGenerateOtps(campaignId?: number, expiryHours = 24) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
-  const resp = await fetch("/api/pod/otp/bulk-generate", {
+  const resp = await fetch(apiUrl("/pod/otp/bulk-generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ campaignId, expiryHours }),
@@ -1976,7 +1973,7 @@ export async function listUsers() {
 
 export async function activateUser(id: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/activate`, {
+  const resp = await fetch(apiUrl(`/users/profile/${id}/activate`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1989,7 +1986,7 @@ export async function activateUser(id: string) {
 
 export async function deactivateUser(id: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/deactivate`, {
+  const resp = await fetch(apiUrl(`/users/profile/${id}/deactivate`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -2003,7 +2000,7 @@ export async function deactivateUser(id: string) {
 export async function createUser(payload: any) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/users/create-profile", {
+  const resp = await fetch(apiUrl("/users/create-profile"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2025,7 +2022,7 @@ export async function createUser(payload: any) {
 
 export async function updateUserRole(id: string, role: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/role`, {
+  const resp = await fetch(apiUrl(`/users/profile/${id}/role`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ role }),
@@ -2039,7 +2036,7 @@ export async function updateUserRole(id: string, role: string) {
 
 export async function updateUserFullName(id: string, fullName: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/name`, {
+  const resp = await fetch(apiUrl(`/users/profile/${id}/name`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ fullName }),
@@ -2059,7 +2056,7 @@ async function userApiToken(): Promise<string> {
 
 export async function deleteUser(profileId: string): Promise<void> {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${profileId}`, {
+  const resp = await fetch(apiUrl(`/users/profile/${profileId}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -2072,7 +2069,7 @@ export async function deleteUser(profileId: string): Promise<void> {
 
 export async function resetUserPassword(profileId: string, password: string): Promise<void> {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${profileId}/reset-password`, {
+  const resp = await fetch(apiUrl(`/users/profile/${profileId}/reset-password`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ password }),
@@ -2092,7 +2089,7 @@ async function mdToken(): Promise<string> {
 }
 async function mdFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = await mdToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...opts,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts.headers ?? {}) },
   });
@@ -2206,10 +2203,6 @@ async function getApiToken(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.access_token ?? null;
 }
-
-// On Railway the portal and API are separate services.
-// Set VITE_API_URL (e.g. https://invendis-api.up.railway.app) at build time.
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") + "/api";
 
 export async function getFaceUploadUrl(farmerId: number, purpose: "reference" | "delivery"): Promise<{ uploadUrl: string; key: string; bucket: string }> {
   const token = await getApiToken();
@@ -2373,7 +2366,7 @@ async function podToken(): Promise<string> {
 
 export async function approvePod(id: number, forceApprove = false): Promise<{ duplicate?: boolean; existingPod?: any }> {
   const token = await podToken();
-  const resp = await fetch(`/api/pod/${id}/approve`, {
+  const resp = await fetch(apiUrl(`/pod/${id}/approve`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ forceApprove }),
@@ -2401,7 +2394,7 @@ export async function overrideFacePod(id: number, reason: string): Promise<void>
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch(`/api/pod/${id}/override-face`, {
+  const resp = await fetch(apiUrl(`/pod/${id}/override-face`), {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
     body: JSON.stringify({ reason }),
@@ -2415,7 +2408,7 @@ export async function overrideFacePod(id: number, reason: string): Promise<void>
 export async function batchApprovePods(ids: number[]): Promise<void> {
   if (!ids.length) return;
   const token = await podToken();
-  const resp = await fetch("/api/pod/batch-approve", {
+  const resp = await fetch(apiUrl("/pod/batch-approve"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ ids }),
@@ -2437,7 +2430,7 @@ export async function bulkImportFarmers(payload: {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/farmers/bulk-import", {
+  const resp = await fetch(apiUrl("/farmers/bulk-import"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
@@ -2453,7 +2446,7 @@ export async function bulkCheckDuplicates(phones: string[]): Promise<Array<{ pho
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+  const resp = await fetch(apiUrl("/farmers/bulk-check-duplicates"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ phones }),

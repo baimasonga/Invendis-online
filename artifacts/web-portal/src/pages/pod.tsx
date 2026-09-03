@@ -1021,7 +1021,10 @@ export default function ProofOfDelivery() {
   const [page, setPage] = useState(1);
   const [podOpen, setPodOpen] = useState(false);
   const [selectedPod, setSelectedPod] = useState<any>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get("status") ?? "";
+    return ["Pending", "Verified", "Exception"].includes(requested) ? requested : "";
+  });
   const [view, setView] = useState<"list" | "review" | "field-otps">("list");
   const [exporting, setExporting] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);

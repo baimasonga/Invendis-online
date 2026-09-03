@@ -31,8 +31,11 @@ import SupervisorView from "@/pages/supervisor";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ component: Component, ...rest }: any) => {
-  const { isAuthenticated, isLoading } = useAuth();
+const normaliseRole = (role?: string | null) =>
+  (role ?? "").toLowerCase().replace(/[\s_-]/g, "");
+
+const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }: any) => {
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -42,10 +45,12 @@ const ProtectedRoute = ({ component: Component, ...rest }: any) => {
     <Route
       {...rest}
       component={(props: any) =>
-        isAuthenticated ? (
+        isAuthenticated && (allowedRoles.length === 0 || allowedRoles.includes(normaliseRole(user?.role))) ? (
           <Layout>
             <Component {...props} />
           </Layout>
+        ) : isAuthenticated ? (
+          <Redirect to="/dashboard" />
         ) : (
           <Redirect to="/login" />
         )
@@ -63,23 +68,23 @@ function Router() {
       <ProtectedRoute path="/dashboard"        component={Dashboard} />
       <ProtectedRoute path="/farmers"          component={Farmers} />
       <ProtectedRoute path="/farmers/:id"      component={FarmerDetail} />
-      <ProtectedRoute path="/inventory"        component={Inventory} />
-      <ProtectedRoute path="/procurement"      component={Procurement} />
-      <ProtectedRoute path="/campaigns"        component={Campaigns} />
-      <ProtectedRoute path="/campaigns/:id"    component={CampaignDetail} />
-      <ProtectedRoute path="/allocations"      component={Allocations} />
-      <ProtectedRoute path="/vehicles"         component={Vehicles} />
-      <ProtectedRoute path="/dispatch"         component={Dispatch} />
-      <ProtectedRoute path="/dispatch/:id"     component={DispatchDetail} />
-      <ProtectedRoute path="/gps-tracking"     component={GpsTracking} />
+      <ProtectedRoute path="/inventory"        component={Inventory} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/procurement"      component={Procurement} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/campaigns"        component={Campaigns} allowedRoles={["admin", "projectmanager", "districtcoordinator"]} />
+      <ProtectedRoute path="/campaigns/:id"    component={CampaignDetail} allowedRoles={["admin", "projectmanager", "districtcoordinator"]} />
+      <ProtectedRoute path="/allocations"      component={Allocations} allowedRoles={["admin", "projectmanager", "districtcoordinator"]} />
+      <ProtectedRoute path="/vehicles"         component={Vehicles} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/dispatch"         component={Dispatch} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/dispatch/:id"     component={DispatchDetail} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/gps-tracking"     component={GpsTracking} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
       <ProtectedRoute path="/pod"              component={Pod} />
-      <ProtectedRoute path="/reconciliation"   component={Reconciliation} />
-      <ProtectedRoute path="/reports"          component={Reports} />
-      <ProtectedRoute path="/audit"            component={AuditLogs} />
-      <ProtectedRoute path="/users"            component={Users} />
-      <ProtectedRoute path="/settings"         component={Settings} />
-      <ProtectedRoute path="/incidents"        component={Incidents} />
-      <ProtectedRoute path="/supervisor"       component={SupervisorView} />
+      <ProtectedRoute path="/reconciliation"   component={Reconciliation} allowedRoles={["admin", "projectmanager", "warehousemanager"]} />
+      <ProtectedRoute path="/reports"          component={Reports} allowedRoles={["admin", "projectmanager", "districtcoordinator", "warehousemanager"]} />
+      <ProtectedRoute path="/audit"            component={AuditLogs} allowedRoles={["admin", "projectmanager"]} />
+      <ProtectedRoute path="/users"            component={Users} allowedRoles={["admin"]} />
+      <ProtectedRoute path="/settings"         component={Settings} allowedRoles={["admin", "projectmanager"]} />
+      <ProtectedRoute path="/incidents"        component={Incidents} allowedRoles={["admin", "projectmanager", "districtcoordinator"]} />
+      <ProtectedRoute path="/supervisor"       component={SupervisorView} allowedRoles={["admin", "projectmanager", "districtcoordinator"]} />
 
       <Route path="/">
         <Redirect to="/dashboard" />

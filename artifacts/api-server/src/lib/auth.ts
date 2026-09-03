@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
+import { supa } from "./supabase.js";
 
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === "production") {
@@ -16,6 +17,14 @@ export interface JwtPayload {
   username: string;
   role: string;
   districtId?: number | null;
+}
+
+export interface SupabaseProfile {
+  id: string;
+  email: string;
+  role: string;
+  districtId?: number | null;
+  isActive: boolean;
 }
 
 export function signToken(payload: JwtPayload): string {
@@ -76,8 +85,41 @@ declare global {
     interface Request {
       user?: JwtPayload;
       supabaseUser?: { id: string; email: string };
+      supabaseProfile?: SupabaseProfile;
     }
   }
+}
+
+async function loadActiveSupabaseProfile(
+  user: { id: string; email: string },
+  res: Response,
+): Promise<SupabaseProfile | null> {
+  const { data, error } = await supa
+    .from("profiles")
+    .select("id,email,role,district_id,is_active")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    res.status(500).json({ error: "Authorization profile lookup failed" });
+    return null;
+  }
+  if (!data) {
+    res.status(403).json({ error: "Account profile is unavailable" });
+    return null;
+  }
+  if (data.is_active === false) {
+    res.status(403).json({ error: "Account is inactive" });
+    return null;
+  }
+
+  return {
+    id: data.id,
+    email: data.email ?? user.email,
+    role: data.role ?? "FieldOfficer",
+    districtId: data.district_id ?? null,
+    isActive: true,
+  };
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
@@ -123,7 +165,10 @@ export async function requireSupabaseAuth(req: Request, res: Response, next: Nex
       return;
     }
     const user = (await resp.json()) as { id: string; email: string };
+    const profile = await loadActiveSupabaseProfile(user, res);
+    if (!profile) return;
     req.supabaseUser = user;
+    req.supabaseProfile = profile;
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
@@ -157,7 +202,11 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
     });
     if (!resp.ok) { res.status(401).json({ error: "Unauthorized" }); return; }
-    req.supabaseUser = (await resp.json()) as { id: string; email: string };
+    const user = (await resp.json()) as { id: string; email: string };
+    const profile = await loadActiveSupabaseProfile(user, res);
+    if (!profile) return;
+    req.supabaseUser = user;
+    req.supabaseProfile = profile;
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
@@ -165,9 +214,10 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
 }
 
 export function requireRoles(...roles: string[]) {
-  const normalised = roles.map(r => r.toLowerCase());
+  const normalise = (role: string) => role.toLowerCase().replace(/[\s_-]/g, "");
+  const normalised = roles.map(normalise);
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || !normalised.includes(req.user.role.toLowerCase())) {
+    if (!req.user || !normalised.includes(normalise(req.user.role))) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }
@@ -176,9 +226,11 @@ export function requireRoles(...roles: string[]) {
 }
 
 export function requireRoleIfJwt(...roles: string[]) {
-  const normalised = roles.map(r => r.toLowerCase());
+  const normalise = (role: string) => role.toLowerCase().replace(/[\s_-]/g, "");
+  const normalised = roles.map(normalise);
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.user && !normalised.includes(req.user.role.toLowerCase())) {
+    const effectiveRole = req.user?.role ?? req.supabaseProfile?.role;
+    if (!effectiveRole || !normalised.includes(normalise(effectiveRole))) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }

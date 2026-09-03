@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        if (isFieldOfficer(profile?.role)) {
+        if (!profile || profile.isActive === false || isFieldOfficer(profile.role)) {
           await supabase.auth.signOut();
         } else if (mounted) {
           setUser(profile);
@@ -88,7 +88,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message);
     if (data.user) {
       const profile = await fetchProfile(data.user.id);
-      if (isFieldOfficer(profile?.role)) {
+      if (!profile) {
+        await supabase.auth.signOut();
+        throw new Error("Your account profile is unavailable. Contact an administrator.");
+      }
+      if (profile.isActive === false) {
+        await supabase.auth.signOut();
+        throw new Error("Your account has been deactivated. Contact an administrator.");
+      }
+      if (isFieldOfficer(profile.role)) {
         await supabase.auth.signOut();
         throw new Error("Field Officers must use the Invendis mobile app. This portal is for management staff only.");
       }
