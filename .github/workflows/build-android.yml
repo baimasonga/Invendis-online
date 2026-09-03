@@ -213,3 +213,5 @@ jobs:
           else
             echo "- **Status:** ❌ Failed — check logs above" >> $GITHUB_STEP_SUMMARY
           fi
+
+# Triggered manually to verify the crash-on-open fix (assembleRelease vs assembleDebug).
