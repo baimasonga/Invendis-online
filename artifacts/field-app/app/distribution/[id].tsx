@@ -238,6 +238,26 @@ export default function DistributionDetailScreen() {
         </View>
       )}
 
+      {/* No vehicle assigned — GPS cannot track. Surface it instead of failing silently:
+          Excel-imported manifests can be created without a vehicle. */}
+      {isInTransit && !isArrived && !dispatch.vehicleId && (
+        <View style={[
+          styles.gpsBanner,
+          { backgroundColor: colors.warning + "14", borderColor: colors.warning + "30" },
+        ]}>
+          <View style={[styles.gpsIconWrap, { backgroundColor: colors.warning + "20" }]}>
+            <Feather name="truck" size={16} color={colors.warning} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.gpsBannerTitle, { color: colors.warning }]}>No Vehicle Assigned</Text>
+            <Text style={[styles.gpsBannerSub, { color: colors.warning }]}>
+              GPS tracking and arrival detection are off. Assign a vehicle to this manifest to enable them.
+            </Text>
+          </View>
+          <View style={[styles.gpsDot, { backgroundColor: colors.warning }]} />
+        </View>
+      )}
+
       {/* Active GPS tracking banner */}
       {isInTransit && !isArrived && dispatch.vehicleId && (
         <View style={[
