@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
-  updateFarmer, listDistricts, listChiefdoms, listValueChains, KEYS,
+  updateFarmer, checkFarmerDuplicate, listDistricts, listChiefdoms, listValueChains, KEYS,
 } from "@/lib/db";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { AlertCircle } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -31,6 +33,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
   const [chiefdomId, setChiefdomId]     = useState("");
   const [valueChainId, setValueChainId] = useState("");
   const [farmSize, setFarmSize]         = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<{ name: string } | null>(null);
 
   useEffect(() => {
     if (farmer && open) {
@@ -44,6 +47,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
       setChiefdomId(farmer.chiefdomId ? String(farmer.chiefdomId) : "");
       setValueChainId(farmer.valueChainId ? String(farmer.valueChainId) : "");
       setFarmSize(farmer.farmSize ? String(farmer.farmSize) : "");
+      setDuplicateWarning(null);
     }
   }, [farmer, open]);
 
@@ -59,12 +63,7 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
   const chiefdomList:   any[] = Array.isArray(chiefdoms)   ? chiefdoms   : [];
   const valueChainList: any[] = Array.isArray(valueChains) ? valueChains : [];
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!firstName || !lastName || !districtId) {
-      toast({ title: "Required fields missing", description: "First Name, Last Name and District are required.", variant: "destructive" });
-      return;
-    }
+  async function submitUpdate() {
     try {
       await updateMutation.mutateAsync({
         id: farmer.id,
@@ -90,7 +89,36 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
     }
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!firstName || !lastName || !districtId) {
+      toast({ title: "Required fields missing", description: "First Name, Last Name and District are required.", variant: "destructive" });
+      return;
+    }
+
+    const phoneChanged      = (phone ?? "")      !== (farmer?.phone ?? "");
+    const nationalIdChanged = (nationalId ?? "") !== (farmer?.nationalId ?? "");
+    if (phoneChanged || nationalIdChanged) {
+      try {
+        const result = await checkFarmerDuplicate(
+          phoneChanged      ? phone      : undefined,
+          nationalIdChanged ? nationalId : undefined,
+        );
+        if (result.duplicate && result.existingFarmer && result.existingFarmer.id !== farmer?.id) {
+          setDuplicateWarning({ name: result.existingFarmer.name });
+          return;
+        }
+      } catch (err) {
+        // Non-blocking: the duplicate check is a helpful warning, not a hard gate.
+        console.warn("Farmer duplicate check failed:", err);
+      }
+    }
+
+    await submitUpdate();
+  }
+
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -188,5 +216,37 @@ export function EditFarmerModal({ open, onClose, farmer }: Props) {
         </form>
       </DialogContent>
     </Dialog>
+
+    {/* Possible Duplicate Warning */}
+    <AlertDialog open={!!duplicateWarning} onOpenChange={v => { if (!v) setDuplicateWarning(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-600" /> Possible Duplicate Farmer
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="text-sm">
+              <p className="mb-2">
+                A farmer named <span className="font-medium text-foreground">{duplicateWarning?.name}</span> already
+                has this phone number or national ID on record.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                This can happen legitimately (e.g. household members sharing a phone). You can proceed anyway or cancel to review the details.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setDuplicateWarning(null)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => { setDuplicateWarning(null); submitUpdate(); }}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            Save Anyway
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

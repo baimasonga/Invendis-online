@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createAllocation, listFarmers, KEYS } from "@/lib/db";
+import { createAllocation, listFarmers, KEYS, farmerDisplayName } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -32,7 +32,7 @@ export function AddAllocationModal({ open, onClose, campaignId }: Props) {
   const farmers = (farmersData as any)?.data ?? [];
   const filtered = search
     ? farmers.filter((f: any) =>
-        `${f.firstName} ${f.lastName} ${f.farmerCode}`.toLowerCase().includes(search.toLowerCase())
+        `${farmerDisplayName(f)} ${f.farmerCode}`.toLowerCase().includes(search.toLowerCase())
       )
     : farmers;
 
@@ -77,7 +77,7 @@ export function AddAllocationModal({ open, onClose, campaignId }: Props) {
                   ? <div className="py-6 text-center text-sm text-muted-foreground">No approved farmers found</div>
                   : filtered.map((f: any) => (
                       <SelectItem key={f.id} value={String(f.id)}>
-                        <span className="font-medium">{f.firstName} {f.lastName}</span>
+                        <span className="font-medium">{farmerDisplayName(f)}</span>
                         <span className="text-muted-foreground text-xs ml-1.5">{f.farmerCode}</span>
                       </SelectItem>
                     ))

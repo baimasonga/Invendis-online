@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listFarmers, approveFarmer, rejectFarmer, deleteFarmer, listDistricts, KEYS } from "@/lib/db";
+import { listFarmers, approveFarmer, rejectFarmer, deleteFarmer, listDistricts, KEYS, farmerDisplayName } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 function Avatar({ name }: { name: string }) {
-  const initials = name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+  const initials = name.split(" ").filter(Boolean).map((w: string) => w[0]).slice(0, 2).join("").toUpperCase() || "—";
   return (
     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 text-xs font-semibold shrink-0">
       {initials}
@@ -221,8 +221,8 @@ export default function Farmers() {
                       <TableCell className="pl-4 font-mono text-xs text-muted-foreground">{farmer.farmerCode}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Avatar name={`${farmer.firstName} ${farmer.lastName}`} />
-                          <span className="font-medium text-sm">{farmer.firstName} {farmer.lastName}</span>
+                          <Avatar name={farmerDisplayName(farmer)} />
+                          <span className="font-medium text-sm">{farmerDisplayName(farmer)}</span>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
@@ -246,7 +246,7 @@ export default function Farmers() {
                                 size="sm" variant="ghost"
                                 className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                                 disabled={loadingId === farmer.id}
-                                onClick={() => setRejectTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                                onClick={() => setRejectTarget({ id: farmer.id, name: farmerDisplayName(farmer) })}
                               >
                                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                               </Button>
@@ -266,7 +266,7 @@ export default function Farmers() {
                               size="sm" variant="ghost"
                               className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50"
                               disabled={loadingId === farmer.id}
-                              onClick={() => setDeleteTarget({ id: farmer.id, name: `${farmer.firstName} ${farmer.lastName}` })}
+                              onClick={() => setDeleteTarget({ id: farmer.id, name: farmerDisplayName(farmer) })}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>

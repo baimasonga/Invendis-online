@@ -108,34 +108,46 @@ router.delete("/api/farmers/:id", requireAuth, requireRoles("Admin", "ProjectMan
   res.json({ success: true });
 });
 
-// ── POST /api/farmers/bulk-check-duplicates ───────────────────────────────────
-// Checks a list of phone numbers against existing farmers.
-// Returns only the phones that are already registered.
+// ── POST /api/farmers/bulk-check-duplicates ──────────────────────────────────────────────
+// Checks a list of phone numbers and/or national IDs against existing farmers.
+// Returns the farmers that already exist for any of the given phones/nationalIds.
+// `phones` is kept as the original param for backward compatibility with the
+// bulk-import flow; `nationalIds` is an additive, optional param.
 router.post("/api/farmers/bulk-check-duplicates", requireAnyAuth, async (req, res) => {
-  const { phones } = req.body as { phones?: string[] };
-  if (!Array.isArray(phones) || phones.length === 0) {
+  const { phones, nationalIds } = req.body as { phones?: string[]; nationalIds?: string[] };
+  const cleanPhones = Array.isArray(phones) ? phones.map((p: string) => String(p).trim()).filter(Boolean) : [];
+  const cleanNationalIds = Array.isArray(nationalIds) ? nationalIds.map((n: string) => String(n).trim()).filter(Boolean) : [];
+
+  if (cleanPhones.length === 0 && cleanNationalIds.length === 0) {
     res.json({ duplicates: [] });
     return;
   }
-  const clean = phones.map((p: string) => String(p).trim()).filter(Boolean);
-  if (clean.length === 0) { res.json({ duplicates: [] }); return; }
 
-  const { data, error } = await supa
-    .from("farmers")
-    .select("phone, farmer_code, first_name, last_name, farmer_group")
-    .in("phone", clean);
+  const selectCols = "id, phone, national_id, farmer_code, first_name, last_name, farmer_group";
+  const matches = new Map<number, any>();
 
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (cleanPhones.length > 0) {
+    const { data, error } = await supa.from("farmers").select(selectCols).in("phone", cleanPhones);
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    for (const f of (data ?? []) as any[]) matches.set(f.id, f);
+  }
+  if (cleanNationalIds.length > 0) {
+    const { data, error } = await supa.from("farmers").select(selectCols).in("national_id", cleanNationalIds);
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    for (const f of (data ?? []) as any[]) matches.set(f.id, f);
+  }
 
-  const duplicates = (data ?? []).map((f: any) => ({
+  const duplicates = [...matches.values()].map((f: any) => ({
+    id:          f.id,
     phone:       f.phone,
+    nationalId:  f.national_id,
     farmerCode:  f.farmer_code,
     name:        f.farmer_group || `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim(),
   }));
   res.json({ duplicates });
 });
 
-// ── POST /api/farmers/bulk-import ─────────────────────────────────────────────
+// ── POST /api/farmers/bulk-import ───────────────────────────────────────────────
 // Accepts a list of farmer rows plus optional districtId / valueChainId.
 // Skips rows whose phone already exists in the DB (or duplicated within the file).
 // Returns { created, skipped, duplicates, farmers }.
@@ -260,7 +272,7 @@ router.post(
   }
 );
 
-// ── Public ID card endpoint ───────────────────────────────────────────────────
+// ── Public ID card endpoint ───────────────────────────────────────────────
 // Returns ID-card-safe fields for a farmer given their barcode_token.
 // Intentionally no auth: this powers the shareable mobile card view that field
 // staff open by scanning the QR on a farmer's printed card. The token already

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import {
-  createFarmer, listDistricts, listChiefdoms, listValueChains, KEYS,
+  createFarmer, checkFarmerDuplicate, listDistricts, listChiefdoms, listValueChains, KEYS,
   getFaceUploadUrl, uploadBlobToS3, saveFaceReference,
 } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { BiometricCapture } from "@/components/BiometricCapture";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, AlertCircle } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -42,6 +43,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
   const [districtId, setDistrictId]   = useState("");
   const [chiefdomId, setChiefdomId]   = useState("");
   const [valueChainId, setValueChainId] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<{ name: string } | null>(null);
 
   const { data: districts }   = useQuery({ queryKey: KEYS.districts(),   queryFn: listDistricts });
   const { data: chiefdoms }   = useQuery({
@@ -60,16 +62,12 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
     setCreatedFarmer(null);
     setFirstName(""); setLastName(""); setGender(""); setPhone("");
     setNationalId(""); setCboName(""); setDistrictId(""); setChiefdomId(""); setValueChainId("");
+    setDuplicateWarning(null);
   }
 
   function handleClose() { resetAll(); onClose(); }
 
-  async function handleDetailsSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!firstName || !lastName || !districtId) {
-      toast({ title: "Required fields missing", description: "First Name, Last Name and District are required.", variant: "destructive" });
-      return;
-    }
+  async function submitFarmer() {
     try {
       const farmer = await createFarmerMutation.mutateAsync({
         firstName,
@@ -87,6 +85,27 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     }
+  }
+
+  async function handleDetailsSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!firstName || !lastName || !districtId) {
+      toast({ title: "Required fields missing", description: "First Name, Last Name and District are required.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const result = await checkFarmerDuplicate(phone, nationalId);
+      if (result.duplicate && result.existingFarmer) {
+        setDuplicateWarning({ name: result.existingFarmer.name });
+        return;
+      }
+    } catch (err) {
+      // Non-blocking: the duplicate check is a helpful warning, not a hard gate.
+      console.warn("Farmer duplicate check failed:", err);
+    }
+
+    await submitFarmer();
   }
 
   async function handleBiometricCapture(blob: Blob) {
@@ -117,6 +136,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -136,7 +156,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
           </DialogTitle>
         </DialogHeader>
 
-        {/* ── Step 1: Details ─────────────────────────────────────────────── */}
+        {/* ── Step 1: Details ───────────────────────────────── */}
         {step === "details" && (
           <form onSubmit={handleDetailsSubmit} className="space-y-4 py-1">
             <div className="grid grid-cols-2 gap-3">
@@ -228,7 +248,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
           </form>
         )}
 
-        {/* ── Step 2: Biometric ────────────────────────────────────────────── */}
+        {/* ── Step 2: Biometric ─────────────────────────────────── */}
         {step === "biometric" && createdFarmer && (
           <div className="space-y-4 py-1">
             <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 p-2.5">
@@ -267,5 +287,37 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Possible Duplicate Warning */}
+    <AlertDialog open={!!duplicateWarning} onOpenChange={v => { if (!v) setDuplicateWarning(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-600" /> Possible Duplicate Farmer
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="text-sm">
+              <p className="mb-2">
+                A farmer named <span className="font-medium text-foreground">{duplicateWarning?.name}</span> already
+                has this phone number or national ID on record.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                This can happen legitimately (e.g. household members sharing a phone). You can proceed anyway or cancel to review the details.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setDuplicateWarning(null)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => { setDuplicateWarning(null); submitFarmer(); }}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            Register Anyway
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

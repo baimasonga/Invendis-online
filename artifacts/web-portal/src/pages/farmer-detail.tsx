@@ -3,7 +3,7 @@ import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getFarmer, approveFarmer, rejectFarmer, getFaceViewUrl, KEYS,
-  getFaceUploadUrl, uploadBlobToS3, saveFaceReference,
+  getFaceUploadUrl, uploadBlobToS3, saveFaceReference, farmerDisplayName,
 } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,6 +159,7 @@ export default function FarmerDetail() {
 
   const f = farmer as any;
   const status = f.status as string;
+  const displayName = farmerDisplayName(f);
 
   return (
     <div className="space-y-5">
@@ -169,7 +170,7 @@ export default function FarmerDetail() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold truncate">{f.firstName} {f.lastName}</h1>
+          <h1 className="text-xl font-bold truncate">{displayName}</h1>
           <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
@@ -232,7 +233,7 @@ export default function FarmerDetail() {
                   <div className="relative">
                     <img
                       src={photoSrc}
-                      alt={`${f.firstName} ${f.lastName}`}
+                      alt={displayName}
                       className="h-32 w-32 rounded-full object-cover ring-4 ring-background shadow-xl border-2 border-emerald-200"
                     />
                     <span className="absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-background">
@@ -271,7 +272,7 @@ export default function FarmerDetail() {
                   </>
                 )}
                 <div className="text-center space-y-1.5">
-                  <p className="text-base font-bold leading-tight">{f.firstName} {f.lastName}</p>
+                  <p className="text-base font-bold leading-tight">{displayName}</p>
                   <p className="text-xs text-muted-foreground font-mono">{f.farmerCode}</p>
                   <div className="flex items-center justify-center gap-1.5 flex-wrap">
                     <StatusBadge status={status} size="sm" />
@@ -298,6 +299,8 @@ export default function FarmerDetail() {
                 farmer={{
                   firstName:      f.firstName,
                   lastName:       f.lastName,
+                  beneficiaryType: f.beneficiaryType,
+                  farmerGroup:    f.farmerGroup,
                   farmerCode:     f.farmerCode,
                   barcodeToken:   f.barcodeToken,
                   gender:         f.gender,
@@ -319,7 +322,7 @@ export default function FarmerDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reject Farmer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark <strong>{f.firstName} {f.lastName}</strong> as rejected. You can review this decision later.
+              This will mark <strong>{displayName}</strong> as rejected. You can review this decision later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
