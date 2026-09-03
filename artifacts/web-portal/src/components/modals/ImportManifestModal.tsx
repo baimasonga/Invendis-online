@@ -82,8 +82,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const text = e.target!.result as string;
-        const wb = XLSX.read(text, { type: "string" });
+        const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: null });
 
@@ -226,7 +226,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
         toast({ title: "File error", description: err.message, variant: "destructive" });
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   }
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
