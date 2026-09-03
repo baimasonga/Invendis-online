@@ -98,7 +98,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
           }
         }
         if (headerRowIdx < 0) {
-          toast({ title: "Parse error", description: "Could not find a header row with a 'Community' column. Check that the CSV contains a Community header.", variant: "destructive" });
+          toast({ title: "Parse error", description: "Could not find a header row with a 'Community' column. Check that the file contains a Community header.", variant: "destructive" });
           return;
         }
 
@@ -364,7 +364,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
       <Dialog open={open} onOpenChange={v => !v && handleClose()}>
         <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0">
           <DialogHeader className="px-6 pt-5 pb-0">
-            <DialogTitle className="text-lg">Import Dispatch from CSV</DialogTitle>
+            <DialogTitle className="text-lg">Import Dispatch from Excel</DialogTitle>
           </DialogHeader>
 
           {/* Step indicators */}
@@ -400,12 +400,12 @@ export function ImportManifestModal({ open, onClose }: Props) {
             {step === 1 && (
               <div className="space-y-4 py-4">
                 <p className="text-sm text-muted-foreground">
-                  Upload your filled CSV distribution plan. Communities are auto-registered as group beneficiaries
+                  Upload your filled Excel or CSV distribution plan. Communities are auto-registered as group beneficiaries
                   with barcodes, and new tool types are added to Inventory automatically.
                 </p>
 
                 <Button variant="outline" size="sm" className="w-full gap-2 justify-center" onClick={downloadTemplate}>
-                  <Download className="h-4 w-4" /> Download CSV Template
+                  <Download className="h-4 w-4" /> Download Template
                 </Button>
 
                 <div
@@ -419,9 +419,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
                   onClick={() => document.getElementById("csv-upload-input")?.click()}
                 >
                   <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-                  <p className="font-semibold text-sm">Drop CSV file here or click to browse</p>
-                  <p className="text-xs text-muted-foreground mt-1">Supports .csv</p>
-                  <input id="csv-upload-input" type="file" accept=".csv" className="hidden"
+                  <p className="font-semibold text-sm">Drop Excel or CSV file here or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">Supports .xlsx, .xls, .csv</p>
+                  <input id="csv-upload-input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f); }} />
                 </div>
 
