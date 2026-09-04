@@ -2100,6 +2100,12 @@ export async function listDistricts() {
 export async function createDistrict(payload: { name: string; code: string }) {
   return mdFetch("/api/master-data/districts", { method: "POST", body: JSON.stringify(payload) });
 }
+export async function updateDistrict(id: number, payload: { name: string; code: string }) {
+  return mdFetch(`/api/master-data/districts/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function deleteDistrict(id: number) {
+  return mdFetch(`/api/master-data/districts/${id}`, { method: "DELETE" });
+}
 
 // ── Chiefdoms ─────────────────────────────────────────────────────────────────────────
 export async function listChiefdoms(districtId?: number) {

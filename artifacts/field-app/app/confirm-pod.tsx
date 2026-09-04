@@ -177,7 +177,7 @@ export default function ConfirmPodScreen() {
   const [faceLoading, setFaceLoading] = useState(false);
   const [faceError, setFaceError] = useState<string | null>(null);
 
-  // Input scan / select
+  // Input scan / select — multi-item
   const [scannedBarcode, setScannedBarcode] = useState("");
   const [scannedItem, setScannedItem] = useState<InputItem | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -186,6 +186,9 @@ export default function ConfirmPodScreen() {
   const [inputItems, setInputItems] = useState<InputItem[]>([]);
   const [inputItemsLoading, setInputItemsLoading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Multi-item selection: id → { item, qty }
+  const [selectedInputItems, setSelectedInputItems] = useState<Record<number, { item: InputItem; qty: string }>>({});
+  const [itemSearch, setItemSearch] = useState("");
 
   // Submit
   const [submitting, setSubmitting] = useState(false);
@@ -198,31 +201,34 @@ export default function ConfirmPodScreen() {
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchLoadError, setDispatchLoadError] = useState(false);
 
+  // GPS capture — run once on mount only
   useEffect(() => {
     captureGPS();
-    if (token) {
-      getOtpStatus(token)
-        .then((s) => setOtpEnabled(s.otpEnabled))
-        .catch(() => {});
-      if (dispatchId) {
-        setDispatchLoading(true);
-        setDispatchLoadError(false);
-        getDispatch(token, Number(dispatchId))
-          .then(d => {
-            const items = (d.items ?? []).filter(i => i.inputItemId != null);
-            setDispatchItems(items);
-            const initial: Record<number, string> = {};
-            for (const item of items) initial[item.inputItemId!] = "0";
-            setItemQtys(initial);
-          })
-          .catch((e) => {
-            console.error("Failed to load dispatch items:", e);
-            setDispatchLoadError(true);
-          })
-          .finally(() => setDispatchLoading(false));
-      }
-    }
   }, []);
+
+  // OTP status + dispatch items — wait for token (loaded async from AsyncStorage)
+  useEffect(() => {
+    if (!token) return;
+    getOtpStatus(token)
+      .then((s) => setOtpEnabled(s.otpEnabled))
+      .catch(() => {});
+    if (!dispatchId) return;
+    setDispatchLoading(true);
+    setDispatchLoadError(false);
+    getDispatch(token, Number(dispatchId))
+      .then(d => {
+        const items = (d.items ?? []).filter(i => i.inputItemId != null);
+        setDispatchItems(items);
+        const initial: Record<number, string> = {};
+        for (const item of items) initial[item.inputItemId!] = "0";
+        setItemQtys(initial);
+      })
+      .catch((e) => {
+        console.error("Failed to load dispatch items:", e);
+        setDispatchLoadError(true);
+      })
+      .finally(() => setDispatchLoading(false));
+  }, [token]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -264,6 +270,16 @@ export default function ConfirmPodScreen() {
     const t = setTimeout(() => setResendTimer((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [resendTimer]);
+
+  // Pre-load input items as soon as we have a token (so the list is ready when step = "scan")
+  useEffect(() => {
+    if (!token || inputItems.length > 0 || inputItemsLoading) return;
+    setInputItemsLoading(true);
+    listInputItems(token)
+      .then(items => setInputItems(items))
+      .catch(() => {})
+      .finally(() => setInputItemsLoading(false));
+  }, [token]);
 
   const captureGPS = async () => {
     setGpsLoading(true);
@@ -473,11 +489,16 @@ export default function ConfirmPodScreen() {
     if (!trimmed) return;
     setScanLoading(true);
     setScanError(null);
-    setScannedItem(null);
     try {
       const item = await inputByBarcode(token!, trimmed);
+      // Add to multi-selection (don't overwrite existing qty if already selected)
+      setSelectedInputItems(prev => ({
+        ...prev,
+        [item.id]: prev[item.id] ?? { item, qty: "1" },
+      }));
       setScannedItem(item);
-      setScannedBarcode(trimmed);
+      setScannedBarcode("");
+      setScanError(null);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       setScanError("No matching input item found for this barcode.");
@@ -488,6 +509,7 @@ export default function ConfirmPodScreen() {
   };
 
   const handleSkipScan = () => {
+    setSelectedInputItems({});
     setScannedBarcode("");
     setScannedItem(null);
     setScanError(null);
@@ -518,24 +540,31 @@ export default function ConfirmPodScreen() {
 
   const buildPayload = (otpStatus: string, faceStatus: string): Record<string, unknown> => {
     const hasDispatchItems = dispatchItems.length > 0;
-    const itemsPayload = hasDispatchItems
+    // Dispatch-linked items (from dispatch_items table with per-item qtys)
+    const dispatchItemsPayload = hasDispatchItems
       ? dispatchItems
           .filter(item => item.inputItemId != null)
           .map(item => ({ inputItemId: item.inputItemId!, quantity: Number(itemQtys[item.inputItemId!] ?? 0) }))
           .filter(i => i.quantity > 0)
       : [];
-    const totalQty = hasDispatchItems
+    // Manually selected items (multi-select checklist)
+    const manualItemsPayload = Object.values(selectedInputItems)
+      .filter(v => Number(v.qty) > 0)
+      .map(v => ({ inputItemId: v.item.id, quantity: Number(v.qty) }));
+
+    const itemsPayload = hasDispatchItems ? dispatchItemsPayload : manualItemsPayload;
+    const totalQty = itemsPayload.length > 0
       ? itemsPayload.reduce((s, i) => s + i.quantity, 0)
       : Number(quantity);
+
     return {
       farmerId: Number(farmerId),
       ...(farmerName ? { farmerName } : {}),
       ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
       quantityDelivered: totalQty,
-      ...(hasDispatchItems && itemsPayload.length > 0
+      ...(itemsPayload.length > 0
         ? { inputItemId: itemsPayload[0].inputItemId, items: itemsPayload }
         : {
-            ...(scannedItem ? { inputItemId: scannedItem.id } : {}),
             ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
           }
       ),
@@ -685,7 +714,7 @@ export default function ConfirmPodScreen() {
         {/* Verification summary */}
         <View style={[resultStyles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius, width: "100%" }]}>
           {[
-            { icon: "package" as const,  label: "Input",      val: scannedItem?.name ?? (scannedBarcode || "Not scanned"), ok: !!scannedItem },
+            { icon: "package" as const,  label: "Input",      val: Object.keys(selectedInputItems).length > 0 ? `${Object.keys(selectedInputItems).length} item(s)` : (scannedBarcode || "Not scanned"), ok: Object.keys(selectedInputItems).length > 0 },
             { icon: "shield" as const,   label: "OTP",        val: submittedPod.otpStatus ?? "—",  ok: submittedPod.otpStatus === "Verified" },
             { icon: "image" as const,    label: "Photos",     val: `${((submittedPod as any).photoKeys?.length ?? 0)} captured`, ok: ((submittedPod as any).photoKeys?.length ?? 0) >= 5 },
             { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
@@ -842,6 +871,35 @@ export default function ConfirmPodScreen() {
               >
                 <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_600SemiBold" }}>Retry</Text>
               </TouchableOpacity>
+            </View>
+          ) : dispatchId && !dispatchLoading && dispatchItems.length === 0 ? (
+            // dispatchId present but no items found — show single-qty fallback with a note
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
+              <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginBottom: 8 }}>
+                No items configured for this dispatch — enter total quantity below.
+              </Text>
+              <View style={styles.qtyRow}>
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setQuantity((v) => String(Math.max(1, Number(v) - 1)))}
+                >
+                  <Feather name="minus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+                <TextInput
+                  style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius }]}
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  keyboardType="numeric"
+                  textAlign="center"
+                />
+                <TouchableOpacity
+                  style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                  onPress={() => setQuantity((v) => String(Number(v) + 1))}
+                >
+                  <Feather name="plus" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
             </View>
           ) : dispatchItems.length > 0 ? (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
@@ -1011,14 +1069,28 @@ export default function ConfirmPodScreen() {
       else handleSkipOtp();
     };
 
-    // Load items on first render of this step
-    if (inputItems.length === 0 && !inputItemsLoading && !scanError) {
-      setInputItemsLoading(true);
-      listInputItems(token!)
-        .then((items) => { setInputItems(items); setInputItemsLoading(false); })
-        .catch(() => { setInputItemsLoading(false); });
-    }
+    const selectedCount = Object.keys(selectedInputItems).length;
+    const canProceed = Object.values(selectedInputItems).some(v => Number(v.qty) > 0);
 
+    const filteredItems = inputItems.filter(item =>
+      !itemSearch.trim() ||
+      item.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
+      item.itemCode?.toLowerCase().includes(itemSearch.toLowerCase()) ||
+      item.category?.toLowerCase().includes(itemSearch.toLowerCase())
+    );
+
+    const toggleItem = (item: InputItem) => {
+      setSelectedInputItems(prev => {
+        if (prev[item.id]) {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        }
+        return { ...prev, [item.id]: { item, qty: "1" } };
+      });
+    };
+
+    // Camera full-screen overlay
     if (cameraOpen && Platform.OS !== "web" && CameraView) {
       return (
         <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -1026,7 +1098,6 @@ export default function ConfirmPodScreen() {
             style={{ flex: 1 }}
             onBarcodeScanned={({ data }) => {
               setCameraOpen(false);
-              setScannedBarcode(data);
               handleVerifyBarcode(data);
             }}
             barcodeScannerSettings={{ barcodeTypes: ["code128", "qr", "code39", "ean13", "code93"] }}
@@ -1040,7 +1111,7 @@ export default function ConfirmPodScreen() {
           <View style={{ position: "absolute", bottom: bottomPad + 48, left: 20, right: 20, alignItems: "center" }}>
             <View style={{ backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10 }}>
               <Text style={{ color: "#fff", fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "center" }}>
-                Point at the input item barcode label
+                Scan item barcode to add to selection
               </Text>
             </View>
           </View>
@@ -1051,268 +1122,286 @@ export default function ConfirmPodScreen() {
       );
     }
 
-    // Picker modal overlay
-    if (pickerOpen) {
-      return (
-        <View style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={[{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.card }]}>
-            <TouchableOpacity onPress={() => setPickerOpen(false)} style={{ marginRight: 12 }}>
-              <Feather name="x" size={22} color={colors.foreground} />
-            </TouchableOpacity>
-            <Text style={{ fontSize: 16, fontFamily: "Inter_600SemiBold", color: colors.foreground, flex: 1 }}>Select Input Item</Text>
-          </View>
-          {inputItemsLoading ? (
-            <ActivityIndicator color={colors.primary} style={{ marginTop: 48 }} />
-          ) : (
-            <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
-              {inputItems.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={{
-                    flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14,
-                    borderBottomWidth: 1, borderBottomColor: colors.border,
-                    backgroundColor: scannedItem?.id === item.id ? colors.primary + "10" : "transparent",
-                  }}
-                  onPress={() => {
-                    setScannedItem(item);
-                    setScannedBarcode(item.itemCode);
-                    setScanError(null);
-                    setPickerOpen(false);
-                  }}
-                >
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>{item.name}</Text>
-                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>
-                      {[item.category, item.unit, item.itemCode].filter(Boolean).join(" · ")}
-                    </Text>
-                  </View>
-                  {scannedItem?.id === item.id && <Feather name="check" size={18} color={colors.primary} />}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      );
-    }
-
     return (
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={[styles.root, { backgroundColor: colors.background }]}
-          contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <StepIndicator />
-
-          <TouchableOpacity
-            style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-            onPress={() => setStep("details")}
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[styles.content, { paddingBottom: canProceed ? bottomPad + 100 : bottomPad + 32 }]}
+            keyboardShouldPersistTaps="handled"
           >
-            <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
-            <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
-          </TouchableOpacity>
+            <StepIndicator />
 
-          {/* Instruction */}
-          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
-                <Feather name="package" size={20} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Select Input Item</Text>
-                <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
-                  Choose what is being delivered from the list, or scan the item barcode if available.
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Picker button */}
-          <View style={[styles.section, { backgroundColor: colors.card, borderColor: scannedItem ? colors.success + "60" : colors.border, borderRadius: colors.radius }]}>
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Input Item</Text>
             <TouchableOpacity
-              style={{
-                flexDirection: "row", alignItems: "center", gap: 10,
-                borderWidth: 1, borderColor: scannedItem ? colors.success + "60" : colors.border,
-                borderRadius: colors.radius, paddingHorizontal: 14, paddingVertical: 12,
-                backgroundColor: colors.muted,
-              }}
-              onPress={() => {
-                if (inputItems.length === 0) {
-                  setInputItemsLoading(true);
-                  listInputItems(token!)
-                    .then((items) => { setInputItems(items); setInputItemsLoading(false); setPickerOpen(true); })
-                    .catch(() => setInputItemsLoading(false));
-                } else {
-                  setPickerOpen(true);
-                }
-              }}
-              activeOpacity={0.8}
+              style={[styles.backBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
+              onPress={() => setStep("details")}
             >
-              {inputItemsLoading
-                ? <ActivityIndicator color={colors.primary} size="small" style={{ flex: 1 }} />
-                : <>
-                    <Feather name={scannedItem ? "check-circle" : "list"} size={18} color={scannedItem ? colors.success : colors.primary} />
-                    <Text style={{ flex: 1, fontSize: 14, fontFamily: scannedItem ? "Inter_600SemiBold" : "Inter_400Regular", color: scannedItem ? colors.foreground : colors.mutedForeground }}>
-                      {scannedItem ? scannedItem.name : "Tap to choose input item…"}
-                    </Text>
-                    {scannedItem
-                      ? <TouchableOpacity onPress={() => { setScannedItem(null); setScannedBarcode(""); setScanError(null); }}>
-                          <Feather name="x" size={16} color={colors.mutedForeground} />
-                        </TouchableOpacity>
-                      : <Feather name="chevron-down" size={16} color={colors.mutedForeground} />
-                    }
-                  </>
-              }
+              <Feather name="arrow-left" size={16} color={colors.mutedForeground} />
+              <Text style={[styles.backBtnText, { color: colors.mutedForeground }]}>Back</Text>
             </TouchableOpacity>
-            {scannedItem && (
-              <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 4 }}>
-                {[scannedItem.category, scannedItem.unit, scannedItem.itemCode].filter(Boolean).join(" · ")}
-              </Text>
-            )}
-          </View>
 
-          {/* OR — scan barcode / enter item code manually */}
-          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Or scan / enter item code</Text>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput
-                style={{
-                  flex: 1, height: 46, borderWidth: 1, borderColor: colors.border,
-                  borderRadius: colors.radius, paddingHorizontal: 12,
-                  fontSize: 14, fontFamily: "Inter_400Regular", color: colors.foreground,
-                  backgroundColor: colors.muted,
-                }}
-                value={scannedBarcode}
-                onChangeText={(v) => { setScannedBarcode(v); setScanError(null); if (!v) setScannedItem(null); }}
-                placeholder="ITEM-XXXXXX or barcode"
-                placeholderTextColor={colors.mutedForeground}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                returnKeyType="search"
-                onSubmitEditing={() => scannedBarcode.trim() && handleVerifyBarcode(scannedBarcode)}
-              />
-              {Platform.OS !== "web" && CameraView && (
-                <TouchableOpacity
-                  style={{
-                    width: 46, height: 46, borderWidth: 1, borderColor: colors.border,
-                    borderRadius: colors.radius, alignItems: "center", justifyContent: "center",
-                    backgroundColor: colors.muted,
-                  }}
-                  onPress={async () => {
-                    try {
-                      const cam = require("expo-camera");
-                      const { status } = await cam.Camera.requestCameraPermissionsAsync();
-                      if (status === "granted") setCameraOpen(true);
-                      else Alert.alert("Permission Required", "Camera access is needed to scan barcodes.");
-                    } catch {
-                      Alert.alert("Camera unavailable", "Use manual entry instead.");
-                    }
-                  }}
-                >
-                  <Feather name="camera" size={20} color={colors.primary} />
-                </TouchableOpacity>
-              )}
-            </View>
-            <TouchableOpacity
-              style={[styles.submitBtn, {
-                backgroundColor: !scannedBarcode.trim() || scanLoading ? colors.muted : colors.primary,
-                borderRadius: colors.radius, marginTop: 4,
-              }]}
-              onPress={() => handleVerifyBarcode(scannedBarcode)}
-              disabled={!scannedBarcode.trim() || scanLoading}
-              activeOpacity={0.85}
-            >
-              {scanLoading
-                ? <ActivityIndicator color={colors.primary} />
-                : <>
-                    <Feather name="search" size={17} color={!scannedBarcode.trim() ? colors.mutedForeground : "#fff"} />
-                    <Text style={[styles.submitBtnText, { color: !scannedBarcode.trim() ? colors.mutedForeground : "#fff" }]}>
-                      Look Up by Code
-                    </Text>
-                  </>
-              }
-            </TouchableOpacity>
-          </View>
-
-          {/* Verified result card */}
-          {scannedItem && (
-            <View style={[styles.section, { backgroundColor: colors.success + "12", borderColor: colors.success + "50", borderRadius: colors.radius }]}>
+            {/* Header */}
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Feather name="check-circle" size={22} color={colors.success} />
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
+                  <Feather name="package" size={20} color={colors.primary} />
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.success }}>{scannedItem.name}</Text>
-                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
-                    {[scannedItem.category, scannedItem.unit].filter(Boolean).join(" · ")}
-                    {" · "}<Text style={{ fontFamily: "Inter_500Medium" }}>{scannedItem.itemCode}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground }}>Select Items to Deliver</Text>
+                    {selectedCount > 0 && (
+                      <View style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#fff" }}>{selectedCount}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                    Tick all items the farmer is receiving and set quantity for each.
                   </Text>
                 </View>
               </View>
-              <TouchableOpacity
-                style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, marginTop: 4 }]}
-                onPress={proceedToOtp}
-                disabled={sendingOtp}
-                activeOpacity={0.85}
-              >
-                {sendingOtp
-                  ? <ActivityIndicator color="#fff" />
-                  : <>
-                      <Feather name="shield" size={17} color="#fff" />
-                      <Text style={styles.submitBtnText}>Continue to Verification</Text>
-                    </>
-                }
-              </TouchableOpacity>
             </View>
-          )}
 
-          {/* Not found warning */}
-          {scanError && !scannedItem && (
-            <View style={[styles.section, { backgroundColor: colors.warning + "12", borderColor: colors.warning + "50", borderRadius: colors.radius }]}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Feather name="alert-triangle" size={18} color={colors.warning} />
-                <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.warning }}>Item Not Found</Text>
+            {/* Search bar */}
+            <View style={{ paddingHorizontal: 0, marginBottom: 4 }}>
+              <View style={{
+                flexDirection: "row", alignItems: "center", gap: 8,
+                borderWidth: 1, borderColor: colors.border, borderRadius: colors.radius,
+                backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 10,
+              }}>
+                <Feather name="search" size={16} color={colors.mutedForeground} />
+                <TextInput
+                  style={{ flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", color: colors.foreground }}
+                  value={itemSearch}
+                  onChangeText={setItemSearch}
+                  placeholder="Search items…"
+                  placeholderTextColor={colors.mutedForeground}
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {itemSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setItemSearch("")}>
+                    <Feather name="x" size={16} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                )}
               </View>
-              <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground, lineHeight: 18 }}>
-                No input item matched <Text style={{ fontFamily: "Inter_600SemiBold" }}>{scannedBarcode}</Text>. You can continue without input verification — the record will note the barcode was not matched.
-              </Text>
+            </View>
+
+            {/* Item checklist */}
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, padding: 0, overflow: "hidden" }]}>
+              {inputItemsLoading ? (
+                <View style={{ padding: 24, alignItems: "center", gap: 10 }}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>Loading items…</Text>
+                </View>
+              ) : filteredItems.length === 0 ? (
+                <View style={{ padding: 24, alignItems: "center" }}>
+                  <Text style={{ fontSize: 14, fontFamily: "Inter_400Regular", color: colors.mutedForeground }}>
+                    {itemSearch ? "No items match your search." : "No input items available."}
+                  </Text>
+                </View>
+              ) : (
+                filteredItems.map((item, idx) => {
+                  const selected = !!selectedInputItems[item.id];
+                  const entry = selectedInputItems[item.id];
+                  return (
+                    <View key={item.id} style={{ borderBottomWidth: idx < filteredItems.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
+                      {/* Row */}
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: "row", alignItems: "center", gap: 12,
+                          paddingHorizontal: 16, paddingVertical: 14,
+                          backgroundColor: selected ? colors.primary + "08" : "transparent",
+                        }}
+                        onPress={() => toggleItem(item)}
+                        activeOpacity={0.7}
+                      >
+                        {/* Checkbox */}
+                        <View style={{
+                          width: 22, height: 22, borderRadius: 6,
+                          borderWidth: 2, borderColor: selected ? colors.primary : colors.border,
+                          backgroundColor: selected ? colors.primary : "transparent",
+                          alignItems: "center", justifyContent: "center",
+                        }}>
+                          {selected && <Feather name="check" size={13} color="#fff" />}
+                        </View>
+                        {/* Item info */}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: selected ? colors.primary : colors.foreground }}>
+                            {item.name}
+                          </Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }}>
+                            {[item.category, item.unit, item.itemCode].filter(Boolean).join(" · ")}
+                          </Text>
+                        </View>
+                        {selected && (
+                          <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: colors.primary }}>
+                            {entry.qty || "0"}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                      {/* Inline qty stepper — only when checked */}
+                      {selected && (
+                        <View style={{
+                          flexDirection: "row", alignItems: "center", gap: 8,
+                          paddingHorizontal: 16, paddingBottom: 12, paddingTop: 2,
+                          backgroundColor: colors.primary + "08",
+                        }}>
+                          <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.mutedForeground, flex: 1 }}>
+                            Quantity {item.unit ? `(${item.unit})` : ""}:
+                          </Text>
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                            onPress={() => setSelectedInputItems(prev => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], qty: String(Math.max(0, Number(prev[item.id]?.qty ?? 1) - 1)) },
+                            }))}
+                          >
+                            <Feather name="minus" size={15} color={colors.foreground} />
+                          </TouchableOpacity>
+                          <TextInput
+                            style={[styles.qtyInput, { borderColor: colors.border, color: colors.foreground, borderRadius: colors.radius, width: 56 }]}
+                            value={entry.qty}
+                            onChangeText={v => setSelectedInputItems(prev => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], qty: v },
+                            }))}
+                            keyboardType="numeric"
+                            textAlign="center"
+                          />
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}
+                            onPress={() => setSelectedInputItems(prev => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], qty: String(Number(prev[item.id]?.qty ?? 0) + 1) },
+                            }))}
+                          >
+                            <Feather name="plus" size={15} color={colors.foreground} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+
+            {/* Barcode scan to add item */}
+            <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Or add by barcode / item code</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  style={{
+                    flex: 1, height: 46, borderWidth: 1, borderColor: colors.border,
+                    borderRadius: colors.radius, paddingHorizontal: 12,
+                    fontSize: 14, fontFamily: "Inter_400Regular", color: colors.foreground,
+                    backgroundColor: colors.muted,
+                  }}
+                  value={scannedBarcode}
+                  onChangeText={v => { setScannedBarcode(v); setScanError(null); }}
+                  placeholder="ITEM-XXXXXX or barcode"
+                  placeholderTextColor={colors.mutedForeground}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  onSubmitEditing={() => scannedBarcode.trim() && handleVerifyBarcode(scannedBarcode)}
+                />
+                {Platform.OS !== "web" && CameraView && (
+                  <TouchableOpacity
+                    style={{
+                      width: 46, height: 46, borderWidth: 1, borderColor: colors.border,
+                      borderRadius: colors.radius, alignItems: "center", justifyContent: "center",
+                      backgroundColor: colors.muted,
+                    }}
+                    onPress={async () => {
+                      try {
+                        const cam = require("expo-camera");
+                        const { status } = await cam.Camera.requestCameraPermissionsAsync();
+                        if (status === "granted") setCameraOpen(true);
+                        else Alert.alert("Permission Required", "Camera access is needed to scan barcodes.");
+                      } catch {
+                        Alert.alert("Camera unavailable", "Use manual entry instead.");
+                      }
+                    }}
+                  >
+                    <Feather name="camera" size={20} color={colors.primary} />
+                  </TouchableOpacity>
+                )}
+              </View>
               <TouchableOpacity
-                style={[styles.submitBtn, { backgroundColor: colors.warning, borderRadius: colors.radius, marginTop: 4 }]}
-                onPress={proceedToOtp}
-                disabled={sendingOtp}
+                style={[styles.submitBtn, {
+                  backgroundColor: !scannedBarcode.trim() || scanLoading ? colors.muted : colors.primary,
+                  borderRadius: colors.radius, marginTop: 4,
+                }]}
+                onPress={() => handleVerifyBarcode(scannedBarcode)}
+                disabled={!scannedBarcode.trim() || scanLoading}
                 activeOpacity={0.85}
               >
-                {sendingOtp
-                  ? <ActivityIndicator color="#fff" />
+                {scanLoading
+                  ? <ActivityIndicator color={colors.primary} />
                   : <>
-                      <Feather name="arrow-right" size={17} color="#fff" />
-                      <Text style={styles.submitBtnText}>Continue Anyway</Text>
+                      <Feather name="plus-circle" size={17} color={!scannedBarcode.trim() ? colors.mutedForeground : "#fff"} />
+                      <Text style={[styles.submitBtnText, { color: !scannedBarcode.trim() ? colors.mutedForeground : "#fff" }]}>
+                        Add Item by Code
+                      </Text>
                     </>
                 }
               </TouchableOpacity>
+              {scanError && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
+                  <Feather name="alert-triangle" size={14} color={colors.warning} />
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.warning, flex: 1 }}>{scanError}</Text>
+                </View>
+              )}
             </View>
-          )}
 
-          {/* Skip link */}
-          {!scannedItem && !scanError && (
+            {/* Skip link */}
             <TouchableOpacity
               style={{ alignItems: "center", paddingVertical: 12 }}
               onPress={handleSkipScan}
               disabled={sendingOtp}
             >
               <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
-                Skip scan — proceed without input verification
+                Skip — proceed without selecting items
               </Text>
             </TouchableOpacity>
-          )}
 
-          {dispatchId && (
-            <View style={[styles.dispatchBadge, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
-              <Feather name="truck" size={14} color={colors.mutedForeground} />
-              <Text style={[styles.dispatchText, { color: colors.mutedForeground }]}>Dispatch #{dispatchId}</Text>
-            </View>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+            {dispatchId && (
+              <View style={[styles.dispatchBadge, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+                <Feather name="truck" size={14} color={colors.mutedForeground} />
+                <Text style={[styles.dispatchText, { color: colors.mutedForeground }]}>Dispatch #{dispatchId}</Text>
+              </View>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* Sticky footer — Continue button */}
+        {canProceed && (
+          <View style={{
+            position: "absolute", bottom: 0, left: 0, right: 0,
+            backgroundColor: colors.background,
+            borderTopWidth: 1, borderTopColor: colors.border,
+            paddingHorizontal: 16, paddingTop: 12, paddingBottom: bottomPad + 12,
+          }}>
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
+              onPress={proceedToOtp}
+              disabled={sendingOtp}
+              activeOpacity={0.85}
+            >
+              {sendingOtp
+                ? <ActivityIndicator color="#fff" />
+                : <>
+                    <Feather name="shield" size={17} color="#fff" />
+                    <Text style={styles.submitBtnText}>
+                      Continue to Verification · {selectedCount} item{selectedCount !== 1 ? "s" : ""}
+                    </Text>
+                  </>
+              }
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
     );
   }
 
@@ -1436,6 +1525,17 @@ export default function ConfirmPodScreen() {
                     <Feather name="package" size={14} color={colors.mutedForeground} />
                     <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>
                       {item.inputItemName ?? `Item #${item.inputItemId}`}: {itemQtys[item.inputItemId!] ?? 0} {item.unit ?? ""}
+                    </Text>
+                  </View>
+                ))
+            ) : Object.keys(selectedInputItems).length > 0 ? (
+              Object.values(selectedInputItems)
+                .filter(v => Number(v.qty) > 0)
+                .map(v => (
+                  <View key={v.item.id} style={styles.summaryRow}>
+                    <Feather name="package" size={14} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryText, { color: colors.mutedForeground }]}>
+                      {v.item.name}: {v.qty} {v.item.unit ?? ""}
                     </Text>
                   </View>
                 ))
