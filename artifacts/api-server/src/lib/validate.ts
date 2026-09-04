@@ -57,9 +57,11 @@ export const PodSubmitSchema = z.object({
 
 export const OtpSendSchema = z.object({
   farmerId: z.number().int().positive(),
+  dispatchId: z.number().int().positive(),
 });
 
 export const OtpVerifySchema = z.object({
   farmerId: z.number().int().positive(),
   code: z.string().length(6).regex(/^\d{6}$/),
+  dispatchId: z.number().int().positive(),
 });

@@ -234,10 +234,10 @@ export const sendOtp = (
     body: JSON.stringify({ farmerId, ...opts }),
   });
 
-export const verifyOtp = (token: string, farmerId: number, code: string) =>
-  apiFetch<{ verified: boolean; error?: string }>("/pod/otp/verify", token, {
+export const verifyOtp = (token: string, farmerId: number, code: string, dispatchId: number) =>
+  apiFetch<{ verified: boolean; verificationToken?: string; error?: string }>("/pod/otp/verify", token, {
     method: "POST",
-    body: JSON.stringify({ farmerId, code }),
+    body: JSON.stringify({ farmerId, code, dispatchId }),
   });
 
 export const getOtpStatus = (token: string) =>
@@ -249,7 +249,7 @@ export const bypassOtp = (
   dispatchId?: number,
   reason?: string
 ) =>
-  apiFetch<{ bypassed: boolean; reason: string; farmerId: number }>(
+  apiFetch<{ bypassed: boolean; reason: string; farmerId: number; verificationToken?: string }>(
     "/pod/otp/bypass",
     token,
     { method: "POST", body: JSON.stringify({ farmerId, dispatchId, reason }) }
@@ -266,6 +266,7 @@ export interface FaceCompareResult {
   similarity: number | null;
   reason: string;
   faceStatus: "Verified" | "Failed" | "NoFace" | "NoReference" | "Error";
+  verificationToken?: string;
   detail?: string;
 }
 
@@ -275,16 +276,16 @@ export const getFaceUploadUrl = (token: string, farmerId: number, purpose: "refe
     body: JSON.stringify({ farmerId, purpose }),
   });
 
-export const compareFace = (token: string, farmerId: number, deliveryKey: string) =>
+export const compareFace = (token: string, farmerId: number, deliveryKey: string, dispatchId: number) =>
   apiFetch<FaceCompareResult>("/face/compare", token, {
     method: "POST",
-    body: JSON.stringify({ farmerId, deliveryKey }),
+    body: JSON.stringify({ farmerId, deliveryKey, dispatchId }),
   });
 
-export const saveFaceReference = (token: string, farmerId: number, key: string) =>
+export const saveFaceReference = (token: string, farmerId: number, key: string, dispatchId: number) =>
   apiFetch<{ success: boolean; photoUrl: string }>("/face/save-reference", token, {
     method: "POST",
-    body: JSON.stringify({ farmerId, key }),
+    body: JSON.stringify({ farmerId, key, dispatchId }),
   });
 
 export interface PodPhotoUploadResult {
@@ -293,10 +294,10 @@ export interface PodPhotoUploadResult {
   bucket: string;
 }
 
-export const getPodPhotoUploadUrl = (token: string, farmerId: number, photoIndex: number) =>
+export const getPodPhotoUploadUrl = (token: string, farmerId: number, dispatchId: number, photoIndex: number) =>
   apiFetch<PodPhotoUploadResult>("/pod/photo-upload-url", token, {
     method: "POST",
-    body: JSON.stringify({ farmerId, photoIndex }),
+    body: JSON.stringify({ farmerId, dispatchId, photoIndex }),
   });
 
 export const getIdentifyUploadUrl = (token: string) =>

@@ -105,6 +105,15 @@ const RESEND_SECONDS = 60;
 
 type Step = "details" | "scan" | "otp" | "photos" | "face" | "result";
 
+function generateSubmissionKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 interface DeliveryPhoto {
   label: string;
   uri: string | null;
@@ -143,6 +152,8 @@ export default function ConfirmPodScreen() {
   const navigation = useNavigation();
 
   const [step, setStep] = useState<Step>("details");
+  // Kept for this delivery screen's lifetime so retries and offline saves match.
+  const submissionKey = useRef(generateSubmissionKey()).current;
 
   // Details
   const [quantity, setQuantity] = useState("1");
@@ -162,6 +173,7 @@ export default function ConfirmPodScreen() {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(0);
   const [verifiedOtpCode, setVerifiedOtpCode] = useState<string | null>(null);
+  const [otpVerificationToken, setOtpVerificationToken] = useState<string | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [otpBypassed, setOtpBypassed] = useState(false);
 
@@ -174,6 +186,7 @@ export default function ConfirmPodScreen() {
   const [facePhotoUri, setFacePhotoUri] = useState<string | null>(null);
   const [facePhotoKey, setFacePhotoKey] = useState<string | null>(null);
   const [faceResult, setFaceResult] = useState<FaceCompareResult | null>(null);
+  const [faceVerificationToken, setFaceVerificationToken] = useState<string | null>(null);
   const [faceLoading, setFaceLoading] = useState(false);
   const [faceError, setFaceError] = useState<string | null>(null);
 
@@ -347,12 +360,13 @@ export default function ConfirmPodScreen() {
           onPress: async () => {
             let auditFailed = false;
             try {
-              await bypassOtp(
+              const bypass = await bypassOtp(
                 token!,
                 Number(farmerId),
                 dispatchId ? Number(dispatchId) : undefined,
                 reason
               );
+              setOtpVerificationToken(bypass.verificationToken ?? null);
             } catch {
               auditFailed = true;
             }
@@ -395,10 +409,12 @@ export default function ConfirmPodScreen() {
     setVerifying(true);
     setOtpError(null);
     try {
-      const result = await verifyOtp(token!, Number(farmerId), enteredCode);
+      if (!dispatchId) { setOtpError("A dispatch is required for OTP verification."); return; }
+      const result = await verifyOtp(token!, Number(farmerId), enteredCode, Number(dispatchId));
       if (result.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setVerifiedOtpCode(enteredCode);
+        setOtpVerificationToken(result.verificationToken ?? null);
         setFacePhotoUri(null);
         setFaceResult(null);
         setFaceError(null);
@@ -445,13 +461,15 @@ export default function ConfirmPodScreen() {
       const uploadInfo = await getFaceUploadUrl(token!, Number(farmerId), "delivery");
       await uploadPhotoToS3(uploadInfo.uploadUrl, uri);
       setFacePhotoKey(uploadInfo.key);
-      const result = await compareFace(token!, Number(farmerId), uploadInfo.key);
+      if (!dispatchId) throw new Error("A dispatch is required for face verification.");
+      const result = await compareFace(token!, Number(farmerId), uploadInfo.key, Number(dispatchId));
+      setFaceVerificationToken(result.verificationToken ?? null);
 
       // When no reference photo exists, save this delivery photo as the reference
       // so all future deliveries compare against it.
       if (result.faceStatus === "NoReference") {
         try {
-          await saveFaceReference(token!, Number(farmerId), uploadInfo.key);
+          await saveFaceReference(token!, Number(farmerId), uploadInfo.key, Number(dispatchId));
         } catch (refErr) {
           // Non-fatal — log but don't block the flow
           console.warn("Could not save reference photo:", refErr);
@@ -527,7 +545,7 @@ export default function ConfirmPodScreen() {
       i === index ? { ...p, uri, key: null, uploading: true, error: null, gps: photoGps } : p
     ));
     try {
-      const uploadInfo = await getPodPhotoUploadUrl(token!, Number(farmerId), index);
+      const uploadInfo = await getPodPhotoUploadUrl(token!, Number(farmerId), Number(dispatchId), index);
       await uploadPhotoToS3(uploadInfo.uploadUrl, uri);
       setDeliveryPhotos(prev => prev.map((p, i) =>
         i === index ? { ...p, key: uploadInfo.key, uploading: false } : p
@@ -561,6 +579,7 @@ export default function ConfirmPodScreen() {
       : Number(quantity);
 
     return {
+      submissionKey,
       farmerId: Number(farmerId),
       ...(farmerName ? { farmerName } : {}),
       ...(dispatchId ? { dispatchId: Number(dispatchId) } : {}),
@@ -571,15 +590,13 @@ export default function ConfirmPodScreen() {
             ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
           }
       ),
-      otpStatus,
-      faceStatus,
+      ...(otpVerificationToken ? { otpVerificationToken } : {}),
+      ...(faceVerificationToken ? { faceVerificationToken } : {}),
       ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
-      ...(verifiedOtpCode ? { otpCode: verifiedOtpCode } : {}),
       photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
       photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
       ...(facePhotoKey ? { facePhotoKey } : {}),
-      ...(faceResult?.similarity != null ? { faceSimilarity: faceResult.similarity } : {}),
       ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
     };
   };

@@ -443,6 +443,14 @@ function generatePodCode() {
   const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
   return `POD-${ts}${rnd}`;
 }
+export function generateSubmissionKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export async function createFarmer(payload: any) {
   const userId = await intUid();
@@ -1316,6 +1324,7 @@ export async function createPod(payload: any) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       farmerId: Number(payload.farmerId),
+      submissionKey: payload.submissionKey ?? undefined,
       dispatchId: payload.dispatchId ?? undefined,
       campaignId: payload.campaignId ?? undefined,
       inputItemId: payload.inputItemId ?? undefined,
@@ -1323,6 +1332,8 @@ export async function createPod(payload: any) {
       quantityDelivered: payload.quantityDelivered != null ? Number(payload.quantityDelivered) : undefined,
       items,
       notes: payload.notes ?? undefined,
+      otpVerificationToken: payload.otpVerificationToken ?? undefined,
+      faceVerificationToken: payload.faceVerificationToken ?? undefined,
       otpStatus: payload.otpStatus ?? "Pending",
       otpVerified: payload.otpVerified,
       faceStatus: payload.faceStatus ?? "Pending",
@@ -1403,14 +1414,14 @@ export async function listDispatchFarmers(dispatchId: number): Promise<{
   return apiGet(`/api/dispatch/${dispatchId}/farmers`);
 }
 
-export async function verifyOtp(farmerId: number, code: string): Promise<{ verified: boolean }> {
-  return apiPost("/api/pod/otp/verify", { farmerId, code });
+export async function verifyOtp(farmerId: number, code: string, dispatchId: number): Promise<{ verified: boolean; verificationToken?: string }> {
+  return apiPost("/api/pod/otp/verify", { farmerId, code, dispatchId });
 }
 
 export async function bypassOtp(
   farmerId: number,
   opts?: { dispatchId?: number; reason?: string },
-): Promise<{ bypassed: boolean; reason: string }> {
+): Promise<{ bypassed: boolean; reason: string; verificationToken?: string }> {
   return apiPost("/api/pod/otp/bypass", { farmerId, ...opts });
 }
 

@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { supa } from "../lib/supabase.js";
-import { requireAnyAuth } from "../lib/auth.js";
+import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
+import { canReadDispatch } from "../lib/dispatch-auth.js";
 
 const router = Router();
 
@@ -22,6 +23,33 @@ function maskPhone(phone: string): string {
 
 function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
+}
+async function mintProof(kind: "otp", farmerId: number, dispatchId: number, status: string): Promise<string> {
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = hashCode(token);
+  const { error } = await supa.from("pod_verification_proofs").insert({
+    token_hash: tokenHash, kind, farmer_id: farmerId, dispatch_id: dispatchId, status,
+    // One-use and resource-bound, but long enough for an offline queue replay.
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  if (error) throw new Error(`Unable to issue verification proof: ${error.message}`);
+  return token;
+}
+async function canUseFarmerOnDispatch(
+  req: import("express").Request,
+  dispatchId: number,
+  farmerId: number,
+): Promise<boolean> {
+  const { data } = await supa.from("dispatches").select("field_officer_id,campaign_id").eq("id", dispatchId).maybeSingle();
+  if (!data || !(await canReadDispatch(req, data as any))) return false;
+  const { data: allocation } = await supa.from("allocations")
+    .select("id")
+    .eq("campaign_id", (data as any).campaign_id)
+    .eq("farmer_id", farmerId)
+    .in("status", ["Approved", "Pending"])
+    .limit(1)
+    .maybeSingle();
+  return !!allocation;
 }
 
 async function sendViaEasySendSms(to: string, text: string): Promise<void> {
@@ -118,11 +146,14 @@ setInterval(async () => {
 }, 15 * 60 * 1000);
 
 router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), async (req, res) => {
-  const { farmerId } = req.body as { farmerId: number };
-  const { campaignId: rawCampaignId, dispatchId: rawDispatchId } = req.body as {
-    campaignId?: number;
-    dispatchId?: number;
+  const { farmerId, dispatchId: rawDispatchId } = req.body as {
+    farmerId: number;
+    dispatchId: number;
   };
+  if (!(await canUseFarmerOnDispatch(req, rawDispatchId, farmerId))) {
+    res.status(403).json({ error: "Forbidden", message: "You may not send OTP for this farmer and dispatch" });
+    return;
+  }
 
   const { data: farmer, error: farmerErr } = await supa
     .from("farmers")
@@ -156,15 +187,12 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
   }
 
   // Resolve campaignId (from body or via dispatch lookup)
-  let campaignId: number | null = rawCampaignId ? Number(rawCampaignId) : null;
-  if (!campaignId && rawDispatchId) {
-    const { data: disp } = await supa
-      .from("dispatches")
-      .select("campaign_id")
-      .eq("id", Number(rawDispatchId))
-      .single();
-    campaignId = (disp as any)?.campaign_id ?? null;
-  }
+  const { data: disp } = await supa
+    .from("dispatches")
+    .select("campaign_id")
+    .eq("id", rawDispatchId)
+    .single();
+  const campaignId: number | null = (disp as any)?.campaign_id ?? null;
 
   // Build item list for SMS:
   //   If we have a dispatchId → use dispatch_items (actual loaded quantities)
@@ -251,7 +279,11 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
 });
 
 router.post("/api/pod/otp/verify", requireAnyAuth, validateBody(OtpVerifySchema), async (req, res) => {
-  const { farmerId, code } = req.body as { farmerId: number; code: string };
+  const { farmerId, code, dispatchId } = req.body as { farmerId: number; code: string; dispatchId: number };
+  if (!(await canUseFarmerOnDispatch(req, Number(dispatchId), Number(farmerId)))) {
+    res.status(403).json({ error: "Forbidden", message: "You may not verify OTP for this dispatch" });
+    return;
+  }
 
   const entry = await dbGetActive(Number(farmerId));
   if (!entry) {
@@ -287,7 +319,8 @@ router.post("/api/pod/otp/verify", requireAnyAuth, validateBody(OtpVerifySchema)
   }
 
   await dbDeleteCode(e.id);
-  res.json({ verified: true });
+  const verificationToken = await mintProof("otp", Number(farmerId), Number(dispatchId), "Verified");
+  res.json({ verified: true, verificationToken });
 });
 
 router.get("/api/pod/otp/status", requireAnyAuth, async (req, res) => {
@@ -303,7 +336,7 @@ router.get("/api/pod/otp/status", requireAnyAuth, async (req, res) => {
 // ── POST /api/pod/otp/bulk-generate ──────────────────────────────────────────
 // Pre-generate OTP codes for field trials (no SMS sent).
 // Returns plain codes so admins can print/distribute them.
-router.post("/api/pod/otp/bulk-generate", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/otp/bulk-generate", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { campaignId, expiryHours = 24 } = req.body as {
     campaignId?: number;
     expiryHours?: number;
@@ -374,7 +407,7 @@ router.post("/api/pod/otp/bulk-generate", requireAnyAuth, async (req, res) => {
   });
 });
 
-router.post("/api/pod/otp/bypass", requireAnyAuth, async (req, res) => {
+router.post("/api/pod/otp/bypass", requireAnyAuth, requireRoleIfJwt("FieldOfficer", "Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const { farmerId, dispatchId, reason } = req.body as {
     farmerId: number;
     dispatchId?: number;
@@ -383,6 +416,14 @@ router.post("/api/pod/otp/bypass", requireAnyAuth, async (req, res) => {
 
   if (!farmerId) {
     res.status(400).json({ error: "farmerId is required" });
+    return;
+  }
+  if (!dispatchId) {
+    res.status(400).json({ error: "dispatchId is required for OTP bypass" });
+    return;
+  }
+  if (!(await canUseFarmerOnDispatch(req, Number(dispatchId), Number(farmerId)))) {
+    res.status(403).json({ error: "Forbidden", message: "You may not bypass OTP for this dispatch" });
     return;
   }
 
@@ -396,7 +437,12 @@ router.post("/api/pod/otp/bypass", requireAnyAuth, async (req, res) => {
   const description = `OTP bypassed for farmer #${farmerId}${dispatchId ? `, dispatch #${dispatchId}` : ""}. Reason: ${bypassReason}`;
   await logAudit(req, "OTP_BYPASS", "PoD", description, "farmer", Number(farmerId));
 
-  res.json({ bypassed: true, reason: bypassReason, farmerId });
+  try {
+    const verificationToken = await mintProof("otp", Number(farmerId), Number(dispatchId), "Bypassed");
+    res.json({ bypassed: true, reason: bypassReason, farmerId, verificationToken });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Unable to record OTP bypass proof" });
+  }
 });
 
 export default router;

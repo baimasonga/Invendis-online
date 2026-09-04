@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, KEYS, farmerDisplayName } from "@/lib/db";
+import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, generateSubmissionKey, KEYS, farmerDisplayName } from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -49,6 +49,8 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const { toast } = useToast();
 
   const [step, setStep] = useState<Step>("details");
+  // This identifies the in-progress delivery, not an individual HTTP attempt.
+  const [submissionKey, setSubmissionKey] = useState(generateSubmissionKey);
 
   const [farmerId, setFarmerId]     = useState("");
   const [dispatchId, setDispatchId] = useState(prefilledDispatchId ? String(prefilledDispatchId) : "");
@@ -59,6 +61,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   const [otpSent, setOtpSent]       = useState(false);
   const [otpCode, setOtpCode]       = useState("");
   const [otpVerified, setOtpVerified] = useState(false);
+  const [otpVerificationToken, setOtpVerificationToken] = useState<string | null>(null);
   const [otpBypassed, setOtpBypassed] = useState(false);
   const [otpBypassReason, setOtpBypassReason] = useState("");
   const [otpMaskedPhone, setOtpMaskedPhone] = useState("");
@@ -98,6 +101,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
 
   function reset() {
     setStep("details");
+    setSubmissionKey(generateSubmissionKey());
     setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
     setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpBypassed(false);
@@ -142,8 +146,10 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setOtpVerifying(true);
     setOtpError("");
     try {
-      await verifyOtp(Number(farmerId), otpCode.trim());
+      if (!dispatchId) throw new Error("Select a dispatch before verifying OTP.");
+      const result = await verifyOtp(Number(farmerId), otpCode.trim(), Number(dispatchId));
       setOtpVerified(true);
+      setOtpVerificationToken(result.verificationToken ?? null);
     } catch (e: any) {
       setOtpError(e.message);
     } finally {
@@ -154,10 +160,12 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   async function handleOtpBypass() {
     if (!otpBypassReason.trim()) return;
     try {
-      await bypassOtp(Number(farmerId), {
-        dispatchId: dispatchId ? Number(dispatchId) : undefined,
+      if (!dispatchId) throw new Error("Select a dispatch before bypassing OTP.");
+      const result = await bypassOtp(Number(farmerId), {
+        dispatchId: Number(dispatchId),
         reason: otpBypassReason.trim(),
       });
+      setOtpVerificationToken(result.verificationToken ?? null);
       trackEvent("pod_otp_bypass_recorded");
     } catch {
       // Non-fatal: bypass is recorded locally even if the audit call fails
@@ -227,12 +235,14 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     ].filter(Boolean).join(" | ");
 
     try {
-      await submitMutation.mutateAsync({
+      const submitted = await submitMutation.mutateAsync({
+        submissionKey,
         farmerId: Number(farmerId),
         dispatchId: dispatchId ? Number(dispatchId) : undefined,
         campaignId: selectedDispatch?.campaignId ?? undefined,
         quantityDelivered: Number(qty),
         notes: bypassNotes || undefined,
+        ...(otpVerificationToken ? { otpVerificationToken } : {}),
         otpStatus,
         faceStatus,
         photoUrl,
@@ -243,11 +253,14 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
       });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       trackEvent("pod_submitted", {
-        otp_status: otpStatus.toLowerCase(),
-        face_status: faceStatus.toLowerCase(),
+        otp_status: String(submitted?.otpStatus ?? "pending").toLowerCase(),
+        face_status: String(submitted?.faceStatus ?? "pending").toLowerCase(),
         gps_captured: gpsLat !== null && gpsLng !== null,
       });
-      toast({ title: "Delivery recorded", description: `PoD submitted — OTP: ${otpStatus}, Face: ${faceStatus}` });
+      toast({
+        title: "Delivery recorded",
+        description: `PoD submitted — OTP: ${submitted?.otpStatus ?? "Pending"}, Face: ${submitted?.faceStatus ?? "Pending"}`,
+      });
       reset();
       onClose();
     } catch (err: any) {

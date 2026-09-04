@@ -2,11 +2,40 @@ import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { districtCoords, DISTRICT_GEOFENCE_RADIUS_M } from "../lib/district-coords.js";
 import { bucket } from "../lib/aws.js";
 import { generateProxyUploadUrl } from "../lib/auth.js";
 import { sendSms } from "../lib/sms.js";
+import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
+
+const OPERATIONAL_ROLES = ["FieldOfficer", "Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"];
+
+function actorRole(req: import("express").Request): string {
+  return (req.user?.role ?? req.supabaseUser?.role ?? "").toLowerCase();
+}
+
+async function activeOperationalUserId(req: import("express").Request): Promise<number | null> {
+  const id = await resolveUserId(req);
+  if (!id) return null;
+  const { data } = await supa.from("users").select("id,is_active").eq("id", id).maybeSingle();
+  return (data as any)?.is_active === true || (data as any)?.is_active === 1 ? id : null;
+}
+
+async function canReadPod(req: import("express").Request, pod: any): Promise<boolean> {
+  const scope = await getDispatchReadScope(req);
+  if (scope.unrestricted) return true;
+  if (scope.fieldOfficerId !== undefined) return Number(pod.field_officer_id) === scope.fieldOfficerId;
+  return !!pod.campaign_id && (scope.campaignIds ?? []).includes(Number(pod.campaign_id));
+}
+
+async function loadAuthorizedPod(req: import("express").Request, podId: number): Promise<any | null> {
+  const { data } = await supa.from("pod")
+    .select("id,status,campaign_id,dispatch_id,field_officer_id")
+    .eq("id", podId)
+    .maybeSingle();
+  return data && await canReadPod(req, data) ? data : null;
+}
 
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
@@ -36,6 +65,11 @@ router.get("/api/pod", requireAnyAuth, async (req, res) => {
     "*, farmers(first_name, last_name, farmer_group, beneficiary_type, group_size, photo_url), pod_items(id, input_item_id, quantity_delivered, input_items(name, unit, category))",
     { count: "exact" }
   ).order("created_at", { ascending: false }).range(offset, offset + Number(limit) - 1);
+  const scope = await getDispatchReadScope(req);
+  if (!scope.unrestricted) {
+    if (scope.fieldOfficerId !== undefined) q = q.eq("field_officer_id", scope.fieldOfficerId) as typeof q;
+    else q = q.in("campaign_id", scope.campaignIds ?? []) as typeof q;
+  }
   if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (dispatchId) q = q.eq("dispatch_id", Number(dispatchId)) as typeof q;
   if (status) q = q.eq("status", status) as typeof q;
@@ -69,8 +103,14 @@ router.get("/api/pod", requireAnyAuth, async (req, res) => {
   res.json({ data: snakeToCamel(flat), total: count ?? 0, page: Number(page), limit: Number(limit) });
 });
 
-router.get("/api/pod/stats", requireAuth, async (_req, res) => {
-  const { data } = await supa.from("pod").select("status");
+router.get("/api/pod/stats", requireAnyAuth, async (req, res) => {
+  let q = supa.from("pod").select("status");
+  const scope = await getDispatchReadScope(req);
+  if (!scope.unrestricted) {
+    if (scope.fieldOfficerId !== undefined) q = q.eq("field_officer_id", scope.fieldOfficerId);
+    else q = q.in("campaign_id", scope.campaignIds ?? []);
+  }
+  const { data } = await q;
   const rows = data ?? [];
   res.json({
     total: rows.length,
@@ -80,11 +120,12 @@ router.get("/api/pod/stats", requireAuth, async (_req, res) => {
   });
 });
 
-router.get("/api/pod/:id", requireAuth, async (req, res) => {
+router.get("/api/pod/:id", requireAnyAuth, async (req, res) => {
   const { data: rows, error } = await supa.from("pod")
     .select("*, pod_items(id, input_item_id, quantity_delivered, input_items(name, unit, category))")
     .eq("id", Number(req.params.id)).limit(1);
   if (error || !rows?.length) { res.status(404).json({ error: "Not found" }); return; }
+  if (!(await canReadPod(req, rows[0]))) { res.status(404).json({ error: "Not found" }); return; }
   const { pod_items, ...rest } = rows[0] as any;
   const result = {
     ...rest,
@@ -101,6 +142,15 @@ router.get("/api/pod/:id", requireAuth, async (req, res) => {
 });
 
 router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) => {
+  if (!OPERATIONAL_ROLES.map(r => r.toLowerCase()).includes(actorRole(req))) {
+    res.status(403).json({ error: "Forbidden", message: "An operational role is required to submit PoD" });
+    return;
+  }
+  const fieldOfficerId = await activeOperationalUserId(req);
+  if (fieldOfficerId === null) {
+    res.status(403).json({ error: "Your account is not linked to an active operational user" });
+    return;
+  }
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
   // Whitelist allowed fields — never spread req.body directly to prevent mass-assignment attacks
   const raw = req.body as Record<string, any>;
@@ -112,7 +162,7 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
 
   const body: Record<string, any> = {
     dispatch_id:       raw.dispatchId      != null ? Number(raw.dispatchId)      : null,
-    campaign_id:       raw.campaignId      != null ? Number(raw.campaignId)      : null,
+    campaign_id:       null,
     farmer_id:         raw.farmerId        != null ? Number(raw.farmerId)        : null,
     // For multi-item: use first item id; for single item: use inputItemId directly
     input_item_id:     raw.inputItemId     != null ? Number(raw.inputItemId)
@@ -124,17 +174,54 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
                        : raw.quantityDelivered != null ? Number(raw.quantityDelivered) : null,
     farmer_latitude:   raw.farmerLatitude  != null ? Number(raw.farmerLatitude)  : null,
     farmer_longitude:  raw.farmerLongitude != null ? Number(raw.farmerLongitude) : null,
-    face_status:       raw.faceStatus      ?? null,
-    face_similarity:   raw.faceSimilarity  != null ? Number(raw.faceSimilarity)  : null,
     face_photo_key:    raw.facePhotoKey    ?? null,
     photo_keys:        Array.isArray(raw.photoKeys) ? raw.photoKeys : null,
     photo_gps_coords:  Array.isArray(raw.photoGpsCoords) ? raw.photoGpsCoords : null,
     notes:             raw.notes           ?? null,
     override_reason:   raw.overrideReason  ?? null,
-    otp_status:        raw.otpStatus       ?? null,
-    otp_verified:      raw.otpVerified === true || raw.otpStatus === "Verified",
-    otp_code:          raw.otpCode         ?? null,
+    otp_verification_hash: typeof raw.otpVerificationToken === "string" ? createHash("sha256").update(raw.otpVerificationToken).digest("hex") : null,
+    face_verification_hash: typeof raw.faceVerificationToken === "string" ? createHash("sha256").update(raw.faceVerificationToken).digest("hex") : null,
+    submission_key:    typeof raw.submissionKey === "string" && raw.submissionKey.trim() ? raw.submissionKey.trim().slice(0, 128) : null,
   };
+  if (!body.dispatch_id) {
+    res.status(400).json({ error: "dispatchId is required for PoD submission" });
+    return;
+  }
+  const { data: authorizedDispatch, error: dispatchError } = await supa
+    .from("dispatches").select("id,campaign_id,field_officer_id").eq("id", body.dispatch_id).maybeSingle();
+  if (dispatchError || !authorizedDispatch) { res.status(404).json({ error: "Dispatch not found" }); return; }
+  if (!(await canReadDispatch(req, authorizedDispatch as any))) {
+    res.status(403).json({ error: "Forbidden", message: "You may not submit to this dispatch" });
+    return;
+  }
+  body.campaign_id = Number((authorizedDispatch as any).campaign_id);
+  const { data: allocation } = await supa.from("allocations")
+    .select("id")
+    .eq("campaign_id", body.campaign_id)
+    .eq("farmer_id", body.farmer_id)
+    .in("status", ["Approved", "Pending"])
+    .limit(1)
+    .maybeSingle();
+  if (!allocation) {
+    res.status(403).json({
+      error: "Forbidden",
+      message: "This farmer is not eligible for delivery on the dispatch campaign",
+    });
+    return;
+  }
+  if (body.submission_key) {
+    const { data: existing, error: existingError } = await supa.from("pod")
+      .select("*").eq("submission_key", body.submission_key).maybeSingle();
+    if (existingError) { res.status(500).json({ error: existingError.message }); return; }
+    if (existing) {
+      if (Number((existing as any).dispatch_id) !== body.dispatch_id) {
+        res.status(409).json({ error: "submissionKey has already been used for another dispatch" });
+        return;
+      }
+      res.status(200).json(snakeToCamel(existing));
+      return;
+    }
+  }
 
   // Resolve input item from scanned barcode if not already supplied
   if (!body.input_item_id && body.input_barcode) {
@@ -231,30 +318,7 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
     }
   }
 
-  let campaignId: number | null = body.campaign_id ?? null;
-
-  // 1. Try to derive from dispatch
-  if (!campaignId && body.dispatch_id) {
-    const { data: dispatch } = await supa
-      .from("dispatches")
-      .select("campaign_id")
-      .eq("id", Number(body.dispatch_id))
-      .single();
-    campaignId = (dispatch as any)?.campaign_id ?? null;
-  }
-
-  // 2. Fallback: derive from farmer's most recent active allocation (Scan-tab ad-hoc deliveries)
-  if (!campaignId && body.farmer_id) {
-    const { data: alloc } = await supa
-      .from("allocations")
-      .select("campaign_id")
-      .eq("farmer_id", body.farmer_id)
-      .in("status", ["Approved", "Pending"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-    campaignId = (alloc as any)?.campaign_id ?? null;
-  }
+  const campaignId: number | null = body.campaign_id;
 
   if (!campaignId) {
     res.status(400).json({ error: "Cannot determine campaign: farmer has no active allocation and no dispatch was provided. Allocate the farmer to a campaign first, or record delivery via a dispatch." });
@@ -339,7 +403,6 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
   }
 
   // Build insert payload — filter undefined values, keep nulls
-  const fieldOfficerId = await resolveUserId(req);
   const insertFields: Record<string, unknown> = Object.fromEntries(
     Object.entries({
       ...body,
@@ -365,6 +428,14 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
   if (insertErr || !podInserted) {
     const message = insertErr?.message ?? "Failed to submit PoD";
     if (/cannot accept deliveries from status/i.test(message)) {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (/pod_one_active_delivery_per_farmer_campaign|duplicate key/i.test(message)) {
+      res.status(409).json({ error: "An active delivery already exists for this farmer in this campaign." });
+      return;
+    }
+    if (/verification proof/i.test(message)) {
       res.status(409).json({ error: message });
       return;
     }
@@ -415,6 +486,10 @@ router.post("/api/pod/:id/flag-exception", requireAnyAuth, requireRoleIfJwt("Adm
     res.status(400).json({ error: "notes must be a string" });
     return;
   }
+  if (!(await loadAuthorizedPod(req, podId))) {
+    res.status(404).json({ error: "PoD not found" });
+    return;
+  }
   // Only an unprocessed delivery can enter exception review; this endpoint is
   // intentionally not a general-purpose status update.
   const { data, error } = await supa.from("pod")
@@ -442,6 +517,10 @@ router.post("/api/pod/:id/override-face", requireAnyAuth, requireRoleIfJwt("Admi
     return;
   }
   if (!reason?.trim()) { res.status(400).json({ error: "reason is required" }); return; }
+  if (!(await loadAuthorizedPod(req, podId))) {
+    res.status(404).json({ error: "PoD not found" });
+    return;
+  }
   // Face evidence is only reviewable while the delivery is still pending.
   // Exceptions remain a separate management decision and terminal PoDs must
   // never have their verification evidence rewritten.
@@ -467,6 +546,10 @@ router.post("/api/pod/:id/approve-exception", requireAnyAuth, requireRoleIfJwt("
   const podId = Number(req.params.id);
   if (!Number.isInteger(podId) || podId <= 0) {
     res.status(400).json({ error: "Invalid PoD id" });
+    return;
+  }
+  if (!(await loadAuthorizedPod(req, podId))) {
+    res.status(404).json({ error: "PoD not found" });
     return;
   }
   const approvedBy = await resolveUserId(req);
@@ -499,9 +582,30 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
   }
   try {
     const userId = await resolveUserId(req);
+    const uniqueIds = [...new Set(ids.map(Number))];
+    if (uniqueIds.some(id => !Number.isInteger(id) || id <= 0)) {
+      res.status(400).json({ error: "ids must contain positive integers" });
+      return;
+    }
+    const { data: targetPods } = await supa.from("pod")
+      .select("id,status,campaign_id,dispatch_id,field_officer_id,duplicate_flag")
+      .in("id", uniqueIds);
+    if ((targetPods ?? []).length !== uniqueIds.length) {
+      res.status(404).json({ error: "One or more PoDs were not found" });
+      return;
+    }
+    const allowed = await Promise.all((targetPods ?? []).map(pod => canReadPod(req, pod)));
+    if (allowed.some(value => !value)) {
+      res.status(403).json({ error: "Forbidden", message: "One or more PoDs are outside your authorized scope" });
+      return;
+    }
+    if ((targetPods ?? []).some((pod: any) => pod.duplicate_flag === true)) {
+      res.status(409).json({ error: "Duplicate-flagged PoDs cannot be batch approved" });
+      return;
+    }
 
     const { data: approvedCount, error: approvalErr } = await supa.rpc("approve_pods_atomic", {
-      p_pod_ids: ids,
+      p_pod_ids: uniqueIds,
       p_approved_by: userId,
     });
     if (approvalErr) {
@@ -611,10 +715,11 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
       .eq("id", podId)
       .single();
     if (podErr || !pod) { res.status(404).json({ error: "PoD not found" }); return; }
+    if (!(await canReadPod(req, pod))) { res.status(404).json({ error: "PoD not found" }); return; }
     const { farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered, duplicate_flag } = pod as any;
 
-    // Block approval if duplicate detected — unless supervisor forces through
-    if (duplicate_flag && !(req.body as any)?.forceApprove) {
+    // Duplicate-flagged records are audit evidence and are never deliverable.
+    if (duplicate_flag) {
       const { data: existingPods } = await supa
         .from("pod")
         .select("id, pod_code, submitted_at, status")
@@ -729,8 +834,23 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
 });
 
 router.post("/api/pod/photo-upload-url", requireAnyAuth, async (req, res) => {
-  const { farmerId, photoIndex } = req.body as { farmerId?: number; photoIndex?: number };
-  if (!farmerId) { res.status(400).json({ error: "farmerId is required" }); return; }
+  const { farmerId, dispatchId, photoIndex } = req.body as { farmerId?: number; dispatchId?: number; photoIndex?: number };
+  if (!farmerId || !dispatchId) { res.status(400).json({ error: "farmerId and dispatchId are required" }); return; }
+  const { data: dispatch } = await supa.from("dispatches")
+    .select("field_officer_id,campaign_id")
+    .eq("id", Number(dispatchId))
+    .maybeSingle();
+  const { data: allocation } = dispatch ? await supa.from("allocations")
+    .select("id")
+    .eq("campaign_id", (dispatch as any).campaign_id)
+    .eq("farmer_id", Number(farmerId))
+    .in("status", ["Approved", "Pending"])
+    .limit(1)
+    .maybeSingle() : { data: null };
+  if (!dispatch || !(await canReadDispatch(req, dispatch as any)) || !allocation) {
+    res.status(403).json({ error: "Forbidden", message: "You may not upload evidence for this farmer and dispatch" });
+    return;
+  }
   const idx = Number.isFinite(Number(photoIndex)) ? Number(photoIndex) : 0;
   const key = `pods/${farmerId}/${Date.now()}-photo-${idx}.jpg`;
   try {
