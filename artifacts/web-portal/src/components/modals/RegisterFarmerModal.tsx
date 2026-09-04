@@ -17,6 +17,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { BiometricCapture } from "@/components/BiometricCapture";
 import { CheckCircle, AlertCircle } from "lucide-react";
+import { trackEvent } from "@/lib/analytics";
 
 interface Props {
   open: boolean;
@@ -82,6 +83,7 @@ export function RegisterFarmerModal({ open, onClose }: Props) {
       });
       setCreatedFarmer(farmer);
       setStep("biometric");
+      trackEvent("farmer_registered");
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     }

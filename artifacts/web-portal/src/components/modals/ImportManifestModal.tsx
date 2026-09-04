@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, ChevronRight, ChevronLeft, AlertCircle, Truck, Car, Download, Printer, CheckCircle2 } from "lucide-react";
 import { cn, writePrintDocument } from "@/lib/utils";
+import { countBucket, trackEvent } from "@/lib/analytics";
 
 interface Props { open: boolean; onClose: () => void; }
 
@@ -350,9 +351,17 @@ export function ImportManifestModal({ open, onClose }: Props) {
       await qc.invalidateQueries({ queryKey: ["campaigns"] });
       setImportResult(result);
       setStep(5);
+      trackEvent("manifest_import_succeeded", {
+        community_count: countBucket(parsedRows.length),
+        item_count: countBucket(columnMapping.length),
+        vehicle_mode: vehicleMode,
+      });
     } catch (err: any) {
       if (err.message === "insufficient_stock" && err.shortfalls) {
         setStockShortfalls(err.shortfalls);
+        trackEvent("manifest_import_blocked_stock", {
+          shortfall_count: countBucket(err.shortfalls.length),
+        });
         return;
       }
       toast({ title: "Import failed", description: err.message, variant: "destructive" });

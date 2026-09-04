@@ -23,6 +23,7 @@ import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import { countBucket, trackEvent } from "@/lib/analytics";
 
 const FACE_STYLES: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
   verified:     { cls: "text-emerald-700", icon: ShieldCheck, label: "Verified" },
@@ -686,6 +687,7 @@ function ReviewQueue() {
         setDuplicateExistingPod(result.existingPod ?? null);
         return;
       }
+      trackEvent("pod_approved", { approval_mode: "single" });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
       await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
@@ -696,6 +698,7 @@ function ReviewQueue() {
   const forceApproveMutation = useMutation({
     mutationFn: (id: number) => approvePod(id, true),
     onSuccess: async () => {
+      trackEvent("pod_approved", { approval_mode: "single" });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
       await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
@@ -710,6 +713,7 @@ function ReviewQueue() {
   const flagMutation = useMutation({
     mutationFn: (id: number) => flagPodException(id),
     onSuccess: async () => {
+      trackEvent("pod_exception_flagged");
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
     },
@@ -718,6 +722,10 @@ function ReviewQueue() {
   const batchMutation = useMutation({
     mutationFn: (ids: number[]) => batchApprovePods(ids),
     onSuccess: async (_, ids) => {
+      trackEvent("pod_approved", {
+        approval_mode: "batch",
+        selected_count: countBucket(ids.length),
+      });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
       await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });
@@ -1063,6 +1071,7 @@ export default function ProofOfDelivery() {
   const approveMutation = useMutation({
     mutationFn: (id: number) => approvePod(id),
     onSuccess: async () => {
+      trackEvent("pod_approved", { approval_mode: "single" });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
       await qc.invalidateQueries({ queryKey: KEYS.alertCounts() });

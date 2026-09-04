@@ -16,6 +16,7 @@ import {
   CheckCircle, Loader2, MapPin, MessageSquare, ScanFace, ClipboardList, ChevronRight, ChevronLeft,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { trackEvent } from "@/lib/analytics";
 
 interface Props {
   open: boolean;
@@ -157,6 +158,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
         dispatchId: dispatchId ? Number(dispatchId) : undefined,
         reason: otpBypassReason.trim(),
       });
+      trackEvent("pod_otp_bypass_recorded");
     } catch {
       // Non-fatal: bypass is recorded locally even if the audit call fails
     }
@@ -167,11 +169,13 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   function handleFaceResult(result: FaceResult) {
     setFaceResult(result);
     if ("photoBlob" in result) setFacePhotoBlob(result.photoBlob);
+    trackEvent("pod_face_verification_decision", { decision: result.status });
   }
 
   function handleFaceBypass(reason: string) {
     setFaceResult({ status: "bypassed", reason });
     setFaceBypassed(true);
+    trackEvent("pod_face_verification_decision", { decision: "bypassed" });
   }
 
   function captureGps() {
@@ -238,6 +242,11 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
           ? "Verified" : "Pending",
       });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
+      trackEvent("pod_submitted", {
+        otp_status: otpStatus.toLowerCase(),
+        face_status: faceStatus.toLowerCase(),
+        gps_captured: gpsLat !== null && gpsLng !== null,
+      });
       toast({ title: "Delivery recorded", description: `PoD submitted — OTP: ${otpStatus}, Face: ${faceStatus}` });
       reset();
       onClose();

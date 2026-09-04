@@ -20,6 +20,7 @@ import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { writePrintDocument } from "@/lib/utils";
+import { countBucket, trackEvent } from "@/lib/analytics";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -159,6 +160,9 @@ export default function DispatchDetail() {
     try {
       const result = await notifyFarmers(id);
       setNotifyAllResult(result);
+      if (result.notified > 0) {
+        trackEvent("farmers_notified", { notified_count: countBucket(result.notified) });
+      }
       toast({
         title: `Notified ${result.notified} of ${result.total} farmers`,
         description: [
@@ -201,6 +205,7 @@ export default function DispatchDetail() {
     try {
       await approveMutation.mutateAsync();
       await invalidate();
+      trackEvent("dispatch_approved");
       toast({ title: "Manifest approved" });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -212,6 +217,7 @@ export default function DispatchDetail() {
     try {
       await dispatchMutation.mutateAsync();
       await invalidate();
+      trackEvent("dispatch_departed");
       toast({ title: "Vehicle dispatched" });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -223,6 +229,7 @@ export default function DispatchDetail() {
     try {
       await arriveMutation.mutateAsync();
       await invalidate();
+      trackEvent("dispatch_arrived");
       toast({ title: "Arrival confirmed" });
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });

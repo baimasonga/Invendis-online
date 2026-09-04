@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLocation } from "wouter";
+import { trackEvent } from "@/lib/analytics";
 
 export interface UserProfile {
   id: string;
@@ -100,9 +101,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const accessError = portalAccessError(profile);
       if (accessError) {
         await supabase.auth.signOut();
+        const rejectionReason = !profile ? "profile_unavailable" :
+          !profile.isActive ? "deactivated" : "field_officer";
+        trackEvent("portal_login_rejected", { reason: rejectionReason });
         throw new Error(accessError);
       }
       setUser(profile!);
+      trackEvent("portal_login_succeeded");
     }
   };
 
