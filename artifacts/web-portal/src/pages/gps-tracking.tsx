@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listVehicleGpsStatus, listGpsTrack, listGpsTraceDevices, syncGpsTrace, linkGpsTraceDevice, unlinkGpsTraceDevice, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,19 +31,27 @@ function formatAgo(dateStr: string | null | undefined): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function getSignalTier(lastPing: string | null | undefined): "live" | "recent" | "stale" | "offline" {
+// A position hours old and one eight months old are not the same fact, so
+// "dormant" separates a unit that has genuinely stopped reporting from one that
+// is merely between pings. Without it, long-dead trackers sit in the list
+// looking like current positions.
+const DORMANT_AFTER_DAYS = 7;
+
+function getSignalTier(lastPing: string | null | undefined): "live" | "recent" | "stale" | "dormant" | "offline" {
   if (!lastPing) return "offline";
   const mins = (Date.now() - new Date(lastPing).getTime()) / 60000;
   if (mins < 5)  return "live";
   if (mins < 30) return "recent";
-  return "stale";
+  if (mins < DORMANT_AFTER_DAYS * 24 * 60) return "stale";
+  return "dormant";
 }
 
 const SIGNAL_CONFIG = {
   live:    { dot: "bg-emerald-500", color: "#10b981", label: "Live",    labelCls: "bg-emerald-100 text-emerald-700", icon: Wifi,    iconCls: "text-emerald-500" },
   recent:  { dot: "bg-amber-400",   color: "#f59e0b", label: "Recent",  labelCls: "bg-amber-100   text-amber-700",   icon: Wifi,    iconCls: "text-amber-500"   },
   stale:   { dot: "bg-orange-400",  color: "#f97316", label: "Stale",   labelCls: "bg-orange-100  text-orange-700",  icon: WifiOff, iconCls: "text-orange-400"  },
-  offline: { dot: "bg-slate-300",   color: "#94a3b8", label: "Offline", labelCls: "bg-slate-100   text-slate-500",   icon: WifiOff, iconCls: "text-slate-400"   },
+  dormant: { dot: "bg-slate-300",   color: "#cbd5e1", label: "Dormant", labelCls: "bg-slate-100   text-slate-500",   icon: WifiOff, iconCls: "text-slate-400"   },
+  offline: { dot: "bg-slate-300",   color: "#94a3b8", label: "No signal", labelCls: "bg-slate-100 text-slate-500",   icon: WifiOff, iconCls: "text-slate-400"   },
 };
 
 function SignalBadge({ lastPing }: { lastPing: string | null | undefined }) {
@@ -58,24 +66,46 @@ function SignalBadge({ lastPing }: { lastPing: string | null | undefined }) {
   );
 }
 
-type ArrivalStatus = "arrived" | "en_route" | "not_reached" | "no_destination" | "no_signal";
+type ArrivalStatus =
+  | "arrived" | "en_route" | "signal_lost" | "no_destination"
+  | "no_signal" | "idle" | "dormant";
 
+// Ordered by what an operator needs to act on. The previous version could never
+// reach "not_reached": it required tier === "offline", which only happens when
+// lastPing is null — a case already returned as "no_signal" on the line above.
+// A vehicle that went dark mid-delivery therefore read "En Route" indefinitely,
+// which is the single most important thing this page should surface.
 function getArrivalStatus(v: any): ArrivalStatus {
-  if (v.arrivedAt || v.withinGeofence === true) return "arrived";
-  if (!v.hasDestination) return "no_destination";
-  if (v.lastLatitude == null) return "no_signal";
   const tier = getSignalTier(v.lastPing);
-  if (tier === "offline" && !v.arrivedAt) return "not_reached";
+
+  // Idle fleet: tracked, but not currently carrying a delivery.
+  if (v.hasActiveDispatch === false) return tier === "dormant" ? "dormant" : "idle";
+
+  if (v.arrivedAt || v.withinGeofence === true) return "arrived";
+  if (v.lastPing == null || v.lastLatitude == null) return "no_signal";
+  // Dispatched but the signal has gone quiet — this is the attention case.
+  if (tier === "stale" || tier === "dormant") return "signal_lost";
+  if (!v.hasDestination) return "no_destination";
   return "en_route";
 }
 
 const ARRIVAL_CONFIG: Record<ArrivalStatus, { label: string; cls: string; icon: any }> = {
   arrived:        { label: "Arrived",        cls: "bg-teal-100  text-teal-700",  icon: CheckCircle2 },
   en_route:       { label: "En Route",       cls: "bg-blue-100  text-blue-700",  icon: Navigation   },
-  not_reached:    { label: "Not Reached",    cls: "bg-red-100   text-red-700",   icon: AlertTriangle },
+  signal_lost:    { label: "Signal Lost",    cls: "bg-red-100   text-red-700",   icon: AlertTriangle },
   no_destination: { label: "No Destination", cls: "bg-amber-100 text-amber-700", icon: Target       },
-  no_signal:      { label: "No Signal",      cls: "bg-slate-100 text-slate-500", icon: RouteOff     },
+  no_signal:      { label: "No Signal",      cls: "bg-red-100   text-red-700",   icon: RouteOff     },
+  idle:           { label: "Idle",           cls: "bg-slate-100 text-slate-600", icon: Truck        },
+  dormant:        { label: "Dormant",        cls: "bg-slate-100 text-slate-500", icon: WifiOff      },
 };
+
+// Rows an operator must do something about: a delivery is running and the
+// vehicle is either dark or has nowhere defined to go.
+const ATTENTION_STATUSES: ArrivalStatus[] = ["signal_lost", "no_signal", "no_destination"];
+
+function isAttention(v: any): boolean {
+  return ATTENTION_STATUSES.includes(getArrivalStatus(v));
+}
 
 function ArrivalBadge({ vehicle }: { vehicle: any }) {
   const status = getArrivalStatus(vehicle);
@@ -86,6 +116,114 @@ function ArrivalBadge({ vehicle }: { vehicle: any }) {
       <Icon className="h-2.5 w-2.5 shrink-0" />
       {c.label}
     </span>
+  );
+}
+
+function RailSection({
+  label, count, icon: Icon, tone, children,
+}: {
+  label: string; count: number; icon: any; tone: "danger" | "normal"; children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className={`flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide ${
+        tone === "danger" ? "text-red-600" : "text-muted-foreground"
+      }`}>
+        <Icon className="h-3 w-3" />
+        {label}
+        <span className="tabular-nums font-normal normal-case">({count})</span>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function VehicleCard({
+  v, isSelected, onSelect, emphasis = false, muted = false,
+}: {
+  v: any; isSelected: boolean; onSelect: (id: number) => void;
+  emphasis?: boolean; muted?: boolean;
+}) {
+  const tier = getSignalTier(v.lastPing);
+  const status = getArrivalStatus(v);
+
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`${v.plateNumber ?? "Unknown vehicle"} — ${ARRIVAL_CONFIG[status].label}`}
+      className={`cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+        isSelected ? "ring-2 ring-emerald-500 shadow-sm"
+        : emphasis  ? "border-red-200 hover:border-red-300 hover:shadow-sm"
+        : "hover:border-emerald-200 hover:shadow-sm"
+      } ${muted && !isSelected ? "opacity-70 hover:opacity-100" : ""}`}
+      onClick={() => onSelect(v.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(v.id); }
+      }}
+    >
+      <CardContent className="p-3 space-y-2">
+        {/* Identity row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="relative shrink-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                emphasis ? "bg-red-100 dark:bg-red-900/30" : "bg-emerald-100 dark:bg-emerald-900/30"
+              }`}>
+                <Truck className={`h-3.5 w-3.5 ${
+                  emphasis ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"
+                }`} />
+              </div>
+              {tier === "live" && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-xs leading-tight truncate">{v.plateNumber ?? "Unknown"}</p>
+              <p className="text-[10px] text-muted-foreground truncate">
+                {v.vehicleType ?? "Vehicle"}{v.driverName ? ` · ${v.driverName}` : ""}
+              </p>
+            </div>
+          </div>
+          <SignalBadge lastPing={v.lastPing} />
+        </div>
+
+        {/* Status + destination/distance */}
+        <div className="flex items-center justify-between gap-2 text-[10px]">
+          <ArrivalBadge vehicle={v} />
+          <span className="text-muted-foreground truncate">
+            {v.destinationLabel
+              ? (v.distanceLabel ? `${v.distanceLabel} → ${v.destinationLabel}` : v.destinationLabel)
+              : (v.hasActiveDispatch === false ? "Not dispatched" : "—")}
+          </span>
+        </div>
+
+        {/* Why this needs attention, in plain language rather than a bare badge. */}
+        {emphasis && (
+          <p className="text-[10px] text-red-600 leading-snug">
+            {status === "signal_lost"
+              ? `Delivery in progress but no position for ${formatAgo(v.lastPing).replace(" ago", "")}.`
+              : status === "no_signal"
+              ? "Dispatched but this vehicle has never reported a position."
+              : "No destination set on the campaign — arrival can't be detected."}
+          </p>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Clock className="h-2.5 w-2.5" />
+            {formatAgo(v.lastPing)}
+          </span>
+          {v.manifestCode && <span className="font-mono truncate max-w-[120px]">{v.manifestCode}</span>}
+          <ChevronRight className={`h-3 w-3 transition-transform shrink-0 ${isSelected ? "rotate-90" : ""}`} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -123,9 +261,12 @@ function TrackPoint({ point, index, isLast }: { point: any; index: number; isLas
 
 // ── Leaflet Map ───────────────────────────────────────────────────────────────
 
-function vehicleMarkerHtml(color: string, selected: boolean, plate: string): string {
+// `stale` fades the pin: a months-old position drawn as solidly as a live one
+// reads as "this vehicle is here now", which is simply untrue.
+function vehicleMarkerHtml(color: string, selected: boolean, plate: string, stale = false): string {
   const ring = selected ? `box-shadow:0 0 0 3px #fff,0 0 0 5px ${color};` : "";
-  return `<div style="width:36px;height:36px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;${ring}box-shadow:0 2px 8px rgba(0,0,0,0.35);" title="${plate}">
+  const faded = stale && !selected ? "opacity:0.45;border:2px dashed rgba(255,255,255,0.9);" : "";
+  return `<div style="width:36px;height:36px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;${ring}${faded}box-shadow:0 2px 8px rgba(0,0,0,0.35);" title="${plate}">
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="1" y="3" width="15" height="13" rx="1"/>
       <path d="M16 8h4l3 5v3h-7V8z"/>
@@ -158,7 +299,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
   const vehicleMarkersRef = useRef<Record<number, any>>({});
   const destMarkersRef    = useRef<Record<number, any>>({});
   // Track visual state per vehicle so we only call setIcon when it actually changes
-  const markerStateRef    = useRef<Record<number, { color: string; selected: boolean }>>({});
+  const markerStateRef    = useRef<Record<number, { color: string; selected: boolean; stale: boolean }>>({});
   const routeLineRef      = useRef<any>(null);
   const trackLineRef      = useRef<any>(null);
   const initialFitDone    = useRef(false);
@@ -214,6 +355,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
     vehicles.forEach(v => {
       const tier = getSignalTier(v.lastPing);
       const color = SIGNAL_CONFIG[tier].color;
+      const isStalePos = tier === "dormant" || tier === "stale";
       const isSelected = v.id === selectedId;
       const plate = v.plateNumber ?? `#${v.id}`;
 
@@ -228,21 +370,21 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
           // Only rebuild the icon when visual state actually changes —
           // setIcon() removes & re-adds the DOM element causing a visible flash.
           const prev = markerStateRef.current[v.id];
-          if (!prev || prev.color !== color || prev.selected !== isSelected) {
+          if (!prev || prev.color !== color || prev.selected !== isSelected || prev.stale !== isStalePos) {
             const icon = L.divIcon({
               className: "",
-              html: vehicleMarkerHtml(color, isSelected, plate),
+              html: vehicleMarkerHtml(color, isSelected, plate, isStalePos),
               iconSize: [36, 36],
               iconAnchor: [18, 18],
               popupAnchor: [0, -20],
             });
             vehicleMarkersRef.current[v.id].setIcon(icon);
-            markerStateRef.current[v.id] = { color, selected: isSelected };
+            markerStateRef.current[v.id] = { color, selected: isSelected, stale: isStalePos };
           }
         } else {
           const icon = L.divIcon({
             className: "",
-            html: vehicleMarkerHtml(color, isSelected, plate),
+            html: vehicleMarkerHtml(color, isSelected, plate, isStalePos),
             iconSize: [36, 36],
             iconAnchor: [18, 18],
             popupAnchor: [0, -20],
@@ -254,7 +396,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
           );
           m.on("click", () => onSelectVehicle(v.id));
           vehicleMarkersRef.current[v.id] = m;
-          markerStateRef.current[v.id] = { color, selected: isSelected };
+          markerStateRef.current[v.id] = { color, selected: isSelected, stale: isStalePos };
         }
       }
 
@@ -594,6 +736,8 @@ function TrackerSetup() {
 
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
+  // Idle fleet is reference info, not a task — collapsed until asked for.
+  const [showIdle, setShowIdle] = useState(false);
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
     queryKey: KEYS.gpsVehicles(),
@@ -617,8 +761,35 @@ export default function GpsTracking() {
   const vehicleList: any[] = Array.isArray(vehicles) ? vehicles : [];
   const trackPoints: any[] = Array.isArray(track) ? (track as any[]) : [];
   const selectedData = vehicleList.find((v: any) => v.id === selectedVehicle);
+
+  // Triage, not recency. The API returns idle-but-tracked vehicles too, so
+  // sorting purely by last ping would float a parked truck above one that is
+  // mid-delivery and in trouble. Group by what the operator must act on.
+  const { attention, active, idle } = useMemo(() => {
+    const attention: any[] = [];
+    const active: any[]    = [];
+    const idle: any[]      = [];
+    for (const v of vehicleList) {
+      if (isAttention(v)) attention.push(v);
+      else if (v.hasActiveDispatch === false) idle.push(v);
+      else active.push(v);
+    }
+    const byRecency = (a: any, b: any) => {
+      if (!a.lastPing && !b.lastPing) return 0;
+      if (!a.lastPing) return 1;
+      if (!b.lastPing) return -1;
+      return new Date(b.lastPing).getTime() - new Date(a.lastPing).getTime();
+    };
+    return {
+      attention: attention.sort(byRecency),
+      active:    active.sort(byRecency),
+      idle:      idle.sort(byRecency),
+    };
+  }, [vehicleList]);
+
   const liveCount    = vehicleList.filter((v: any) => getSignalTier(v.lastPing) === "live").length;
   const arrivedCount = vehicleList.filter((v: any) => getArrivalStatus(v) === "arrived").length;
+  const enRouteCount = vehicleList.filter((v: any) => getArrivalStatus(v) === "en_route").length;
 
   return (
     <div className="space-y-5">
@@ -628,9 +799,19 @@ export default function GpsTracking() {
         badge={
           vehicleList.length > 0 ? (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">
-                {vehicleList.length} vehicle{vehicleList.length !== 1 ? "s" : ""}
-              </span>
+              {/* Problems lead — the reason someone opens this page. */}
+              {attention.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  {attention.length} need{attention.length === 1 ? "s" : ""} attention
+                </span>
+              )}
+              {enRouteCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">
+                  <Navigation className="h-2.5 w-2.5" />
+                  {enRouteCount} en route
+                </span>
+              )}
               {liveCount > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
                   <span className="relative flex h-1.5 w-1.5">
@@ -695,60 +876,79 @@ export default function GpsTracking() {
               <Card>
                 <CardContent className="p-6 flex flex-col items-center gap-2 text-muted-foreground">
                   <Truck className="h-8 w-8 opacity-20" />
-                  <p className="text-xs text-center">No vehicles in transit.<br />GPS data appears here when vehicles are dispatched.</p>
+                  <p className="text-xs text-center">No tracked vehicles yet.<br />Link a tracker in <span className="font-medium">Tracker Setup</span>, or dispatch a vehicle.</p>
                 </CardContent>
               </Card>
-            ) : vehicleList.map((v: any) => {
-              const tier = getSignalTier(v.lastPing);
-              const isSelected = selectedVehicle === v.id;
-              return (
-                <Card
-                  key={v.id}
-                  className={`cursor-pointer transition-all ${isSelected ? "ring-2 ring-emerald-500 shadow-sm" : "hover:border-emerald-200 hover:shadow-sm"}`}
-                  onClick={() => handleSelectVehicle(v.id)}
-                >
-                  <CardContent className="p-3 space-y-2">
-                    {/* Identity row */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="relative shrink-0">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                            <Truck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
-                          </div>
-                          {tier === "live" && (
-                            <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                            </span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-xs leading-tight truncate">{v.plateNumber ?? "Unknown"}</p>
-                          <p className="text-[10px] text-muted-foreground truncate">{v.vehicleType ?? "Vehicle"}{v.driverName ? ` · ${v.driverName}` : ""}</p>
-                        </div>
+            ) : (
+              <>
+                {/* Needs attention — dispatched but dark, or nowhere to go. */}
+                {attention.length > 0 && (
+                  <RailSection
+                    label="Needs attention"
+                    count={attention.length}
+                    icon={AlertTriangle}
+                    tone="danger"
+                  >
+                    {attention.map((v: any) => (
+                      <VehicleCard
+                        key={v.id} v={v}
+                        isSelected={selectedVehicle === v.id}
+                        onSelect={handleSelectVehicle}
+                        emphasis
+                      />
+                    ))}
+                  </RailSection>
+                )}
+
+                {/* Deliveries currently running. */}
+                {active.length > 0 && (
+                  <RailSection
+                    label="Active deliveries"
+                    count={active.length}
+                    icon={Navigation}
+                    tone="normal"
+                  >
+                    {active.map((v: any) => (
+                      <VehicleCard
+                        key={v.id} v={v}
+                        isSelected={selectedVehicle === v.id}
+                        onSelect={handleSelectVehicle}
+                      />
+                    ))}
+                  </RailSection>
+                )}
+
+                {/* Tracked but not on a delivery — collapsed, since it is
+                    reference information rather than something to act on. */}
+                {idle.length > 0 && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowIdle(s => !s)}
+                      aria-expanded={showIdle}
+                      className="w-full flex items-center gap-2 px-1 py-1.5 rounded-md text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors"
+                    >
+                      <Truck className="h-3 w-3" />
+                      Idle fleet
+                      <span className="tabular-nums font-normal normal-case">({idle.length})</span>
+                      <ChevronRight className={`h-3 w-3 ml-auto transition-transform ${showIdle ? "rotate-90" : ""}`} />
+                    </button>
+                    {showIdle && (
+                      <div className="space-y-2 mt-2">
+                        {idle.map((v: any) => (
+                          <VehicleCard
+                            key={v.id} v={v}
+                            isSelected={selectedVehicle === v.id}
+                            onSelect={handleSelectVehicle}
+                            muted
+                          />
+                        ))}
                       </div>
-                      <SignalBadge lastPing={v.lastPing} />
-                    </div>
-
-                    {/* Status line: arrival + destination/distance */}
-                    <div className="flex items-center justify-between gap-2 text-[10px]">
-                      <ArrivalBadge vehicle={v} />
-                      <span className="text-muted-foreground truncate">
-                        {v.destinationLabel
-                          ? (v.distanceLabel ? `${v.distanceLabel} → ${v.destinationLabel}` : v.destinationLabel)
-                          : "—"}
-                      </span>
-                    </div>
-
-                    {/* Footer: ping age + chevron */}
-                    <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatAgo(v.lastPing)}</span>
-                      <ChevronRight className={`h-3 w-3 transition-transform ${isSelected ? "rotate-90" : ""}`} />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
 
@@ -775,7 +975,7 @@ export default function GpsTracking() {
                 <Card className={
                   getArrivalStatus(selectedData) === "arrived"
                     ? "border-teal-200 bg-teal-50/50 dark:bg-teal-900/10"
-                    : getArrivalStatus(selectedData) === "not_reached"
+                    : isAttention(selectedData)
                     ? "border-red-200 bg-red-50/50 dark:bg-red-900/10"
                     : ""
                 }>
