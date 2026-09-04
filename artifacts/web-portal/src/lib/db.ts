@@ -167,7 +167,7 @@ export async function getDashboardData() {
   ] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }),
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("campaigns").select("*", { count: "exact", head: true }).in("status", ["Active", "Approved", "active", "approved"]),
+    supabase.from("campaigns").select("*", { count: "exact", head: true }).in("status", ["Active", "Approved"]),
     supabase.from("dispatches").select("*", { count: "exact", head: true }),
     supabase.from("allocations").select("*", { count: "exact", head: true }),
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
@@ -187,8 +187,8 @@ export async function getDashboardData() {
     supabase.from("dispatches").select("*", { count: "exact", head: true }).gte("created_at", d14).lt("created_at", d7),
     // active campaign progress
     supabase.from("campaigns")
-      .select("id, name, total_farmers, allocated_farmers, delivered_count, status")
-      .in("status", ["Active", "Approved", "active", "approved"])
+      .select("id, name, allocated_farmers, delivered_count, target_beneficiaries, status")
+      .in("status", ["Active", "Approved"])
       .order("created_at", { ascending: false })
       .limit(8),
     // low stock
@@ -262,14 +262,14 @@ export async function getDashboardData() {
 
   // Campaign progress
   const campaignProgress = (activeCampaignRows.data ?? []).map((c: any) => {
-    const target    = Math.max(Number(c.total_farmers) || 0, Number(c.allocated_farmers) || 0, 1);
+    const target    = Math.max(Number(c.allocated_farmers) || 0, Number(c.target_beneficiaries) || 0, 1);
     const delivered = Number(c.delivered_count) || 0;
     return {
       id:              c.id,
       name:            c.name,
       status:          c.status,
       allocatedFarmers: Number(c.allocated_farmers) || 0,
-      targetBeneficiaries: Number(c.total_farmers) || 0,
+      targetBeneficiaries: Number(c.target_beneficiaries) || 0,
       deliveredCount:  delivered,
       pct:             Math.min(100, Math.round((delivered / target) * 100)),
     };
@@ -1102,12 +1102,17 @@ export async function assignDispatchOfficer(id: number, fieldOfficerId: number |
 }
 
 export async function cancelDispatch(id: number, reason?: string) {
-  const { data, error } = await supabase.from("dispatches")
-    .update({ status: "Cancelled", cancel_reason: reason ?? null, cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", id).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "dispatch", `Cancelled manifest #${id}${reason ? ` — ${reason}` : ""}`, "dispatch", id);
-  return cc(data);
+  const token = await dispatchToken();
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/cancel`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reason }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to cancel dispatch");
+  }
+  return cc(await resp.json());
 }
 
 export async function removeDispatchItem(dispatchId: number, itemId: number) {
@@ -1300,27 +1305,47 @@ export async function getPodStats() {
 }
 
 export async function createPod(payload: any) {
-  const userId = await intUid();
-  const podCode = generatePodCode();
-  const { data, error } = await supabase.from("pod").insert({
-    pod_code: podCode,
-    farmer_id: payload.farmerId,
-    campaign_id: payload.campaignId ?? null,
-    dispatch_id: payload.dispatchId ?? null,
-    field_officer_id: userId,
-    quantity_delivered: payload.quantityDelivered ? Number(payload.quantityDelivered) : null,
-    notes: payload.notes ?? null,
-    otp_status: payload.otpStatus ?? "Pending",
-    face_status: payload.faceStatus ?? "Pending",
-    photo_url: payload.photoUrl ?? null,
-    farmer_latitude: payload.farmerLatitude ?? null,
-    farmer_longitude: payload.farmerLongitude ?? null,
-    status: payload.status ?? "Pending",
-    submitted_at: new Date().toISOString(),
-  }).select().single();
-  if (error) throw new Error(error.message);
-  await logAudit("CREATE", "pod", `Recorded delivery POD #${(data as any).id}`, "pod", (data as any).id);
-  return cc(data);
+  const token = await podToken();
+  const items = Array.isArray(payload.items)
+    ? payload.items.map((item: any) => ({
+        inputItemId: Number(item.inputItemId ?? item.input_item_id),
+        quantity: Number(item.quantity ?? item.quantityDelivered ?? item.quantity_delivered),
+      }))
+    : payload.inputItemId != null && payload.quantityDelivered != null
+      ? [{ inputItemId: Number(payload.inputItemId), quantity: Number(payload.quantityDelivered) }]
+      : undefined;
+  const resp = await fetch(apiUrl("/api/pod"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      farmerId: Number(payload.farmerId),
+      dispatchId: payload.dispatchId ?? undefined,
+      campaignId: payload.campaignId ?? undefined,
+      inputItemId: payload.inputItemId ?? undefined,
+      inputBarcode: payload.inputBarcode ?? undefined,
+      quantityDelivered: payload.quantityDelivered != null ? Number(payload.quantityDelivered) : undefined,
+      items,
+      notes: payload.notes ?? undefined,
+      otpStatus: payload.otpStatus ?? "Pending",
+      otpVerified: payload.otpVerified,
+      faceStatus: payload.faceStatus ?? "Pending",
+      faceSimilarity: payload.faceSimilarity ?? undefined,
+      // The server persists the captured portal photo as the face-photo key.
+      facePhotoKey: payload.facePhotoKey ?? payload.photoUrl ?? undefined,
+      photoKeys: payload.photoKeys ?? undefined,
+      photoGpsCoords: payload.photoGpsCoords ?? undefined,
+      farmerLatitude: payload.farmerLatitude ?? undefined,
+      farmerLongitude: payload.farmerLongitude ?? undefined,
+      overrideReason: payload.overrideReason ?? undefined,
+      otpCode: payload.otpCode ?? undefined,
+      actualGroupSize: payload.actualGroupSize ?? undefined,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to submit PoD");
+  }
+  return cc(await resp.json());
 }
 
 async function getSupabaseAccessToken(): Promise<string | null> {
@@ -2383,11 +2408,16 @@ export async function approvePod(id: number, forceApprove = false): Promise<{ du
 }
 
 export async function flagPodException(id: number, notes?: string): Promise<void> {
-  const { error } = await supabase.from("pod")
-    .update({ status: "Exception", ...(notes ? { notes } : {}) })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  await logAudit("UPDATE", "pod", `Flagged PoD #${id} as Exception`, "pod", id);
+  const token = await podToken();
+  const resp = await fetch(apiUrl(`/api/pod/${id}/flag-exception`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ notes }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "Failed to flag PoD exception");
+  }
 }
 
 export async function overrideFacePod(id: number, reason: string): Promise<void> {

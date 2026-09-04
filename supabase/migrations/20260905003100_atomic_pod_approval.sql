@@ -176,4 +176,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.approve_pods_atomic(jsonb, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_pods_atomic(jsonb, integer) TO service_role;

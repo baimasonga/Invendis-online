@@ -170,6 +170,7 @@ BEGIN
     'itemsCreated',v_items_created,'farmersCreated',v_farmers_created,'totalCommunities',jsonb_array_length(v_rows),'communities',v_communities);
 END $$;
 
+REVOKE ALL ON FUNCTION public.import_manifest_atomic(jsonb,integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.import_manifest_atomic(jsonb,integer) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.submit_pod_atomic(p_record jsonb, p_items jsonb)
@@ -247,4 +248,5 @@ BEGIN
   RETURN to_jsonb(v_pod);
 END $$;
 
+REVOKE ALL ON FUNCTION public.submit_pod_atomic(jsonb,jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.submit_pod_atomic(jsonb,jsonb) TO service_role;

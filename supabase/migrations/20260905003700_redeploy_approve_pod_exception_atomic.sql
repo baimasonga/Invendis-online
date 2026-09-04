@@ -1,6 +1,5 @@
--- Exception approval must use the same accounting path as normal approval.
--- Updating the exception note and invoking approve_pods_atomic inside this
--- function keeps both operations in one transaction.
+-- Redeploy the hardened exception-approval RPC to databases that have already
+-- applied the original atomic approval migration.
 CREATE OR REPLACE FUNCTION public.approve_pod_exception_atomic(
   p_pod_id integer,
   p_approved_by integer,
@@ -52,5 +51,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.approve_pod_exception_atomic(integer, integer, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.approve_pod_exception_atomic(integer, integer, text) TO service_role;
+REVOKE ALL ON FUNCTION public.approve_pod_exception_atomic(integer, integer, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_pod_exception_atomic(integer, integer, text)
+  TO service_role;

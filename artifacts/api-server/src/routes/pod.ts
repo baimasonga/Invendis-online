@@ -100,13 +100,13 @@ router.get("/api/pod/:id", requireAuth, async (req, res) => {
   res.json(snakeToCamel(result));
 });
 
-router.post("/api/pod/submit", requireAuth, async (req, res) => {
+router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) => {
   const podCode = "POD-" + randomBytes(4).toString("hex").toUpperCase();
   // Whitelist allowed fields — never spread req.body directly to prevent mass-assignment attacks
   const raw = req.body as Record<string, any>;
 
   // Multi-item PoD: items array [{inputItemId, quantity}]
-  const items = Array.isArray(raw.items)
+  let items: { inputItemId: number; quantity: number }[] | null = Array.isArray(raw.items)
     ? (raw.items as { inputItemId: number; quantity: number }[]).filter(i => Number(i.quantity) > 0)
     : null;
 
@@ -152,22 +152,6 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   // manifest and may not consume more than its unissued balance.  Never trust
   // the item IDs or quantities supplied by a field device.
   if (body.dispatch_id) {
-    const deliveryItems = items && items.length > 0
-      ? items.map(i => ({ inputItemId: Number(i.inputItemId), quantity: Number(i.quantity) }))
-      : body.input_item_id && Number(body.quantity_delivered) > 0
-        ? [{ inputItemId: Number(body.input_item_id), quantity: Number(body.quantity_delivered) }]
-        : [];
-
-    if (!deliveryItems.length || deliveryItems.some(i => !Number.isInteger(i.inputItemId) || !Number.isFinite(i.quantity) || i.quantity <= 0)) {
-      res.status(400).json({ error: "A dispatch delivery requires at least one valid item and quantity." });
-      return;
-    }
-
-    const requested = new Map<number, number>();
-    for (const item of deliveryItems) {
-      requested.set(item.inputItemId, (requested.get(item.inputItemId) ?? 0) + item.quantity);
-    }
-    const requestedIds = [...requested.keys()];
     const [{ data: dispatchItems, error: dispatchItemsErr }, { data: pendingPods, error: pendingPodsErr }] = await Promise.all([
       supa.from("dispatch_items").select("input_item_id, quantity_loaded, quantity_delivered").eq("dispatch_id", body.dispatch_id),
       supa.from("pod").select("id, input_item_id, quantity_delivered").eq("dispatch_id", body.dispatch_id).eq("status", "Pending"),
@@ -177,6 +161,28 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
       return;
     }
 
+    // The legacy portal records one total quantity and does not expose an item
+    // picker. Preserve that flow only where the manifest unambiguously has one
+    // item; multi-item manifests must provide their explicit item quantities.
+    if ((!items || items.length === 0) && !body.input_item_id && (dispatchItems ?? []).length === 1 && Number(body.quantity_delivered) > 0) {
+      const soleItemId = Number((dispatchItems![0] as any).input_item_id);
+      items = [{ inputItemId: soleItemId, quantity: Number(body.quantity_delivered) }];
+      body.input_item_id = soleItemId;
+    }
+    const deliveryItems = items && items.length > 0
+      ? items.map(i => ({ inputItemId: Number(i.inputItemId), quantity: Number(i.quantity) }))
+      : body.input_item_id && Number(body.quantity_delivered) > 0
+        ? [{ inputItemId: Number(body.input_item_id), quantity: Number(body.quantity_delivered) }]
+        : [];
+    if (!deliveryItems.length || deliveryItems.some(i => !Number.isInteger(i.inputItemId) || !Number.isFinite(i.quantity) || i.quantity <= 0)) {
+      res.status(400).json({ error: "A dispatch delivery requires at least one valid item and quantity." });
+      return;
+    }
+    const requested = new Map<number, number>();
+    for (const item of deliveryItems) {
+      requested.set(item.inputItemId, (requested.get(item.inputItemId) ?? 0) + item.quantity);
+    }
+    const requestedIds = [...requested.keys()];
     const manifestItems = new Map((dispatchItems ?? []).map((item: any) => [Number(item.input_item_id), item]));
     const missing = requestedIds.filter(id => !manifestItems.has(id));
     if (missing.length) {
@@ -333,6 +339,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   }
 
   // Build insert payload — filter undefined values, keep nulls
+  const fieldOfficerId = await resolveUserId(req);
   const insertFields: Record<string, unknown> = Object.fromEntries(
     Object.entries({
       ...body,
@@ -342,7 +349,7 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
       gps_status:           gpsStatus,
       vehicle_gps_snapshot: vehicleGpsSnapshot,
       submitted_at:         new Date().toISOString(),
-      field_officer_id:     req.user!.userId,
+      field_officer_id:     fieldOfficerId,
     }).filter(([, v]) => v !== undefined)
   );
 
@@ -397,29 +404,79 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
   res.status(201).json({ ...snakeToCamel(podRow), communityName });
 });
 
-router.post("/api/pod/:id/override-face", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
-  const { reason } = req.body as { reason: string };
-  if (!reason?.trim()) { res.status(400).json({ error: "reason is required" }); return; }
+router.post("/api/pod/:id/flag-exception", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
+  const podId = Number(req.params.id);
+  const { notes } = req.body as { notes?: string };
+  if (!Number.isInteger(podId) || podId <= 0) {
+    res.status(400).json({ error: "Invalid PoD id" });
+    return;
+  }
+  if (notes != null && typeof notes !== "string") {
+    res.status(400).json({ error: "notes must be a string" });
+    return;
+  }
+  // Only an unprocessed delivery can enter exception review; this endpoint is
+  // intentionally not a general-purpose status update.
   const { data, error } = await supa.from("pod")
-    .update({ face_status: "Override", override_reason: reason })
-    .eq("id", Number(req.params.id))
+    .update({ status: "Exception", ...(notes?.trim() ? { notes: notes.trim() } : {}) })
+    .eq("id", podId)
+    .eq("status", "Pending")
     .select()
-    .single();
+    .maybeSingle();
   if (error) { res.status(500).json({ error: error.message }); return; }
-  await logAudit(req, "OVERRIDE_FACE", "PoD", `Supervisor override face verification for PoD ID ${req.params.id}: ${reason}`, "pod", (data as any).id);
+  if (!data) {
+    const { data: existing, error: lookupError } = await supa.from("pod").select("status").eq("id", podId).maybeSingle();
+    if (lookupError) { res.status(500).json({ error: lookupError.message }); return; }
+    res.status(existing ? 409 : 404).json({ error: existing ? "Only Pending PoDs can be flagged as exceptions" : "PoD not found" });
+    return;
+  }
+  await logAudit(req, "FLAG_EXCEPTION", "PoD", `Flagged PoD ID ${podId} as an exception`, "pod", podId);
   res.json(snakeToCamel(data));
 });
 
-router.post("/api/pod/:id/approve-exception", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+router.post("/api/pod/:id/override-face", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
+  const podId = Number(req.params.id);
+  const { reason } = req.body as { reason: string };
+  if (!Number.isInteger(podId) || podId <= 0) {
+    res.status(400).json({ error: "Invalid PoD id" });
+    return;
+  }
+  if (!reason?.trim()) { res.status(400).json({ error: "reason is required" }); return; }
+  // Face evidence is only reviewable while the delivery is still pending.
+  // Exceptions remain a separate management decision and terminal PoDs must
+  // never have their verification evidence rewritten.
+  const { data, error } = await supa.from("pod")
+    .update({ face_status: "Override", override_reason: reason })
+    .eq("id", podId)
+    .eq("status", "Pending")
+    .select()
+    .maybeSingle();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (!data) {
+    const { data: existing, error: lookupError } = await supa.from("pod").select("status").eq("id", podId).maybeSingle();
+    if (lookupError) { res.status(500).json({ error: lookupError.message }); return; }
+    res.status(existing ? 409 : 404).json({ error: existing ? "Only Pending PoDs can have face verification overridden" : "PoD not found" });
+    return;
+  }
+  await logAudit(req, "OVERRIDE_FACE", "PoD", `Supervisor override face verification for PoD ID ${podId}: ${reason}`, "pod", (data as any).id);
+  res.json(snakeToCamel(data));
+});
+
+router.post("/api/pod/:id/approve-exception", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { notes } = req.body;
   const podId = Number(req.params.id);
   if (!Number.isInteger(podId) || podId <= 0) {
     res.status(400).json({ error: "Invalid PoD id" });
     return;
   }
+  const approvedBy = await resolveUserId(req);
+  if (approvedBy === null || !Number.isInteger(approvedBy) || approvedBy <= 0) {
+    res.status(403).json({ error: "Your account is not linked to an active operational user and cannot approve PoD exceptions" });
+    return;
+  }
   const { data, error } = await supa.rpc("approve_pod_exception_atomic", {
     p_pod_id: podId,
-    p_approved_by: req.user!.userId,
+    p_approved_by: approvedBy,
     p_notes: notes ?? null,
   });
   if (error || !data) {

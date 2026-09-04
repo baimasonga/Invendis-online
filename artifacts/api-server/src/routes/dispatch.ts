@@ -433,54 +433,49 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
 
 router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
-
-  const { data, error } = await supa
-    .from("dispatches")
-    .update({ status: "Arrived", arrived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error || !data) { if (error) console.error("Failed to mark dispatch arrived:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
-  const row = data as any;
-  if (row.vehicle_id) {
-    await supa.from("vehicles").update({ status: "Active" }).eq("id", row.vehicle_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid dispatch id" });
+    return;
+  }
+  const { data, error } = await supa.rpc("arrive_dispatch_atomic", { p_dispatch_id: id });
+  if (error || !data) {
+    const message = error?.message ?? "Operation failed";
+    const status = /does not exist/i.test(message) ? 404
+      : /cannot arrive from status/i.test(message) ? 409
+      : 500;
+    res.status(status).json({ error: message });
+    return;
   }
   await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${id} arrived`, "dispatch", id);
-  res.json(snakeToCamel(row));
+  res.json(snakeToCamel(data));
 });
 
 router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
   const { reason } = req.body as { reason?: string };
-
-  // Fetch current state so we know the vehicle_id and prior status
-  const { data: existing, error: fetchErr } = await supa
-    .from("dispatches")
-    .select("id, status, vehicle_id")
-    .eq("id", id)
-    .single();
-  if (fetchErr || !existing) { if (fetchErr) console.error("Failed to fetch dispatch for cancel:", fetchErr); res.status(fetchErr ? 500 : 404).json({ error: fetchErr ? "Operation failed" : "Dispatch not found" }); return; }
-
-  const { data, error } = await supa
-    .from("dispatches")
-    .update({
-      status: "Cancelled",
-      cancel_reason: reason ?? null,
-      cancelled_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error || !data) { if (error) console.error("Failed to cancel dispatch:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
-
-  // If dispatch was In Transit, reset vehicle status back to Active
-  if ((existing as any).status === "In Transit" && (existing as any).vehicle_id) {
-    await supa.from("vehicles").update({ status: "Active" }).eq("id", (existing as any).vehicle_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid dispatch id" });
+    return;
   }
-
+  if (reason !== undefined && typeof reason !== "string") {
+    res.status(400).json({ error: "Cancellation reason must be a string" });
+    return;
+  }
+  const cancelledBy = await resolveUserId(req);
+  const { data, error } = await supa.rpc("cancel_dispatch_atomic", {
+    p_dispatch_id: id,
+    p_reason: reason ?? null,
+    p_cancelled_by: cancelledBy,
+  });
+  if (error || !data) {
+    const message = error?.message ?? "Operation failed";
+    const status = /does not exist/i.test(message) ? 404
+      : /cannot cancel from status/i.test(message) ? 409
+      : /unsafe|insufficient|missing|no warehouse/i.test(message) ? 422
+      : 500;
+    res.status(status).json({ error: message });
+    return;
+  }
   await logAudit(req, "CANCEL", "Dispatch", `Cancelled dispatch ID ${id}${reason ? `: ${reason}` : ""}`, "dispatch", id);
   res.json(snakeToCamel(data));
 });
