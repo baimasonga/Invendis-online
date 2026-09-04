@@ -1,15 +1,17 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 import type { Request, Response, NextFunction } from "express";
+import { supa } from "./supabase.js";
 
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === "production") {
     throw new Error("SESSION_SECRET environment variable must be set in production");
   }
   // eslint-disable-next-line no-console
-  console.warn("[auth] SESSION_SECRET not set — using insecure dev default. Set this in production.");
+  console.warn("[auth] SESSION_SECRET not set — using a temporary random development secret.");
 }
-const JWT_SECRET = process.env.SESSION_SECRET ?? "changeme-secret-dev-only";
+const JWT_SECRET = process.env.SESSION_SECRET ?? randomBytes(32).toString("hex");
 
 export interface JwtPayload {
   userId: number;
@@ -75,12 +77,57 @@ declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
-      supabaseUser?: { id: string; email: string };
+      supabaseUser?: { id: string; email: string; role: string; isActive: boolean };
     }
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+function isEnabled(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
+async function loadActiveLegacyUser(payload: JwtPayload): Promise<JwtPayload | null> {
+  const { data, error } = await supa
+    .from("users")
+    .select("username,role,district_id,is_active")
+    .eq("id", payload.userId)
+    .maybeSingle();
+
+  if (error || !data || !isEnabled((data as any).is_active)) return null;
+  return {
+    ...payload,
+    username: (data as any).username ?? payload.username,
+    role: (data as any).role ?? payload.role,
+    districtId: (data as any).district_id ?? null,
+  };
+}
+
+async function loadActiveProfile(id: string): Promise<{ role: string; isActive: boolean } | null> {
+  const { data, error } = await supa
+    .from("profiles")
+    .select("role,is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !data || !isEnabled((data as any).is_active)) return null;
+  return { role: (data as any).role ?? "Viewer", isActive: true };
+}
+
+async function attachSupabaseUser(
+  req: Request,
+  res: Response,
+  user: { id: string; email?: string | null },
+): Promise<boolean> {
+  const profile = await loadActiveProfile(user.id);
+  if (!profile) {
+    res.status(403).json({ error: "Forbidden", message: "Account is inactive or has no application profile" });
+    return false;
+  }
+  req.supabaseUser = { id: user.id, email: user.email ?? "", ...profile };
+  return true;
+}
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Unauthorized", message: "Missing or invalid token" });
@@ -88,7 +135,12 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
   const token = authHeader.slice(7);
   try {
-    req.user = verifyToken(token);
+    const activeUser = await loadActiveLegacyUser(verifyToken(token));
+    if (!activeUser) {
+      res.status(403).json({ error: "Forbidden", message: "Account is inactive" });
+      return;
+    }
+    req.user = activeUser;
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token expired or invalid" });
@@ -122,8 +174,8 @@ export async function requireSupabaseAuth(req: Request, res: Response, next: Nex
       res.status(401).json({ error: "Unauthorized", message: "Invalid Supabase token" });
       return;
     }
-    const user = (await resp.json()) as { id: string; email: string };
-    req.supabaseUser = user;
+    const user = (await resp.json()) as { id: string; email?: string | null };
+    if (!(await attachSupabaseUser(req, res, user))) return;
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
@@ -139,7 +191,12 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
   const token = authHeader.slice(7);
   // Try mobile JWT first
   try {
-    req.user = verifyToken(token);
+    const activeUser = await loadActiveLegacyUser(verifyToken(token));
+    if (!activeUser) {
+      res.status(403).json({ error: "Forbidden", message: "Account is inactive" });
+      return;
+    }
+    req.user = activeUser;
     next();
     return;
   } catch {
@@ -157,7 +214,8 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
     });
     if (!resp.ok) { res.status(401).json({ error: "Unauthorized" }); return; }
-    req.supabaseUser = (await resp.json()) as { id: string; email: string };
+    const user = (await resp.json()) as { id: string; email?: string | null };
+    if (!(await attachSupabaseUser(req, res, user))) return;
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
@@ -178,7 +236,8 @@ export function requireRoles(...roles: string[]) {
 export function requireRoleIfJwt(...roles: string[]) {
   const normalised = roles.map(r => r.toLowerCase());
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.user && !normalised.includes(req.user.role.toLowerCase())) {
+    const role = req.user?.role ?? req.supabaseUser?.role;
+    if (!role || !normalised.includes(role.toLowerCase())) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }

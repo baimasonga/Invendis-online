@@ -36,3 +36,6 @@ jobs:
 
       - name: Type check — web-portal
         run: pnpm --filter @workspace/web-portal typecheck
+
+      - name: Production build — web-portal
+        run: pnpm --filter @workspace/web-portal build

@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 import { StatusBadge } from "@/components/StatusBadge";
+import { writePrintDocument } from "@/lib/utils";
 
 const STATUS_STYLES: Record<string, string> = {
   pending:    "bg-slate-100  text-slate-600  border border-slate-200",
@@ -261,7 +262,7 @@ export default function DispatchDetail() {
 
     const win = window.open("", "_blank", "width=900,height=750");
     if (!win) return;
-    win.document.write(`
+    writePrintDocument(win, `
       <!DOCTYPE html>
       <html>
       <head>
@@ -436,7 +437,7 @@ export default function DispatchDetail() {
     const items: any[] = d.items ?? [];
     const win = window.open("", "_blank", "width=800,height=700");
     if (!win) return;
-    win.document.write(`
+    writePrintDocument(win, `
       <!DOCTYPE html>
       <html>
       <head>

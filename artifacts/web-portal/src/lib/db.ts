@@ -1,5 +1,15 @@
 import { supabase } from "./supabase";
 
+// Resolve every API request through the configured backend origin. In the
+// single-host Replit deployment VITE_API_URL is empty and relative /api paths
+// continue to work; split deployments can provide an explicit API origin.
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_ORIGIN}${normalizedPath}`;
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 export function farmerDisplayName(farmer: any): string {
@@ -330,7 +340,7 @@ export async function checkFarmerDuplicate(
   const token = session?.access_token;
   if (!token) return { duplicate: false };
 
-  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+  const resp = await fetch(apiUrl("/api/farmers/bulk-check-duplicates"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -412,7 +422,8 @@ function generateFarmerCode() {
   return `FRM-${ts}${rnd}`;
 }
 function generateBarcode() {
-  return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `BC-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 function generateVehicleCode() {
   return `VHL-${Date.now().toString(36).toUpperCase()}`;
@@ -746,36 +757,16 @@ export async function getStockBalance() {
 
 export async function receiveStock(payload: any) {
   if (!payload.quantity || payload.quantity <= 0) throw new Error("Quantity must be greater than zero");
-  const userId = await intUid();
-  const { data: ledger, error } = await supabase.from("stock_ledger").insert({
-    warehouse_id: payload.warehouseId,
-    input_item_id: payload.inputItemId,
-    txn_type: "RECEIVE",
-    quantity: payload.quantity,
-    reference: payload.reference ?? null,
-    notes: payload.notes ?? null,
-    created_by: userId,
-  }).select().single();
-  if (error) throw new Error(error.message);
-
-  const { data: bal } = await supabase.from("stock_balance")
-    .select("id, available")
-    .eq("warehouse_id", payload.warehouseId)
-    .eq("input_item_id", payload.inputItemId).single();
-
-  if (bal) {
-    await supabase.from("stock_balance")
-      .update({ available: (bal as any).available + payload.quantity, updated_at: new Date().toISOString() })
-      .eq("id", (bal as any).id);
-  } else {
-    await supabase.from("stock_balance").insert({
-      warehouse_id: payload.warehouseId,
-      input_item_id: payload.inputItemId,
-      available: payload.quantity,
-    });
-  }
-  await logAudit("RECEIVE", "inventory", `Received ${payload.quantity} units`, "stock", (ledger as any).id);
-  return cc(ledger);
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  const response = await fetch(apiUrl("/api/inventory/receive-stock"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({ error: response.statusText }));
+  if (!response.ok) throw new Error((result as any).error ?? "Failed to receive stock");
+  return result;
 }
 
 export async function transferStock(payload: {
@@ -789,7 +780,7 @@ export async function transferStock(payload: {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/inventory/transfer-stock", {
+  const resp = await fetch(apiUrl("/api/inventory/transfer-stock"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
@@ -955,7 +946,7 @@ export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: numb
   if (status && status !== "all") params.set("status", status);
   if (manifestCode && manifestCode.trim()) params.set("manifestCode", manifestCode.trim());
   if (showArchived) params.set("archived", "true");
-  const resp = await fetch(`/api/dispatch?${params}`, {
+  const resp = await fetch(apiUrl(`/api/dispatch?${params}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to list dispatches: ${resp.statusText}`);
@@ -964,7 +955,7 @@ export async function listDispatches(page = 1, limit = 20, fieldOfficerId?: numb
 
 export async function archiveDispatch(id: number): Promise<void> {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/archive`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/archive`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -976,7 +967,7 @@ export async function archiveDispatch(id: number): Promise<void> {
 
 export async function unarchiveDispatch(id: number): Promise<void> {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/unarchive`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/unarchive`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -988,7 +979,7 @@ export async function unarchiveDispatch(id: number): Promise<void> {
 
 export async function getDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`Failed to get dispatch: ${resp.statusText}`);
@@ -1000,7 +991,7 @@ export async function createDispatch(payload: any) {
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
 
-  const resp = await fetch("/api/dispatch", {
+  const resp = await fetch(apiUrl("/api/dispatch"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1020,7 +1011,7 @@ export async function importDispatch(payload: any) {
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
 
-  const resp = await fetch("/api/dispatch/import", {
+  const resp = await fetch(apiUrl("/api/dispatch/import"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1042,7 +1033,7 @@ export async function importDispatch(payload: any) {
 
 export async function approveDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/approve`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/approve`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1055,7 +1046,7 @@ export async function approveDispatch(id: number) {
 
 export async function dispatchManifest(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/dispatch`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/dispatch`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1068,7 +1059,7 @@ export async function dispatchManifest(id: number) {
 
 export async function arriveDispatch(id: number) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/arrive`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/arrive`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1098,7 +1089,7 @@ export async function listFieldOfficers() {
 
 export async function assignDispatchOfficer(id: number, fieldOfficerId: number | null) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${id}/assign`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${id}/assign`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ fieldOfficerId }),
@@ -1127,7 +1118,7 @@ export async function removeDispatchItem(dispatchId: number, itemId: number) {
 
 export async function addDispatchItem(payload: any) {
   const token = await dispatchToken();
-  const resp = await fetch(`/api/dispatch/${payload.dispatchId}/items`, {
+  const resp = await fetch(apiUrl(`/api/dispatch/${payload.dispatchId}/items`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -1163,7 +1154,7 @@ export async function listGpsRoutes(params?: {
   if (params?.from)       qs.set("from",       params.from);
   if (params?.to)         qs.set("to",         params.to);
   if (params?.limit)      qs.set("limit",      String(params.limit));
-  const resp = await fetch(`/api/gis/routes?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/api/gis/routes?${qs}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error((err as any).error ?? "Failed to fetch GIS routes");
@@ -1180,7 +1171,7 @@ export function buildGisExportUrl(format: "geojson" | "kml" | "gpx" | "csv", par
   if (params?.vehicleId) qs.set("vehicleId", String(params.vehicleId));
   if (params?.from)      qs.set("from",      params.from);
   if (params?.to)        qs.set("to",        params.to);
-  return `/api/gis/export/${format}?${qs}`;
+  return apiUrl(`/api/gis/export/${format}?${qs}`);
 }
 
 // ── GPS ──────────────────────────────────────────────────────────────────────────────
@@ -1192,7 +1183,7 @@ async function gpsToken(): Promise<string> {
 
 export async function listVehicleGpsStatus() {
   const token = await gpsToken();
-  const resp = await fetch("/api/gps/vehicles", { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/api/gps/vehicles"), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS vehicles fetch failed: ${resp.statusText}`);
   return resp.json();
 }
@@ -1200,35 +1191,35 @@ export async function listVehicleGpsStatus() {
 export async function listGpsTrack(vehicleId?: number, limit = 50) {
   if (!vehicleId) return [];
   const token = await gpsToken();
-  const resp = await fetch(`/api/gps/track/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/api/gps/track/${vehicleId}?limit=${limit}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS track fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function listGpsVehicleHistory(vehicleId: number, limit = 20) {
   const token = await gpsToken();
-  const resp = await fetch(`/api/gps/history/${vehicleId}?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl(`/api/gps/history/${vehicleId}?limit=${limit}`), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS history fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function listGpsTraceDevices(): Promise<{ configured: boolean; devices: any[]; vehicles: any[] }> {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/devices", { headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/api/gpstrace/devices"), { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS-Trace devices fetch failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function syncGpsTrace(): Promise<{ synced: number; total: number; linked: number }> {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/sync", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  const resp = await fetch(apiUrl("/api/gpstrace/sync"), { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`GPS-Trace sync failed: ${resp.statusText}`);
   return resp.json();
 }
 
 export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, deviceName?: string) {
   const token = await gpsToken();
-  const resp = await fetch("/api/gpstrace/link", {
+  const resp = await fetch(apiUrl("/api/gpstrace/link"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ vehicleId, deviceId, deviceName }),
@@ -1239,7 +1230,7 @@ export async function linkGpsTraceDevice(vehicleId: number, deviceId: string, de
 
 export async function unlinkGpsTraceDevice(vehicleId: number) {
   const token = await gpsToken();
-  const resp = await fetch(`/api/gpstrace/unlink/${vehicleId}`, {
+  const resp = await fetch(apiUrl(`/api/gpstrace/unlink/${vehicleId}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1339,7 +1330,7 @@ async function getSupabaseAccessToken(): Promise<string | null> {
 
 async function apiGet(path: string): Promise<any> {
   const token = await getSupabaseAccessToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
@@ -1351,7 +1342,7 @@ async function apiGet(path: string): Promise<any> {
 
 async function apiPost(path: string, body: unknown): Promise<any> {
   const token = await getSupabaseAccessToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1870,7 +1861,7 @@ export async function getConsolidatedDistributionReport(opts: {
 export async function bulkGenerateOtps(campaignId?: number, expiryHours = 24) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
-  const resp = await fetch("/api/pod/otp/bulk-generate", {
+  const resp = await fetch(apiUrl("/api/pod/otp/bulk-generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ campaignId, expiryHours }),
@@ -1976,7 +1967,7 @@ export async function listUsers() {
 
 export async function activateUser(id: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/activate`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${id}/activate`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -1989,7 +1980,7 @@ export async function activateUser(id: string) {
 
 export async function deactivateUser(id: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/deactivate`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${id}/deactivate`), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -2003,7 +1994,7 @@ export async function deactivateUser(id: string) {
 export async function createUser(payload: any) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/users/create-profile", {
+  const resp = await fetch(apiUrl("/api/users/create-profile"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2025,7 +2016,7 @@ export async function createUser(payload: any) {
 
 export async function updateUserRole(id: string, role: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/role`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${id}/role`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ role }),
@@ -2039,7 +2030,7 @@ export async function updateUserRole(id: string, role: string) {
 
 export async function updateUserFullName(id: string, fullName: string) {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${id}/name`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${id}/name`), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ fullName }),
@@ -2059,7 +2050,7 @@ async function userApiToken(): Promise<string> {
 
 export async function deleteUser(profileId: string): Promise<void> {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${profileId}`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${profileId}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -2072,7 +2063,7 @@ export async function deleteUser(profileId: string): Promise<void> {
 
 export async function resetUserPassword(profileId: string, password: string): Promise<void> {
   const token = await userApiToken();
-  const resp = await fetch(`/api/users/profile/${profileId}/reset-password`, {
+  const resp = await fetch(apiUrl(`/api/users/profile/${profileId}/reset-password`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ password }),
@@ -2092,7 +2083,7 @@ async function mdToken(): Promise<string> {
 }
 async function mdFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = await mdToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...opts,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts.headers ?? {}) },
   });
@@ -2207,14 +2198,10 @@ async function getApiToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
-// On Railway the portal and API are separate services.
-// Set VITE_API_URL (e.g. https://invendis-api.up.railway.app) at build time.
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") + "/api";
-
 export async function getFaceUploadUrl(farmerId: number, purpose: "reference" | "delivery"): Promise<{ uploadUrl: string; key: string; bucket: string }> {
   const token = await getApiToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}/face/upload-url`, {
+  const res = await fetch(apiUrl("/api/face/upload-url"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ farmerId, purpose }),
@@ -2231,7 +2218,7 @@ export async function uploadBlobToS3(uploadUrl: string, blob: Blob): Promise<voi
 export async function saveFaceReference(farmerId: number, key: string): Promise<void> {
   const token = await getApiToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}/face/save-reference`, {
+  const res = await fetch(apiUrl("/api/face/save-reference"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ farmerId, key }),
@@ -2242,7 +2229,7 @@ export async function saveFaceReference(farmerId: number, key: string): Promise<
 export async function getFaceViewUrl(key: string): Promise<string> {
   const token = await getApiToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}/face/view-url?key=${encodeURIComponent(key)}`, {
+  const res = await fetch(apiUrl(`/api/face/view-url?key=${encodeURIComponent(key)}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error ?? "Failed to get view URL"); }
@@ -2262,7 +2249,7 @@ export async function analysePhotoLabels(s3Key: string): Promise<{
 }> {
   const token = await getApiToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}/face/analyse-labels`, {
+  const res = await fetch(apiUrl("/api/face/analyse-labels"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ s3Key }),
@@ -2288,7 +2275,7 @@ export async function analyseFarmerFace(s3Key: string, farmerId: number): Promis
 }> {
   const token = await getApiToken();
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}/face/analyse-farmer`, {
+  const res = await fetch(apiUrl("/api/face/analyse-farmer"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ s3Key, farmerId }),
@@ -2312,7 +2299,7 @@ export interface PublicCardData {
 }
 
 export async function getPublicCard(token: string): Promise<PublicCardData> {
-  const res = await fetch(`${API_BASE}/cards/${encodeURIComponent(token)}`);
+  const res = await fetch(apiUrl(`/api/cards/${encodeURIComponent(token)}`));
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     throw new Error((e as any).error ?? "Card not found");
@@ -2373,7 +2360,7 @@ async function podToken(): Promise<string> {
 
 export async function approvePod(id: number, forceApprove = false): Promise<{ duplicate?: boolean; existingPod?: any }> {
   const token = await podToken();
-  const resp = await fetch(`/api/pod/${id}/approve`, {
+  const resp = await fetch(apiUrl(`/api/pod/${id}/approve`), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ forceApprove }),
@@ -2401,7 +2388,7 @@ export async function overrideFacePod(id: number, reason: string): Promise<void>
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch(`/api/pod/${id}/override-face`, {
+  const resp = await fetch(apiUrl(`/api/pod/${id}/override-face`), {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
     body: JSON.stringify({ reason }),
@@ -2415,7 +2402,7 @@ export async function overrideFacePod(id: number, reason: string): Promise<void>
 export async function batchApprovePods(ids: number[]): Promise<void> {
   if (!ids.length) return;
   const token = await podToken();
-  const resp = await fetch("/api/pod/batch-approve", {
+  const resp = await fetch(apiUrl("/api/pod/batch-approve"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ ids }),
@@ -2437,7 +2424,7 @@ export async function bulkImportFarmers(payload: {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/farmers/bulk-import", {
+  const resp = await fetch(apiUrl("/api/farmers/bulk-import"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
@@ -2453,7 +2440,7 @@ export async function bulkCheckDuplicates(phones: string[]): Promise<Array<{ pho
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error("Not authenticated");
-  const resp = await fetch("/api/farmers/bulk-check-duplicates", {
+  const resp = await fetch(apiUrl("/api/farmers/bulk-check-duplicates"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ phones }),

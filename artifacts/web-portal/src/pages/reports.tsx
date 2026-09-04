@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import { writePrintDocument } from "@/lib/utils";
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -429,7 +430,7 @@ export default function Reports() {
     const html = generatePrintHtml(dispatches, filterDesc);
     const win  = window.open("", "_blank");
     if (!win) { alert("Please allow popups to print the report."); return; }
-    win.document.write(html);
+    writePrintDocument(win, html);
     win.document.close();
     setTimeout(() => win.print(), 600);
   }

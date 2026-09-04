@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
-import { requireAuth, requireAnyAuth, requireRoles } from "../lib/auth.js";
+import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
 
@@ -64,27 +64,54 @@ router.get("/api/inventory/stock-balance", requireAuth, async (req, res) => {
   res.json(snakeToCamel(data ?? []));
 });
 
-router.post("/api/inventory/receive-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
+router.post("/api/inventory/receive-stock", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { warehouseId, inputItemId, quantity, reference, notes } = req.body;
   if (!warehouseId || !inputItemId) { res.status(400).json({ error: "warehouseId and inputItemId are required" }); return; }
   if (!quantity || Number(quantity) <= 0) { res.status(400).json({ error: "quantity must be a positive number" }); return; }
-  const { data: bal } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", warehouseId).eq("input_item_id", inputItemId).single();
-  if (bal) {
-    await supa.from("stock_balance").update({ available: ((bal as any).available ?? 0) + quantity, updated_at: new Date().toISOString() }).eq("id", (bal as any).id);
-  } else {
-    await supa.from("stock_balance").insert({ warehouse_id: warehouseId, input_item_id: inputItemId, available: quantity });
+  const { data: atomicResult, error: atomicError } = await supa.rpc("receive_stock_atomic", {
+    p_warehouse_id: Number(warehouseId), p_input_item_id: Number(inputItemId), p_quantity: Number(quantity),
+    p_reference: reference ?? null, p_notes: notes ?? null,
+  });
+  if (!atomicError) {
+    await logAudit(req, "RECEIVE", "Inventory", `Received ${quantity} units for item ${inputItemId} at warehouse ${warehouseId}`, "stock", Number((atomicResult as any)?.ledger_id) || warehouseId);
+    res.json({ success: true, message: "Stock received", data: atomicResult });
+    return;
   }
-  await supa.from("stock_ledger").insert({ warehouse_id: warehouseId, input_item_id: inputItemId, txn_type: "RECEIVE", quantity, reference: reference ?? null, notes: notes ?? null, created_by: req.user!.userId });
+  // Compatibility fallback while an existing deployment is waiting for the
+  // migration. Only a missing RPC is tolerated; real database errors fail.
+  if (!/receive_stock_atomic|schema cache|function/i.test(atomicError.message)) {
+    res.status(500).json({ error: atomicError.message }); return;
+  }
+  const { data: bal, error: balanceReadError } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", warehouseId).eq("input_item_id", inputItemId).maybeSingle();
+  if (balanceReadError) { res.status(500).json({ error: balanceReadError.message }); return; }
+  if (bal) {
+    const { error } = await supa.from("stock_balance").update({ available: ((bal as any).available ?? 0) + Number(quantity), updated_at: new Date().toISOString() }).eq("id", (bal as any).id);
+    if (error) { res.status(500).json({ error: error.message }); return; }
+  } else {
+    const { error } = await supa.from("stock_balance").insert({ warehouse_id: warehouseId, input_item_id: inputItemId, available: Number(quantity) });
+    if (error) { res.status(500).json({ error: error.message }); return; }
+  }
+  const { error: ledgerError } = await supa.from("stock_ledger").insert({ warehouse_id: warehouseId, input_item_id: inputItemId, txn_type: "RECEIVE", quantity: Number(quantity), reference: reference ?? null, notes: notes ?? null });
+  if (ledgerError) { res.status(500).json({ error: ledgerError.message }); return; }
   await logAudit(req, "RECEIVE", "Inventory", `Received ${quantity} units for item ${inputItemId} at warehouse ${warehouseId}`, "stock", warehouseId);
   res.json({ success: true, message: "Stock received" });
 });
 
-router.post("/api/inventory/transfer-stock", requireAuth, requireRoles("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
+router.post("/api/inventory/transfer-stock", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const { fromWarehouseId, toWarehouseId, inputItemId, quantity, notes } = req.body;
   if (!fromWarehouseId || !toWarehouseId || !inputItemId) { res.status(400).json({ error: "fromWarehouseId, toWarehouseId, and inputItemId are required" }); return; }
   if (!quantity || Number(quantity) <= 0) { res.status(400).json({ error: "quantity must be a positive number" }); return; }
   if (Number(fromWarehouseId) === Number(toWarehouseId)) { res.status(400).json({ error: "Source and destination warehouses must be different" }); return; }
+  const { data: atomicResult, error: atomicError } = await supa.rpc("transfer_stock_atomic", {
+    p_from_warehouse_id: Number(fromWarehouseId), p_to_warehouse_id: Number(toWarehouseId),
+    p_input_item_id: Number(inputItemId), p_quantity: Number(quantity), p_notes: notes ?? null,
+  });
+  if (!atomicError) { res.json({ success: true, message: "Stock transferred", data: atomicResult }); return; }
+  if (!/transfer_stock_atomic|schema cache|function/i.test(atomicError.message)) {
+    res.status(atomicError.message.toLowerCase().includes("insufficient") ? 409 : 500).json({ error: atomicError.message }); return;
+  }
   const { data: src } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", fromWarehouseId).eq("input_item_id", inputItemId).single();
+  if (!src || Number((src as any).available ?? 0) < Number(quantity)) { res.status(409).json({ error: "Insufficient available stock" }); return; }
   if (src) await supa.from("stock_balance").update({ available: ((src as any).available ?? 0) - quantity, updated_at: new Date().toISOString() }).eq("id", (src as any).id);
   const { data: dest } = await supa.from("stock_balance").select("id,available").eq("warehouse_id", toWarehouseId).eq("input_item_id", inputItemId).single();
   if (dest) {
@@ -92,8 +119,8 @@ router.post("/api/inventory/transfer-stock", requireAuth, requireRoles("Admin", 
   } else {
     await supa.from("stock_balance").insert({ warehouse_id: toWarehouseId, input_item_id: inputItemId, available: quantity });
   }
-  await supa.from("stock_ledger").insert({ warehouse_id: fromWarehouseId, input_item_id: inputItemId, txn_type: "TRANSFER_OUT", quantity: -quantity, notes: notes ?? null, created_by: req.user!.userId });
-  await supa.from("stock_ledger").insert({ warehouse_id: toWarehouseId, input_item_id: inputItemId, txn_type: "TRANSFER_IN", quantity, notes: notes ?? null, created_by: req.user!.userId });
+  await supa.from("stock_ledger").insert({ warehouse_id: fromWarehouseId, input_item_id: inputItemId, txn_type: "TRANSFER_OUT", quantity: -Number(quantity), notes: notes ?? null });
+  await supa.from("stock_ledger").insert({ warehouse_id: toWarehouseId, input_item_id: inputItemId, txn_type: "TRANSFER_IN", quantity: Number(quantity), notes: notes ?? null });
   res.json({ success: true, message: "Stock transferred" });
 });
 

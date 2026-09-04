@@ -25,6 +25,15 @@ function isFieldOfficer(role?: string | null): boolean {
   return (role ?? "").toLowerCase().replace(/[\s_-]/g, "") === "fieldofficer";
 }
 
+function portalAccessError(profile: UserProfile | null): string | null {
+  if (!profile) return "Your account profile is unavailable. Please contact an administrator.";
+  if (!profile.isActive) return "This account has been deactivated. Please contact an administrator.";
+  if (isFieldOfficer(profile.role)) {
+    return "Field Officers must use the Invendis mobile app. This portal is for management staff only.";
+  }
+  return null;
+}
+
 async function fetchProfile(userId: string): Promise<UserProfile | null> {
   try {
     const { data, error } = await supabase
@@ -59,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        if (isFieldOfficer(profile?.role)) {
+        if (portalAccessError(profile)) {
           await supabase.auth.signOut();
         } else if (mounted) {
           setUser(profile);
@@ -88,11 +97,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message);
     if (data.user) {
       const profile = await fetchProfile(data.user.id);
-      if (isFieldOfficer(profile?.role)) {
+      const accessError = portalAccessError(profile);
+      if (accessError) {
         await supabase.auth.signOut();
-        throw new Error("Field Officers must use the Invendis mobile app. This portal is for management staff only.");
+        throw new Error(accessError);
       }
-      setUser(profile);
+      setUser(profile!);
     }
   };
 

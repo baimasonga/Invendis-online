@@ -12,8 +12,11 @@ export async function logAudit(
 ) {
   try {
     await supa.from("audit_logs").insert({
+      // Legacy schemas store an integer here while newer schemas use UUID.
+      // A Supabase identity is therefore recorded by verified email unless a
+      // legacy numeric user id is available.
       user_id: req.user?.userId ?? null,
-      username: req.user?.username ?? null,
+      username: req.supabaseUser?.email ?? req.user?.username ?? null,
       action,
       module,
       description,

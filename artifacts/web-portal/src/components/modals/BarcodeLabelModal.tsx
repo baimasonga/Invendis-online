@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Printer, AlertCircle, Tag } from "lucide-react";
+import { writePrintDocument } from "@/lib/utils";
 
 export interface BarcodeLabelItem {
   name: string;
@@ -138,7 +139,7 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
     const win   = window.open("", "_blank", "width=960,height=720");
     if (!win) return;
 
-    win.document.write(`<!DOCTYPE html>
+    writePrintDocument(win, `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />

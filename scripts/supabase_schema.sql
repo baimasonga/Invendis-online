@@ -370,7 +370,7 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 
 -- ═══════════════════════════════════════════════════════════════
---  ROW LEVEL SECURITY  — allow authenticated users full access
+--  ROW LEVEL SECURITY — fail closed; role policies live in Supabase migrations
 -- ═══════════════════════════════════════════════════════════════
 DO $$ DECLARE t TEXT;
 BEGIN
@@ -383,16 +383,13 @@ BEGIN
     'pod','reconciliations','otp_codes','system_settings','audit_logs','users'
   ]) LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
-    EXECUTE format($$
-      CREATE POLICY "authenticated_full_access" ON public.%I
-      FOR ALL TO authenticated USING (true) WITH CHECK (true)
-    $$, t);
-    EXECUTE format($$
-      CREATE POLICY "service_role_full_access" ON public.%I
-      FOR ALL TO service_role USING (true) WITH CHECK (true)
-    $$, t);
+    EXECUTE format('DROP POLICY IF EXISTS "authenticated_full_access" ON public.%I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "service_role_full_access" ON public.%I', t);
   END LOOP;
 END $$;
+
+-- Apply supabase/migrations/20260904000000_harden_web_security.sql before
+-- granting browser users access. The service role bypasses RLS for the API.
 
 -- ═══════════════════════════════════════════════════════════════
 --  SEED DATA — Sierra Leone districts, value chains, warehouses
@@ -449,4 +446,3 @@ INSERT INTO public.system_settings (key, value, description) VALUES
   ('otp_max_attempts',       '5',       'Maximum OTP verification attempts before lockout'),
   ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer')
 ON CONFLICT (key) DO NOTHING;
-

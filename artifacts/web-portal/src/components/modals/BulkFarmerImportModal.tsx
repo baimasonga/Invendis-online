@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { FileSpreadsheet, Download, Printer, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, writePrintDocument } from "@/lib/utils";
 
 interface Props { open: boolean; onClose: () => void; }
 
@@ -269,7 +269,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
         <img src="https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(f.barcodeToken)}" alt="QR" width="96" height="96" />
         <p class="code">${f.farmerCode}</p>
       </div>`).join("");
-    win.document.write(`<!DOCTYPE html><html><head><title>Farmer Labels</title>
+    writePrintDocument(win, `<!DOCTYPE html><html><head><title>Farmer Labels</title>
       <style>
         body{font-family:sans-serif;margin:10px}
         h3{margin:0 0 10px;font-size:14px}

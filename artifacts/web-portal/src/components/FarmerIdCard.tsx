@@ -5,6 +5,7 @@ import { Printer, Download, Share2, Copy, Check, ExternalLink } from "lucide-rea
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { farmerDisplayName } from "@/lib/db";
+import { writePrintDocument } from "@/lib/utils";
 
 interface FarmerIdCardProps {
   farmer: {
@@ -63,7 +64,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
              <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
            </svg>
          </div>`;
-    win.document.write(`
+    writePrintDocument(win, `
       <!DOCTYPE html>
       <html>
       <head>
@@ -124,7 +125,7 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
       </body>
       </html>
     `);
-    win.document.close();
+    setTimeout(() => win.print(), 300);
   }
 
   async function handleDownload() {

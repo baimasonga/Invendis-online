@@ -12,7 +12,7 @@ function generateFarmerCode() {
   return "FRM-" + Date.now().toString(36).toUpperCase() + randomBytes(2).toString("hex").toUpperCase();
 }
 function generateBarcode() {
-  return "BC" + String(Date.now()).slice(-8).padStart(8, "0");
+  return `BC-${randomBytes(16).toString("base64url")}`;
 }
 
 router.get("/api/farmers", requireAnyAuth, async (req, res) => {
@@ -283,7 +283,7 @@ router.get("/api/cards/:token", async (req, res) => {
 
   const { data: rows, error } = await supa
     .from("farmers")
-    .select("id, first_name, last_name, farmer_code, barcode_token, gender, phone, status, photo_url, district_id, chiefdom_id, value_chain_id")
+    .select("id, first_name, last_name, farmer_code, barcode_token, gender, status, photo_url, district_id, chiefdom_id, value_chain_id")
     .eq("barcode_token", token)
     .limit(1);
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -301,14 +301,13 @@ router.get("/api/cards/:token", async (req, res) => {
     try { photoUrl = await getPresignedViewUrl(farmer.photo_url); } catch { photoUrl = null; }
   }
 
-  res.set("Cache-Control", "private, max-age=60");
+  res.set("Cache-Control", "private, no-store");
   res.json({
     firstName:      farmer.first_name,
     lastName:       farmer.last_name,
     farmerCode:     farmer.farmer_code,
     barcodeToken:   farmer.barcode_token,
     gender:         farmer.gender,
-    phone:          farmer.phone,
     status:         farmer.status,
     districtName:   (districtRes.data as any)?.[0]?.name ?? null,
     chiefdomName:   (chiefdomRes.data as any)?.[0]?.name ?? null,

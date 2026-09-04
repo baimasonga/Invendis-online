@@ -527,17 +527,18 @@ BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
   EXECUTE 'ALTER TABLE ' || t || ' ENABLE ROW LEVEL SECURITY';
 END LOOP; END; $$;
 
--- Profiles: users see their own; authenticated see all (for admin purposes)
+-- Fail-closed bootstrap policies. The role-aware policies are installed by
+-- migrations/20260904000000_harden_web_security.sql.
 DROP POLICY IF EXISTS "profiles_select" ON profiles;
-CREATE POLICY "profiles_select" ON profiles FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "profiles_select" ON profiles FOR SELECT TO authenticated
+  USING (auth.uid() = id AND is_active IS TRUE);
 DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
-CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE USING (auth.uid() = id);
 
--- All other tables: authenticated users have full access
+-- Remove historical blanket policies. Tables intentionally remain deny-by-
+-- default until the role-aware migration is applied.
 DO $$ DECLARE t text;
 BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'profiles' LOOP
   EXECUTE 'DROP POLICY IF EXISTS "auth_all_' || t || '" ON ' || t;
-  EXECUTE 'CREATE POLICY "auth_all_' || t || '" ON ' || t || ' FOR ALL USING (auth.role() = ''authenticated'')';
 END LOOP; END; $$;
 
 -- ── SEED DATA ────────────────────────────────────────────────
