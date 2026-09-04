@@ -235,7 +235,7 @@ importers:
         specifier: workspace:*
         version: link:../../lib/api-zod
       esbuild:
-        specifier: ^0.27.3
+        specifier: 0.27.3
         version: 0.27.3
       esbuild-plugin-pino:
         specifier: ^2.3.3
