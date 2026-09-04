@@ -341,7 +341,13 @@ router.post("/api/gpstrace/link", requireAnyAuth, requireRoleIfJwt("Admin", "Pro
     .select("id,gps_device_id")
     .maybeSingle();
 
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (error) {
+    const conflict = error.code === "23505";
+    res.status(conflict ? 409 : 500).json({
+      error: conflict ? "GPS device is already linked to another vehicle" : error.message,
+    });
+    return;
+  }
   if (!updated || (updated as any).gps_device_id !== deviceId) {
     res.status(409).json({ error: "Vehicle link changed concurrently; GPS device link was not applied" });
     return;

@@ -167,7 +167,7 @@ export async function getDashboardData() {
   ] = await Promise.all([
     supabase.from("farmers").select("*", { count: "exact", head: true }),
     supabase.from("farmers").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("campaigns").select("*", { count: "exact", head: true }).in("status", ["Active", "Approved"]),
+    supabase.from("campaigns").select("*", { count: "exact", head: true }).in("status", ["Active", "Approved", "active", "approved"]),
     supabase.from("dispatches").select("*", { count: "exact", head: true }),
     supabase.from("allocations").select("*", { count: "exact", head: true }),
     supabase.from("pod").select("*", { count: "exact", head: true }).eq("status", "Pending"),
@@ -187,8 +187,8 @@ export async function getDashboardData() {
     supabase.from("dispatches").select("*", { count: "exact", head: true }).gte("created_at", d14).lt("created_at", d7),
     // active campaign progress
     supabase.from("campaigns")
-      .select("id, name, allocated_farmers, delivered_count, target_beneficiaries, status")
-      .in("status", ["Active", "Approved"])
+      .select("id, name, total_farmers, allocated_farmers, delivered_count, status")
+      .in("status", ["Active", "Approved", "active", "approved"])
       .order("created_at", { ascending: false })
       .limit(8),
     // low stock
@@ -262,14 +262,14 @@ export async function getDashboardData() {
 
   // Campaign progress
   const campaignProgress = (activeCampaignRows.data ?? []).map((c: any) => {
-    const target    = Math.max(Number(c.allocated_farmers) || 0, Number(c.target_beneficiaries) || 0, 1);
+    const target    = Math.max(Number(c.total_farmers) || 0, Number(c.allocated_farmers) || 0, 1);
     const delivered = Number(c.delivered_count) || 0;
     return {
       id:              c.id,
       name:            c.name,
       status:          c.status,
       allocatedFarmers: Number(c.allocated_farmers) || 0,
-      targetBeneficiaries: Number(c.target_beneficiaries) || 0,
+      targetBeneficiaries: Number(c.total_farmers) || 0,
       deliveredCount:  delivered,
       pct:             Math.min(100, Math.round((delivered / target) * 100)),
     };
