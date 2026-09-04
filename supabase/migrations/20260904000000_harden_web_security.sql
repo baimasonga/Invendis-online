@@ -3,6 +3,30 @@
 
 BEGIN;
 
+-- Older production databases predate the incident-management feature even
+-- though the current API and web portal already expose it. Create the missing
+-- table before grants, triggers, and policies reference it.
+CREATE TABLE IF NOT EXISTS public.incidents (
+  id               serial PRIMARY KEY,
+  incident_code    text NOT NULL UNIQUE,
+  type             text,
+  title            text,
+  description      text,
+  dispatch_id      integer REFERENCES public.dispatches(id),
+  field_officer_id integer REFERENCES public.users(id),
+  reported_by      text,
+  latitude         double precision,
+  longitude        double precision,
+  photo_url        text,
+  status           text NOT NULL DEFAULT 'Open',
+  resolution_notes text,
+  resolved_by      integer REFERENCES public.users(id),
+  resolved_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS incidents_status_idx ON public.incidents (status);
+CREATE INDEX IF NOT EXISTS incidents_field_officer_idx ON public.incidents (field_officer_id);
+
 CREATE SCHEMA IF NOT EXISTS private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
 GRANT USAGE ON SCHEMA private TO authenticated;
@@ -131,27 +155,37 @@ DECLARE table_name text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY['districts','chiefdoms','sections','communities','value_chains','distribution_sites','system_settings']
   LOOP
-    EXECUTE format('CREATE POLICY project_admin_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'']))', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('CREATE POLICY project_admin_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'']))', table_name);
+    END IF;
   END LOOP;
 
   FOREACH table_name IN ARRAY ARRAY['farmers','allocations']
   LOOP
-    EXECUTE format('CREATE POLICY field_operations_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'']))', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('CREATE POLICY field_operations_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'']))', table_name);
+    END IF;
   END LOOP;
 
   FOREACH table_name IN ARRAY ARRAY['campaigns','campaign_items']
   LOOP
-    EXECUTE format('CREATE POLICY campaign_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'']))', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('CREATE POLICY campaign_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'']))', table_name);
+    END IF;
   END LOOP;
 
   FOREACH table_name IN ARRAY ARRAY['warehouses','input_items','stock_ledger','stock_balance','procurement_orders','procurement_items','vehicles','drivers','dispatches','dispatch_items','reconciliations']
   LOOP
-    EXECUTE format('CREATE POLICY supply_chain_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager'']))', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('CREATE POLICY supply_chain_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager'']))', table_name);
+    END IF;
   END LOOP;
 
   FOREACH table_name IN ARRAY ARRAY['pod','incidents']
   LOOP
-    EXECUTE format('CREATE POLICY supervision_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'',''warehousemanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'',''warehousemanager'']))', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('CREATE POLICY supervision_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'',''warehousemanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''districtcoordinator'',''warehousemanager'']))', table_name);
+    END IF;
   END LOOP;
 END $$;
 
@@ -226,8 +260,10 @@ BEGIN
     'reconciliations','incidents','system_settings'
   ]
   LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS audit_business_change ON public.%I', table_name);
-    EXECUTE format('CREATE TRIGGER audit_business_change AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION private.audit_business_change()', table_name);
+    IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
+      EXECUTE format('DROP TRIGGER IF EXISTS audit_business_change ON public.%I', table_name);
+      EXECUTE format('CREATE TRIGGER audit_business_change AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION private.audit_business_change()', table_name);
+    END IF;
   END LOOP;
 END $$;
 

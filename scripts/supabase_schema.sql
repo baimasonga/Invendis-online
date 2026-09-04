@@ -369,6 +369,28 @@ CREATE TABLE IF NOT EXISTS public.users (
   updated_at    TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS public.incidents (
+  id               SERIAL PRIMARY KEY,
+  incident_code    TEXT NOT NULL UNIQUE,
+  type             TEXT,
+  title            TEXT,
+  description      TEXT,
+  dispatch_id      INTEGER REFERENCES public.dispatches(id),
+  field_officer_id INTEGER REFERENCES public.users(id),
+  reported_by      TEXT,
+  latitude         DOUBLE PRECISION,
+  longitude        DOUBLE PRECISION,
+  photo_url        TEXT,
+  status           TEXT NOT NULL DEFAULT 'Open',
+  resolution_notes TEXT,
+  resolved_by      INTEGER REFERENCES public.users(id),
+  resolved_at      TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS incidents_status_idx ON public.incidents (status);
+CREATE INDEX IF NOT EXISTS incidents_field_officer_idx ON public.incidents (field_officer_id);
+
 -- ═══════════════════════════════════════════════════════════════
 --  ROW LEVEL SECURITY — fail closed; role policies live in Supabase migrations
 -- ═══════════════════════════════════════════════════════════════
@@ -380,7 +402,7 @@ BEGIN
     'stock_balance','procurement_orders','procurement_items',
     'farmers','campaigns','campaign_items','allocations',
     'vehicles','drivers','gps_track','dispatches','dispatch_items',
-    'pod','reconciliations','otp_codes','system_settings','audit_logs','users'
+    'pod','reconciliations','otp_codes','system_settings','audit_logs','users','incidents'
   ]) LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS "authenticated_full_access" ON public.%I', t);
