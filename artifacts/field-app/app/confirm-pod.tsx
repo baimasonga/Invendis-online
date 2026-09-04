@@ -200,6 +200,7 @@ export default function ConfirmPodScreen() {
   const [itemQtys, setItemQtys] = useState<Record<number, string>>({});
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchLoadError, setDispatchLoadError] = useState(false);
+  const [dispatchItemsResolved, setDispatchItemsResolved] = useState(!dispatchId);
 
   // GPS capture — run once on mount only
   useEffect(() => {
@@ -215,10 +216,12 @@ export default function ConfirmPodScreen() {
     if (!dispatchId) return;
     setDispatchLoading(true);
     setDispatchLoadError(false);
+    setDispatchItemsResolved(false);
     getDispatch(token, Number(dispatchId))
       .then(d => {
         const items = (d.items ?? []).filter(i => i.inputItemId != null);
         setDispatchItems(items);
+        if (items.length === 0) setDispatchLoadError(true);
         const initial: Record<number, string> = {};
         for (const item of items) initial[item.inputItemId!] = "0";
         setItemQtys(initial);
@@ -227,7 +230,7 @@ export default function ConfirmPodScreen() {
         console.error("Failed to load dispatch items:", e);
         setDispatchLoadError(true);
       })
-      .finally(() => setDispatchLoading(false));
+      .finally(() => { setDispatchLoading(false); setDispatchItemsResolved(true); });
   }, [token]);
 
   useEffect(() => {
@@ -288,7 +291,7 @@ export default function ConfirmPodScreen() {
   };
 
   const handleSendOtp = async () => {
-    if (dispatchItems.length === 0) {
+    if (!dispatchId && dispatchItems.length === 0) {
       const qty = Number(quantity);
       if (isNaN(qty) || qty <= 0) {
         Alert.alert("Invalid Quantity", "Please enter a valid quantity before verifying.");
@@ -838,7 +841,7 @@ export default function ConfirmPodScreen() {
           </View>
 
           {/* Quantity — multi-item when dispatch items loaded, single otherwise */}
-          {dispatchId && dispatchLoading ? (
+          {dispatchId && (!dispatchItemsResolved || dispatchLoading) ? (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantities to Issue</Text>
               <ActivityIndicator color={colors.primary} style={{ alignSelf: "flex-start", marginTop: 8 }} />
@@ -850,30 +853,34 @@ export default function ConfirmPodScreen() {
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantities to Issue</Text>
               <Text style={{ fontSize: 13, color: colors.destructive, marginBottom: 8 }}>
-                Could not load dispatch items. Check connection and retry.
+                {dispatchItems.length === 0
+                  ? "This dispatch has no configured items. Delivery cannot continue until the manifest is corrected."
+                  : "Could not load dispatch items. Check connection and retry."}
               </Text>
               <TouchableOpacity
                 onPress={() => {
                   if (!token || !dispatchId) return;
                   setDispatchLoading(true);
                   setDispatchLoadError(false);
+                  setDispatchItemsResolved(false);
                   getDispatch(token, Number(dispatchId))
                     .then(d => {
                       const items = (d.items ?? []).filter(i => i.inputItemId != null);
                       setDispatchItems(items);
+                      if (items.length === 0) setDispatchLoadError(true);
                       const initial: Record<number, string> = {};
                       for (const item of items) initial[item.inputItemId!] = "0";
                       setItemQtys(initial);
                     })
                     .catch((e) => { console.error("Retry failed:", e); setDispatchLoadError(true); })
-                    .finally(() => setDispatchLoading(false));
+                    .finally(() => { setDispatchLoading(false); setDispatchItemsResolved(true); });
                 }}
               >
                 <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_600SemiBold" }}>Retry</Text>
               </TouchableOpacity>
             </View>
-          ) : dispatchId && !dispatchLoading && dispatchItems.length === 0 ? (
-            // dispatchId present but no items found — show single-qty fallback with a note
+          ) : false ? (
+            // A dispatch without manifest items is handled by the blocking error above.
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Quantity Issued</Text>
               <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginBottom: 8 }}>
@@ -1014,7 +1021,7 @@ export default function ConfirmPodScreen() {
             <TouchableOpacity
               style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
               onPress={() => doSubmit("Bypassed", "Bypassed", true)}
-              disabled={sendingOtp || submitting}
+              disabled={sendingOtp || submitting || (!!dispatchId && (!dispatchItemsResolved || dispatchLoadError || dispatchItems.length === 0))}
               activeOpacity={0.8}
             >
               <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
@@ -1034,6 +1041,10 @@ export default function ConfirmPodScreen() {
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
               onPress={() => {
+                if (dispatchId && (!dispatchItemsResolved || dispatchLoadError || dispatchItems.length === 0)) {
+                  Alert.alert("Dispatch Items Required", "This dispatch's manifest items must load successfully before you can record a delivery.");
+                  return;
+                }
                 if (dispatchItems.length > 0) {
                   const anyQty = dispatchItems.some(
                     item => item.inputItemId != null && Number(itemQtys[item.inputItemId] ?? 0) > 0
@@ -1048,7 +1059,7 @@ export default function ConfirmPodScreen() {
                   setStep("scan");
                 }
               }}
-              disabled={submitting || dispatchLoading}
+              disabled={submitting || dispatchLoading || (!!dispatchId && (!dispatchItemsResolved || dispatchLoadError || dispatchItems.length === 0))}
               activeOpacity={0.85}
             >
               <Feather name={dispatchItems.length > 0 ? "shield" : "package"} size={18} color="#fff" />

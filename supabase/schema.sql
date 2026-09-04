@@ -23,15 +23,20 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- Auto-create profile on sign-up
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = '' AS $$
 BEGIN
-  INSERT INTO profiles (id, full_name, email, role)
+  -- auth metadata is user-controlled at sign-up. Privileged roles are assigned
+  -- afterwards only by an administrator/service path.
+  INSERT INTO public.profiles (id, full_name, email, role)
   VALUES (
     new.id,
     COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
     new.email,
-    COALESCE(new.raw_user_meta_data->>'role', 'FieldOfficer')
+    'FieldOfficer'
   )
   ON CONFLICT (id) DO NOTHING;
   RETURN new;
@@ -41,7 +46,7 @@ $$;
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ── GEOGRAPHY ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS districts (

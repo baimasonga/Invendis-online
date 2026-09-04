@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supa, snakeToCamel, camelToSnake, pool } from "../lib/supabase.js";
+import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { randomBytes } from "crypto";
@@ -148,6 +148,83 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     if (item) body.input_item_id = (item as any).id;
   }
 
+  // A dispatch is a closed manifest: delivery items must come from that
+  // manifest and may not consume more than its unissued balance.  Never trust
+  // the item IDs or quantities supplied by a field device.
+  if (body.dispatch_id) {
+    const deliveryItems = items && items.length > 0
+      ? items.map(i => ({ inputItemId: Number(i.inputItemId), quantity: Number(i.quantity) }))
+      : body.input_item_id && Number(body.quantity_delivered) > 0
+        ? [{ inputItemId: Number(body.input_item_id), quantity: Number(body.quantity_delivered) }]
+        : [];
+
+    if (!deliveryItems.length || deliveryItems.some(i => !Number.isInteger(i.inputItemId) || !Number.isFinite(i.quantity) || i.quantity <= 0)) {
+      res.status(400).json({ error: "A dispatch delivery requires at least one valid item and quantity." });
+      return;
+    }
+
+    const requested = new Map<number, number>();
+    for (const item of deliveryItems) {
+      requested.set(item.inputItemId, (requested.get(item.inputItemId) ?? 0) + item.quantity);
+    }
+    const requestedIds = [...requested.keys()];
+    const [{ data: dispatchItems, error: dispatchItemsErr }, { data: pendingPods, error: pendingPodsErr }] = await Promise.all([
+      supa.from("dispatch_items").select("input_item_id, quantity_loaded, quantity_delivered").eq("dispatch_id", body.dispatch_id),
+      supa.from("pod").select("id, input_item_id, quantity_delivered").eq("dispatch_id", body.dispatch_id).eq("status", "Pending"),
+    ]);
+    if (dispatchItemsErr || pendingPodsErr) {
+      res.status(500).json({ error: dispatchItemsErr?.message ?? pendingPodsErr?.message ?? "Unable to validate dispatch items." });
+      return;
+    }
+
+    const manifestItems = new Map((dispatchItems ?? []).map((item: any) => [Number(item.input_item_id), item]));
+    const missing = requestedIds.filter(id => !manifestItems.has(id));
+    if (missing.length) {
+      res.status(422).json({ error: "dispatch_item_mismatch", message: "Submitted items are not on this dispatch.", inputItemIds: missing });
+      return;
+    }
+
+    // Pending PoDs reserve stock as soon as they are submitted, preventing
+    // multiple submissions from collectively exceeding a manifest before
+    // supervisors approve them.
+    const pendingIds = (pendingPods ?? []).map((pod: any) => Number(pod.id));
+    const pendingByItem = new Map<number, number>();
+    if (pendingIds.length) {
+      const { data: pendingItemRows, error: pendingItemsErr } = await supa
+        .from("pod_items")
+        .select("pod_id, input_item_id, quantity_delivered")
+        .in("pod_id", pendingIds);
+      if (pendingItemsErr) {
+        res.status(500).json({ error: pendingItemsErr.message });
+        return;
+      }
+      const podsWithItems = new Set((pendingItemRows ?? []).map((row: any) => Number(row.pod_id)));
+      for (const item of pendingItemRows ?? []) {
+        const row = item as any;
+        const id = Number(row.input_item_id);
+        pendingByItem.set(id, (pendingByItem.get(id) ?? 0) + Number(row.quantity_delivered ?? 0));
+      }
+      for (const pod of pendingPods ?? []) {
+        const row = pod as any;
+        if (!podsWithItems.has(Number(row.id)) && row.input_item_id) {
+          const id = Number(row.input_item_id);
+          pendingByItem.set(id, (pendingByItem.get(id) ?? 0) + Number(row.quantity_delivered ?? 0));
+        }
+      }
+    }
+
+    const overages = requestedIds.flatMap(id => {
+      const manifest = manifestItems.get(id) as any;
+      const remaining = Number(manifest.quantity_loaded ?? 0) - Number(manifest.quantity_delivered ?? 0) - (pendingByItem.get(id) ?? 0);
+      const quantity = requested.get(id)!;
+      return quantity > remaining ? [{ inputItemId: id, requested: quantity, remaining: Math.max(0, remaining) }] : [];
+    });
+    if (overages.length) {
+      res.status(422).json({ error: "dispatch_quantity_exceeded", message: "Submitted quantity exceeds the dispatch balance.", items: overages });
+      return;
+    }
+  }
+
   let campaignId: number | null = body.campaign_id ?? null;
 
   // 1. Try to derive from dispatch
@@ -269,41 +346,26 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     }).filter(([, v]) => v !== undefined)
   );
 
-  let podRow: Record<string, unknown>;
-
-  // Try full insert via Supabase; if PostgREST schema cache rejects a newer column,
-  // fall back to base columns then patch the extended ones.
-  const BASE_COLS = new Set([
-    "dispatch_id","campaign_id","farmer_id","input_item_id","input_barcode",
-    "quantity_delivered","farmer_latitude","farmer_longitude","face_status","notes",
-    "override_reason","otp_status","otp_verified","pod_code","status","gps_status",
-    "submitted_at","field_officer_id",
-  ]);
-  const EXTENDED_COLS = ["photo_keys","photo_gps_coords","vehicle_gps_snapshot","face_photo_key","face_similarity","otp_code"];
-
-  const { data: podInserted, error: insertErr } = await supa
-    .from("pod")
-    .insert(insertFields)
-    .select()
-    .single();
-
-  if (insertErr) {
-    if (insertErr.message?.includes("Could not find") || (insertErr as any).code === "PGRST204") {
-      // Schema cache stale — insert base columns only then UPDATE extended ones
-      const baseData = Object.fromEntries(Object.entries(insertFields).filter(([k]) => BASE_COLS.has(k)));
-      const { data: baseInserted, error: baseErr } = await supa.from("pod").insert(baseData).select().single();
-      if (baseErr) { res.status(500).json({ error: baseErr.message }); return; }
-      podRow = baseInserted as Record<string, unknown>;
-      const extData = Object.fromEntries(Object.entries(insertFields).filter(([k]) => EXTENDED_COLS.includes(k) && insertFields[k] != null));
-      if (Object.keys(extData).length > 0) {
-        await supa.from("pod").update(extData).eq("id", (podRow as any).id);
-      }
-    } else {
-      res.status(500).json({ error: insertErr.message }); return;
+  const atomicItems = items && items.length > 0
+    ? items.map(i => ({ input_item_id: Number(i.inputItemId), quantity_delivered: Number(i.quantity) }))
+    : body.dispatch_id && body.input_item_id && Number(body.quantity_delivered) > 0
+      ? [{ input_item_id: Number(body.input_item_id), quantity_delivered: Number(body.quantity_delivered) }]
+      : [];
+  const { data: podInserted, error: insertErr } = await supa.rpc("submit_pod_atomic", {
+    p_record: insertFields,
+    p_items: atomicItems,
+  });
+  if (insertErr || !podInserted) {
+    const message = insertErr?.message ?? "Failed to submit PoD";
+    if (/cannot accept deliveries from status/i.test(message)) {
+      res.status(409).json({ error: message });
+      return;
     }
-  } else {
-    podRow = podInserted as Record<string, unknown>;
+    const validationFailure = /requires items|not on dispatch|exceeds remaining|positive finite|does not exist/i.test(message);
+    res.status(validationFailure ? 422 : 500).json({ error: message });
+    return;
   }
+  let podRow = podInserted as Record<string, unknown>;
 
   // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
   if (body.farmer_id && campaignId) {
@@ -331,20 +393,6 @@ router.post("/api/pod/submit", requireAuth, async (req, res) => {
     } catch { /* best-effort: don't fail PoD submit if group_size update fails */ }
   }
 
-  // Insert per-item breakdown into pod_items
-  if (items && items.length > 0) {
-    const { error: itemsInsertErr } = await supa.from("pod_items").insert(
-      items.map(i => ({
-        pod_id:             (podRow as any).id,
-        input_item_id:      Number(i.inputItemId),
-        quantity_delivered: Number(i.quantity),
-      }))
-    );
-    if (itemsInsertErr) {
-      req.log.error({ err: itemsInsertErr }, "Failed to insert pod_items — pod_items table may not exist yet; run migration");
-    }
-  }
-
   await logAudit(req, "SUBMIT", "PoD", `Submitted PoD: ${podCode}`, "pod", podRow.id as number);
   res.status(201).json({ ...snakeToCamel(podRow), communityName });
 });
@@ -364,8 +412,24 @@ router.post("/api/pod/:id/override-face", requireAuth, requireRoles("Admin", "Pr
 
 router.post("/api/pod/:id/approve-exception", requireAuth, requireRoles("Admin", "ProjectManager", "DistrictCoordinator"), async (req, res) => {
   const { notes } = req.body;
-  const { data, error } = await supa.from("pod").update({ status: "Verified", approved_by: req.user!.userId, approved_at: new Date().toISOString(), notes }).eq("id", Number(req.params.id)).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
+  const podId = Number(req.params.id);
+  if (!Number.isInteger(podId) || podId <= 0) {
+    res.status(400).json({ error: "Invalid PoD id" });
+    return;
+  }
+  const { data, error } = await supa.rpc("approve_pod_exception_atomic", {
+    p_pod_id: podId,
+    p_approved_by: req.user!.userId,
+    p_notes: notes ?? null,
+  });
+  if (error || !data) {
+    const message = error?.message ?? "PoD approval failed";
+    const status = /does not exist/i.test(message) ? 404
+      : /already been processed|cannot approve deliveries from status|status:/i.test(message) ? 409
+      : 400;
+    res.status(status).json({ error: message });
+    return;
+  }
   await logAudit(req, "APPROVE_EXCEPTION", "PoD", `Approved PoD exception ID ${req.params.id}`, "pod", (data as any).id);
   res.json(snakeToCamel(data));
 });
@@ -379,6 +443,21 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
   try {
     const userId = await resolveUserId(req);
 
+    const { data: approvedCount, error: approvalErr } = await supa.rpc("approve_pods_atomic", {
+      p_pod_ids: ids,
+      p_approved_by: userId,
+    });
+    if (approvalErr) {
+      const alreadyProcessed = /already been processed|cannot approve deliveries from status|status:/i.test(approvalErr.message);
+      res.status(alreadyProcessed ? 409 : 400).json({ error: approvalErr.message });
+      return;
+    }
+    await logAudit(req, "APPROVE", "PoD", `Batch approved ${approvedCount ?? ids.length} PoD(s)`, "pod", ids[0]);
+    res.json({ approved: approvedCount ?? ids.length });
+    return;
+
+    /* Replaced by approve_pods_atomic: keeping approval and every derived
+       counter in the same database transaction is required for correctness.
     const { data: pods, error: podsErr } = await supa
       .from("pod")
       .select("id, farmer_id, campaign_id, dispatch_id, input_item_id, quantity_delivered")
@@ -458,6 +537,7 @@ router.post("/api/pod/batch-approve", requireAnyAuth, requireRoleIfJwt("Admin", 
 
     await logAudit(req, "APPROVE", "PoD", `Batch approved ${ids.length} PoD(s)`, "pod", ids[0]);
     res.json({ approved: ids.length });
+    */
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -494,6 +574,17 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
       return;
     }
 
+    const { error: approvalErr } = await supa.rpc("approve_pods_atomic", {
+      p_pod_ids: [podId],
+      p_approved_by: userId,
+    });
+    if (approvalErr) {
+      const alreadyProcessed = /already been processed|cannot approve deliveries from status|status:/i.test(approvalErr.message);
+      res.status(alreadyProcessed ? 409 : 400).json({ error: approvalErr.message });
+      return;
+    }
+
+    /* Replaced by approve_pods_atomic.
     const { error: updateErr } = await supa
       .from("pod")
       .update({ status: "Verified", approved_by: userId, approved_at: new Date().toISOString() })
@@ -554,6 +645,7 @@ router.post("/api/pod/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "P
         .update({ delivered_packages: Math.round(totalDelivered), updated_at: new Date().toISOString() })
         .eq("id", dispatch_id);
     }
+    */
 
     // SMS notification to farmer (non-fatal)
     try {

@@ -3,6 +3,47 @@
 --  Run this once in Supabase SQL Editor
 -- ═══════════════════════════════════════════════════════════════
 
+-- ── PROFILES (extends auth.users) ─────────────────────────────
+-- New accounts always start as FieldOfficer. Assign Admin and other
+-- privileged roles through an administrator/service workflow after creation.
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id          uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name   text NOT NULL DEFAULT '',
+  email       text,
+  username    text UNIQUE,
+  role        text NOT NULL DEFAULT 'FieldOfficer',
+  district_id integer,
+  is_active   boolean NOT NULL DEFAULT true,
+  last_login  timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz
+);
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = '' AS $$
+BEGIN
+  -- raw_user_meta_data can be supplied by the person signing up, so never
+  -- derive authorization from it.
+  INSERT INTO public.profiles (id, full_name, email, role)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    new.email,
+    'FieldOfficer'
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- ── MASTER DATA ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.districts (
   id          SERIAL PRIMARY KEY,

@@ -2,8 +2,96 @@ import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
 import { districtCoords, DISTRICT_GEOFENCE_RADIUS_M } from "../lib/district-coords.js";
+import type { Request } from "express";
 
 const router = Router();
+const GPS_MANAGEMENT_ROLES = new Set(["admin", "projectmanager", "warehousemanager"]);
+
+type GpsRequester = { role: string; userId: number | null; districtId: number | null };
+
+function isGpsManager(requester: GpsRequester): boolean {
+  return GPS_MANAGEMENT_ROLES.has(requester.role.toLowerCase());
+}
+
+async function getGpsRequester(req: Request): Promise<GpsRequester> {
+  if (req.user) {
+    return {
+      role: req.user.role,
+      userId: req.user.userId,
+      districtId: req.user.districtId ?? null,
+    };
+  }
+
+  // Supabase-authenticated portal users do not carry the legacy integer user ID
+  // in their token. Resolve it from the existing users table so assignment and
+  // district checks work the same way for both authentication methods.
+  const role = req.supabaseUser?.role ?? "";
+  if (!req.supabaseUser?.email) return { role, userId: null, districtId: null };
+  const { data } = await supa
+    .from("users")
+    .select("id,district_id")
+    .eq("email", req.supabaseUser.email)
+    .maybeSingle();
+  return {
+    role,
+    userId: (data as any)?.id ?? null,
+    districtId: (data as any)?.district_id ?? null,
+  };
+}
+
+async function readableDispatchIds(req: Request, vehicleId: number): Promise<number[] | null> {
+  const requester = await getGpsRequester(req);
+  // null means unrestricted (management roles).
+  if (isGpsManager(requester)) return null;
+
+  const { data: dispatches } = await supa
+    .from("dispatches")
+    .select("id,field_officer_id,campaign_id")
+    .eq("vehicle_id", vehicleId);
+  const rows = dispatches ?? [];
+
+  if (requester.role.toLowerCase() === "fieldofficer") {
+    if (requester.userId == null) return [];
+    return rows.filter((d: any) => d.field_officer_id === requester.userId).map((d: any) => d.id);
+  }
+
+  if (requester.districtId == null || rows.length === 0) return [];
+  const campaignIds = [...new Set(rows.map((d: any) => d.campaign_id).filter(Boolean))];
+  if (!campaignIds.length) return [];
+  const { data: campaigns } = await supa
+    .from("campaigns")
+    .select("id")
+    .in("id", campaignIds)
+    .eq("district_id", requester.districtId);
+  const allowedCampaignIds = new Set((campaigns ?? []).map((c: any) => c.id));
+  return rows.filter((d: any) => allowedCampaignIds.has(d.campaign_id)).map((d: any) => d.id);
+}
+
+async function canReadVehicle(req: Request, vehicleId: number): Promise<boolean> {
+  const dispatchIds = await readableDispatchIds(req, vehicleId);
+  return dispatchIds === null || dispatchIds.length > 0;
+}
+
+async function scopeDispatchesForRequester(req: Request, dispatches: any[]): Promise<any[]> {
+  const requester = await getGpsRequester(req);
+  if (isGpsManager(requester)) return dispatches;
+
+  if (requester.role.toLowerCase() === "fieldofficer") {
+    if (requester.userId == null) return [];
+    return dispatches.filter(d => d.field_officer_id === requester.userId);
+  }
+
+  if (requester.districtId == null) return [];
+  const campaignIds = [...new Set(dispatches.map(d => d.campaign_id).filter(Boolean))];
+  if (!campaignIds.length) return [];
+  const { data: campaigns } = await supa
+    .from("campaigns")
+    .select("id")
+    .in("id", campaignIds)
+    .eq("district_id", requester.districtId);
+  const allowedCampaignIds = new Set((campaigns ?? []).map((c: any) => c.id));
+  return dispatches.filter(d => allowedCampaignIds.has(d.campaign_id));
+}
 
 export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
@@ -45,6 +133,39 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
     res.status(400).json({ error: "latitude/longitude out of range" });
     return;
   }
+  if (rawDispatchId != null && (!Number.isFinite(dispatchId as number) || (dispatchId as number) <= 0)) {
+    res.status(400).json({ error: "dispatchId must be a positive number" });
+    return;
+  }
+
+  const requester = await getGpsRequester(req);
+  const isManager = isGpsManager(requester);
+  let dispatch: any = null;
+  if (dispatchId != null) {
+    const { data, error } = await supa
+      .from("dispatches")
+      .select("id, vehicle_id, field_officer_id, status, arrived_at, campaign_id")
+      .eq("id", dispatchId)
+      .maybeSingle();
+    if (error || !data) {
+      res.status(400).json({ error: "Referenced dispatch was not found" });
+      return;
+    }
+    dispatch = data;
+    if (dispatch.vehicle_id !== vehicleId) {
+      res.status(400).json({ error: "dispatchId does not belong to vehicleId" });
+      return;
+    }
+  }
+  if (!isManager && (
+    requester.role.toLowerCase() !== "fieldofficer" ||
+    requester.userId == null ||
+    !dispatch ||
+    dispatch.field_officer_id !== requester.userId
+  )) {
+    res.status(403).json({ error: "Forbidden", message: "GPS positions may only be submitted for your assigned dispatch" });
+    return;
+  }
 
   const numOrNull = (v: unknown) => {
     const n = Number(v);
@@ -75,18 +196,12 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
 
   let arrivalStatus: string | null = null;
 
-  if (dispatchId) {
-    const { data: dispRow } = await supa
-      .from("dispatches")
-      .select("id, status, arrived_at, campaign_id")
-      .eq("id", dispatchId)
-      .single();
-
-    if (dispRow && dispRow.status === "In Transit" && !dispRow.arrived_at) {
+  if (dispatchId && dispatch) {
+    if (dispatch.status === "In Transit" && !dispatch.arrived_at) {
       const { data: camp } = await supa
         .from("campaigns")
         .select("distribution_site_id, district_id")
-        .eq("id", dispRow.campaign_id)
+        .eq("id", dispatch.campaign_id)
         .single();
 
       let destLat: number | null = null;
@@ -249,11 +364,11 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
   // 1. Active dispatches
   const { data: dispatches, error: dispErr } = await supa
     .from("dispatches")
-    .select("id, manifest_code, status, departed_at, arrived_at, vehicle_id, campaign_id, driver_id")
+    .select("id, manifest_code, status, departed_at, arrived_at, vehicle_id, campaign_id, driver_id, field_officer_id")
     .in("status", ["In Transit", "Arrived"]);
 
   if (dispErr) { res.status(500).json({ error: dispErr.message }); return; }
-  const dispatchRows = dispatches ?? [];
+  const dispatchRows = await scopeDispatchesForRequester(_req, dispatches ?? []);
 
   // 2. Live Tracking is vehicle-driven, not dispatch-driven. A vehicle earns a
   //    place on the map if it has a linked hardware tracker or a known position,
@@ -268,7 +383,12 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
     .select("id, plate_number, vehicle_code, vehicle_type, gps_device_id, last_latitude, last_longitude, last_ping");
   if (trackedErr) console.error("GPS vehicles: vehicle lookup failed:", trackedErr);
 
-  const trackedVehicles = (allVehicles ?? []).filter(
+  const visibleVehicleIds = new Set(dispatchRows.map((d: any) => d.vehicle_id).filter(Boolean));
+  const requester = await getGpsRequester(_req);
+  const visibleVehicles = isGpsManager(requester)
+    ? (allVehicles ?? [])
+    : (allVehicles ?? []).filter((v: any) => visibleVehicleIds.has(v.id));
+  const trackedVehicles = visibleVehicles.filter(
     (v: any) => v.gps_device_id != null || v.last_ping != null,
   );
 
@@ -279,7 +399,7 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
   // Any vehicle on an active dispatch also belongs here, even with no tracker and
   // no position yet — it should show as "no signal" rather than vanish.
   const trackedIds = new Set(trackedVehicles.map((v: any) => v.id));
-  const dispatchOnlyVehicles = (allVehicles ?? []).filter(
+  const dispatchOnlyVehicles = visibleVehicles.filter(
     (v: any) => !trackedIds.has(v.id) && dispatchVehicleIds.includes(v.id),
   );
 
@@ -425,13 +545,29 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
 
 // ── GET /api/gps/track/:vehicleId ────────────────────────────────────────────
 router.get("/api/gps/track/:vehicleId", requireAnyAuth, async (req, res) => {
+  const vehicleId = Number(req.params.vehicleId);
+  if (!Number.isFinite(vehicleId) || vehicleId <= 0) {
+    res.status(400).json({ error: "Invalid vehicleId" });
+    return;
+  }
+  const allowedDispatchIds = await readableDispatchIds(req, vehicleId);
+  if (allowedDispatchIds !== null && allowedDispatchIds.length === 0) {
+    res.status(403).json({ error: "Forbidden", message: "You are not permitted to view this vehicle's track" });
+    return;
+  }
   const limit = Math.min(Number(req.query.limit ?? "100"), 500);
-  const { data, error } = await supa
+  let trackQuery = supa
     .from("gps_track")
     .select("id, latitude, longitude, speed, heading, accuracy, recorded_at")
-    .eq("vehicle_id", Number(req.params.vehicleId))
+    .eq("vehicle_id", vehicleId)
     .order("recorded_at", { ascending: false })
     .limit(limit);
+  // Positions not tied to an authorized dispatch (for example an idle hardware
+  // tracker) must not leak through a field-officer or district-scoped request.
+  if (allowedDispatchIds !== null) {
+    trackQuery = trackQuery.in("dispatch_id", allowedDispatchIds) as typeof trackQuery;
+  }
+  const { data, error } = await trackQuery;
 
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json(
@@ -456,11 +592,15 @@ router.get("/api/gps/history/:vehicleId", requireAnyAuth, async (req, res) => {
     res.status(400).json({ error: "Invalid vehicleId" });
     return;
   }
+  if (!(await canReadVehicle(req, vehicleId))) {
+    res.status(403).json({ error: "Forbidden", message: "You are not permitted to view this vehicle's history" });
+    return;
+  }
   const limit = Math.min(Number(req.query.limit ?? "20"), 100);
 
   const { data: dispatches, error } = await supa
     .from("dispatches")
-    .select("id, manifest_code, status, campaign_id, departed_at, arrived_at, created_at")
+    .select("id, manifest_code, status, campaign_id, departed_at, arrived_at, created_at, field_officer_id")
     .eq("vehicle_id", vehicleId)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -470,7 +610,7 @@ router.get("/api/gps/history/:vehicleId", requireAnyAuth, async (req, res) => {
     return;
   }
 
-  const rows = dispatches ?? [];
+  const rows = await scopeDispatchesForRequester(req, dispatches ?? []);
   if (rows.length === 0) { res.json([]); return; }
 
   const campaignIds = [...new Set(rows.map((d: any) => d.campaign_id).filter(Boolean))];

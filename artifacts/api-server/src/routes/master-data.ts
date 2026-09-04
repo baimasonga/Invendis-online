@@ -5,12 +5,6 @@ import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
-// Sequences on Supabase get stuck after bulk imports — always compute next id manually.
-async function nextId(table: string): Promise<number> {
-  const { data } = await supa.from(table).select("id").order("id", { ascending: false }).limit(1).maybeSingle();
-  return ((data as any)?.id ?? 0) + 1;
-}
-
 // ── Districts ─────────────────────────────────────────────────────────────────
 router.get("/api/master-data/districts", requireAnyAuth, async (_req, res) => {
   const { data, error } = await supa.from("districts").select("*").order("name");
@@ -26,8 +20,7 @@ router.get("/api/master-data/districts", requireAnyAuth, async (_req, res) => {
 router.post("/api/master-data/districts", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, code } = req.body;
   if (!name || !code) { res.status(400).json({ error: "name and code are required" }); return; }
-  const id = await nextId("districts");
-  const { data, error } = await supa.from("districts").insert({ id, name, code }).select().single();
+  const { data, error } = await supa.from("districts").insert({ name, code }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "CREATE", "MasterData", `Created district: ${name}`, "district", (data as any).id);
   res.status(201).json(snakeToCamel(data));
@@ -67,8 +60,7 @@ router.get("/api/master-data/chiefdoms", requireAnyAuth, async (req, res) => {
 router.post("/api/master-data/chiefdoms", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, districtId } = req.body;
   if (!name || !districtId) { res.status(400).json({ error: "name and districtId are required" }); return; }
-  const id = await nextId("chiefdoms");
-  const { data, error } = await supa.from("chiefdoms").insert({ id, name, district_id: districtId }).select().single();
+  const { data, error } = await supa.from("chiefdoms").insert({ name, district_id: districtId }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "CREATE", "MasterData", `Created chiefdom: ${name}`, "chiefdom", (data as any).id);
   res.status(201).json(snakeToCamel(data));
@@ -112,8 +104,7 @@ router.get("/api/master-data/value-chains", requireAnyAuth, async (_req, res) =>
 router.post("/api/master-data/value-chains", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, description } = req.body;
   if (!name) { res.status(400).json({ error: "name is required" }); return; }
-  const id = await nextId("value_chains");
-  const { data, error } = await supa.from("value_chains").insert({ id, name, description, is_active: 1 }).select().single();
+  const { data, error } = await supa.from("value_chains").insert({ name, description, is_active: 1 }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "CREATE", "MasterData", `Created value chain: ${name}`, "value_chain", (data as any).id);
   res.status(201).json(snakeToCamel(data));
@@ -149,9 +140,8 @@ router.get("/api/master-data/warehouses", requireAnyAuth, async (_req, res) => {
 router.post("/api/master-data/warehouses", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, code, districtId, address, latitude, longitude } = req.body;
   if (!name || !code) { res.status(400).json({ error: "name and code are required" }); return; }
-  const id = await nextId("warehouses");
   const { data, error } = await supa.from("warehouses")
-    .insert({ id, name, code, district_id: districtId ?? null, address: address ?? null, latitude: latitude ?? null, longitude: longitude ?? null, is_active: 1 })
+    .insert({ name, code, district_id: districtId ?? null, address: address ?? null, latitude: latitude ?? null, longitude: longitude ?? null, is_active: 1 })
     .select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "CREATE", "MasterData", `Created warehouse: ${name}`, "warehouse", (data as any).id);
@@ -203,9 +193,8 @@ router.get("/api/master-data/distribution-sites", requireAnyAuth, async (_req, r
 router.post("/api/master-data/distribution-sites", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, districtId, latitude, longitude, geofenceRadius } = req.body;
   if (!name) { res.status(400).json({ error: "name is required" }); return; }
-  const id = await nextId("distribution_sites");
   const { data, error } = await supa.from("distribution_sites").insert({
-    id, name, district_id: districtId ?? null,
+    name, district_id: districtId ?? null,
     latitude: latitude ?? null, longitude: longitude ?? null,
     geofence_radius: geofenceRadius ?? 500, is_active: 1,
   }).select().single();
@@ -265,9 +254,8 @@ router.get("/api/master-data/input-items", requireAnyAuth, async (_req, res) => 
 router.post("/api/master-data/input-items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, itemCode, unit, category, valueChainId, description } = req.body;
   if (!name || !itemCode || !unit) { res.status(400).json({ error: "name, itemCode and unit are required" }); return; }
-  const id = await nextId("input_items");
   const { data, error } = await supa.from("input_items").insert({
-    id, name, item_code: itemCode, unit, category: category ?? null,
+    name, item_code: itemCode, unit, category: category ?? null,
     value_chain_id: valueChainId ?? null, description: description ?? null, is_active: 1,
   }).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }

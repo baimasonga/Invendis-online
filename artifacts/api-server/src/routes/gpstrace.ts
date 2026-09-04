@@ -9,10 +9,13 @@
  *   GPS_TRACE_API_TOKEN  – token from partner.gps-trace.com/api/tokens
  */
 import { Router } from "express";
-import { requireAnyAuth } from "../lib/auth.js";
+import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
+import { logAudit } from "../lib/audit.js";
+import type { Request } from "express";
 
 const router = Router();
+const GPS_MANAGEMENT_ROLES = new Set(["admin", "projectmanager", "warehousemanager"]);
 
 const API_BASE = "https://api.gps-trace.com";
 
@@ -104,13 +107,69 @@ async function fetchUnits(): Promise<PartnerUnit[]> {
 }
 
 // ── 45-second server-side cache for devices (prevents rate-limit hammering) ───
-let _devicesCache: { ts: number; payload: object } | null = null;
+let _devicesCache: { ts: number; payload: { configured: boolean; devices: any[]; vehicles: any[] } } | null = null;
 const DEVICES_TTL_MS = 45_000;
 
 function invalidateDevicesCache() { _devicesCache = null; }
 
+async function getVisibleGpsVehicleIds(req: Request): Promise<Set<number> | null> {
+  const role = (req.user?.role ?? req.supabaseUser?.role ?? "").toLowerCase();
+  if (GPS_MANAGEMENT_ROLES.has(role)) return null;
+
+  let userId = req.user?.userId ?? null;
+  let districtId = req.user?.districtId ?? null;
+  if (req.supabaseUser?.email) {
+    const { data: user } = await supa
+      .from("users")
+      .select("id,district_id")
+      .eq("email", req.supabaseUser.email)
+      .maybeSingle();
+    userId = (user as any)?.id ?? null;
+    districtId = (user as any)?.district_id ?? null;
+  }
+
+  const { data: dispatches } = await supa
+    .from("dispatches")
+    .select("vehicle_id,field_officer_id,campaign_id")
+    .in("status", ["In Transit", "Arrived"]);
+  let visibleDispatches = dispatches ?? [];
+
+  if (role === "fieldofficer") {
+    visibleDispatches = userId == null
+      ? []
+      : visibleDispatches.filter((d: any) => d.field_officer_id === userId);
+  } else {
+    if (districtId == null) return new Set();
+    const campaignIds = [...new Set(visibleDispatches.map((d: any) => d.campaign_id).filter(Boolean))];
+    if (!campaignIds.length) return new Set();
+    const { data: campaigns } = await supa
+      .from("campaigns")
+      .select("id")
+      .in("id", campaignIds)
+      .eq("district_id", districtId);
+    const allowedCampaignIds = new Set((campaigns ?? []).map((c: any) => c.id));
+    visibleDispatches = visibleDispatches.filter((d: any) => allowedCampaignIds.has(d.campaign_id));
+  }
+
+  return new Set(visibleDispatches.map((d: any) => d.vehicle_id).filter(Boolean));
+}
+
+async function scopeDevicesPayload(req: Request, payload: { configured: boolean; devices: any[]; vehicles: any[] }) {
+  const visibleVehicleIds = await getVisibleGpsVehicleIds(req);
+  if (visibleVehicleIds === null) return payload;
+  return {
+    ...payload,
+    vehicles: payload.vehicles.filter((v: any) => visibleVehicleIds.has(v.id)),
+    // Unlinked units are management inventory and have no district/assignment
+    // through which a non-management user could be authorized to view them.
+    devices: payload.devices.filter(
+      (d: any) => d.linkedVehicle?.id != null && visibleVehicleIds.has(d.linkedVehicle.id),
+    ),
+  };
+}
+
 // ── GET /api/gpstrace/devices ─────────────────────────────────────────────────
-router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
+router.get("/api/gpstrace/devices", requireAnyAuth, async (req, res) => {
   if (!getToken()) {
     res.json({ configured: false, devices: [], vehicles: [] });
     return;
@@ -118,7 +177,7 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
 
   // Serve from cache if fresh
   if (_devicesCache && Date.now() - _devicesCache.ts < DEVICES_TTL_MS) {
-    res.json(_devicesCache.payload);
+    res.json(await scopeDevicesPayload(req, _devicesCache.payload));
     return;
   }
 
@@ -161,14 +220,16 @@ router.get("/api/gpstrace/devices", requireAnyAuth, async (_req, res) => {
 
     const payload = { configured: true, devices, vehicles: vehicles ?? [] };
     _devicesCache = { ts: Date.now(), payload };
-    res.json(payload);
+    res.json(await scopeDevicesPayload(req, payload));
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "GPS-Trace unavailable" });
   }
 });
 
 // ── POST /api/gpstrace/sync ───────────────────────────────────────────────────
-router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
+// Manual sync writes fleet positions. The background poller remains service-side
+// and unchanged; this endpoint is limited to the operational management roles.
+router.post("/api/gpstrace/sync", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (_req, res) => {
   if (!getToken() && !getToken2()) {
     res.json({ synced: 0, message: "No GPS-Trace tokens configured" });
     return;
@@ -241,37 +302,123 @@ router.post("/api/gpstrace/sync", requireAnyAuth, async (_req, res) => {
 });
 
 // ── POST /api/gpstrace/link ───────────────────────────────────────────────────
-router.post("/api/gpstrace/link", requireAnyAuth, async (req, res) => {
-  const { vehicleId, deviceId, deviceName } = req.body as {
+router.post("/api/gpstrace/link", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
+  const { vehicleId: rawVehicleId, deviceId: rawDeviceId, deviceName } = req.body as {
     vehicleId: number; deviceId: string; deviceName?: string;
   };
-  if (!vehicleId || !deviceId) {
+  const vehicleId = Number(rawVehicleId);
+  const deviceId = String(rawDeviceId ?? "").trim();
+  if (!Number.isFinite(vehicleId) || vehicleId <= 0 || !deviceId) {
     res.status(400).json({ error: "vehicleId and deviceId are required" });
     return;
   }
 
-  await supa.from("vehicles").update({ gps_device_id: null }).eq("gps_device_id", deviceId);
+  // Validate the target before making any change. A device already linked to a
+  // different vehicle is rejected rather than silently unlinking that vehicle.
+  const [{ data: target, error: targetError }, { data: conflict, error: conflictError }] = await Promise.all([
+    supa.from("vehicles").select("id,gps_device_id").eq("id", vehicleId).maybeSingle(),
+    supa.from("vehicles").select("id").eq("gps_device_id", deviceId).neq("id", vehicleId).limit(1).maybeSingle(),
+  ]);
+  if (targetError) { res.status(500).json({ error: targetError.message }); return; }
+  if (!target) { res.status(404).json({ error: "Vehicle not found" }); return; }
+  if (conflictError) { res.status(500).json({ error: conflictError.message }); return; }
+  if (conflict) {
+    res.status(409).json({
+      error: "GPS device is already linked to another vehicle",
+      linkedVehicleId: (conflict as any).id,
+    });
+    return;
+  }
 
-  const { error } = await supa
+  const linkUpdate = supa
     .from("vehicles")
     .update({ gps_device_id: deviceId })
     .eq("id", vehicleId);
+  const guardedLinkUpdate = (target as any).gps_device_id == null
+    ? linkUpdate.is("gps_device_id", null)
+    : linkUpdate.eq("gps_device_id", (target as any).gps_device_id);
+  const { data: updated, error } = await guardedLinkUpdate
+    .select("id,gps_device_id")
+    .maybeSingle();
 
   if (error) { res.status(500).json({ error: error.message }); return; }
+  if (!updated || (updated as any).gps_device_id !== deviceId) {
+    res.status(409).json({ error: "Vehicle link changed concurrently; GPS device link was not applied" });
+    return;
+  }
+  const { data: linkedRows, error: verifyError } = await supa
+    .from("vehicles")
+    .select("id")
+    .eq("gps_device_id", deviceId);
+  if (verifyError) { res.status(500).json({ error: verifyError.message }); return; }
+  if ((linkedRows ?? []).length !== 1 || (linkedRows as any[])[0]?.id !== vehicleId) {
+    // There is no cross-row transaction available here. Restore the target's
+    // prior value if a concurrent request created a duplicate association.
+    await supa
+      .from("vehicles")
+      .update({ gps_device_id: (target as any).gps_device_id ?? null })
+      .eq("id", vehicleId)
+      .eq("gps_device_id", deviceId);
+    res.status(409).json({ error: "Conflicting GPS device link detected; no link was created" });
+    return;
+  }
 
   invalidateDevicesCache();
+  await logAudit(
+    req,
+    "LINK_GPS_DEVICE",
+    "GPS",
+    `Linked GPS device ${deviceId} to vehicle ID ${vehicleId}`,
+    "vehicle",
+    Number(vehicleId),
+    { deviceId, deviceName: deviceName ?? null },
+  );
   res.json({ success: true, vehicleId, deviceId, deviceName });
 });
 
 // ── DELETE /api/gpstrace/unlink/:vehicleId ────────────────────────────────────
-router.delete("/api/gpstrace/unlink/:vehicleId", requireAnyAuth, async (req, res) => {
-  const { error } = await supa
+router.delete("/api/gpstrace/unlink/:vehicleId", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
+  const vehicleId = Number(req.params.vehicleId);
+  if (!Number.isFinite(vehicleId) || vehicleId <= 0) {
+    res.status(400).json({ error: "Invalid vehicleId" });
+    return;
+  }
+  const { data: vehicle, error: vehicleError } = await supa
+    .from("vehicles")
+    .select("gps_device_id")
+    .eq("id", vehicleId)
+    .maybeSingle();
+  if (vehicleError || !vehicle) {
+    res.status(404).json({ error: "Vehicle not found" });
+    return;
+  }
+  const previousDeviceId = (vehicle as any).gps_device_id ?? null;
+  const unlinkUpdate = supa
     .from("vehicles")
     .update({ gps_device_id: null })
-    .eq("id", Number(req.params.vehicleId));
+    .eq("id", vehicleId);
+  const guardedUnlinkUpdate = previousDeviceId == null
+    ? unlinkUpdate.is("gps_device_id", null)
+    : unlinkUpdate.eq("gps_device_id", previousDeviceId);
+  const { data: updated, error } = await guardedUnlinkUpdate
+    .select("id,gps_device_id")
+    .maybeSingle();
 
   if (error) { res.status(500).json({ error: error.message }); return; }
+  if (!updated || (updated as any).gps_device_id != null) {
+    res.status(409).json({ error: "Vehicle link changed concurrently; GPS device unlink was not applied" });
+    return;
+  }
   invalidateDevicesCache();
+  await logAudit(
+    req,
+    "UNLINK_GPS_DEVICE",
+    "GPS",
+    `Unlinked GPS device from vehicle ID ${vehicleId}`,
+    "vehicle",
+    vehicleId,
+    { deviceId: previousDeviceId },
+  );
   res.json({ success: true });
 });
 

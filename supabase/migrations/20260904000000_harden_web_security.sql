@@ -174,7 +174,9 @@ BEGIN
     END IF;
   END LOOP;
 
-  FOREACH table_name IN ARRAY ARRAY['warehouses','input_items','stock_ledger','stock_balance','procurement_orders','procurement_items','vehicles','drivers','dispatches','dispatch_items','reconciliations']
+  -- Inventory balances and ledger entries are only changed by the atomic
+  -- server/RPC operations below. Do not add them to a browser write policy.
+  FOREACH table_name IN ARRAY ARRAY['warehouses','input_items','procurement_orders','procurement_items','vehicles','drivers','dispatches','dispatch_items','reconciliations']
   LOOP
     IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
       EXECUTE format('CREATE POLICY supply_chain_write ON public.%I FOR ALL TO authenticated USING (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager''])) WITH CHECK (private.invendis_has_role(ARRAY[''admin'',''projectmanager'',''warehousemanager'']))', table_name);
@@ -200,8 +202,8 @@ REVOKE ALL ON public.profiles, public.districts, public.chiefdoms, public.sectio
   public.otp_codes, public.system_settings FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.profiles, public.districts, public.chiefdoms,
   public.sections, public.communities, public.value_chains, public.warehouses,
-  public.distribution_sites, public.farmers, public.input_items, public.stock_ledger,
-  public.stock_balance, public.procurement_orders, public.procurement_items,
+  public.distribution_sites, public.farmers, public.input_items,
+  public.procurement_orders, public.procurement_items,
   public.campaigns, public.campaign_items, public.allocations, public.vehicles,
   public.drivers, public.gps_track, public.dispatches, public.dispatch_items,
   public.pod, public.reconciliations, public.audit_logs, public.users,
@@ -216,11 +218,16 @@ GRANT SELECT ON public.profiles, public.districts, public.chiefdoms, public.sect
   public.system_settings TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.districts, public.chiefdoms, public.sections,
   public.communities, public.value_chains, public.warehouses, public.distribution_sites,
-  public.farmers, public.input_items, public.stock_ledger, public.stock_balance,
+  public.farmers, public.input_items,
   public.procurement_orders, public.procurement_items, public.campaigns,
   public.campaign_items, public.allocations, public.vehicles, public.drivers,
   public.dispatches, public.dispatch_items, public.pod, public.reconciliations,
   public.incidents, public.system_settings TO authenticated;
+-- Inventory mutations are deliberately service-only; authenticated clients,
+-- including WarehouseManager, must use the validated atomic RPCs via server.
+REVOKE INSERT, UPDATE, DELETE ON public.stock_ledger, public.stock_balance
+  FROM PUBLIC, anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.stock_ledger, public.stock_balance TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- Immutable, database-generated audit entries for browser-originated writes.

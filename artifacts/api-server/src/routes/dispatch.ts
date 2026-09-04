@@ -343,7 +343,29 @@ router.post("/api/dispatch/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin
 
 router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
   const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid dispatch id" });
+    return;
+  }
+  const createdBy = await resolveUserId(req);
+  const { data, error } = await supa.rpc("start_dispatch_atomic", {
+    p_dispatch_id: id,
+    p_created_by: createdBy,
+  });
+  if (error || !data) {
+    const message = error?.message ?? "Operation failed";
+    const status = /does not exist/i.test(message) ? 404
+      : /cannot start from status/i.test(message) ? 409
+      : /insufficient stock|no items|no warehouse|positive finite/i.test(message) ? 422
+      : 500;
+    res.status(status).json({ error: message });
+    return;
+  }
+  await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
+  res.json(snakeToCamel(data));
+  return;
 
+  /* Replaced by start_dispatch_atomic so stock and status cannot diverge.
   const { data, error } = await supa
     .from("dispatches")
     .update({ status: "In Transit", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -398,6 +420,7 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
 
   await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
   res.json(snakeToCamel(row));
+  */
 });
 
 router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
@@ -500,6 +523,46 @@ router.post(
       createdBy = (u as any)?.id ?? null;
     }
 
+    // The database function owns every lookup/create and final manifest write.
+    // Keeping the route mutation-free before this call ensures any failure
+    // rolls the complete import back, including newly discovered master data.
+    const rpcPayload = {
+      ...b,
+      rows: Array.isArray(b.rows)
+        ? b.rows.map(row => ({
+            ...row,
+            contactPhone: row.contactPhone ? normalisePhoneForStorage(row.contactPhone) : null,
+          }))
+        : b.rows,
+    };
+    const { data: atomicImport, error: atomicImportErr } = await supa.rpc("import_manifest_atomic", {
+      p_payload: rpcPayload,
+      p_created_by: createdBy,
+    });
+    if (atomicImportErr || !atomicImport) {
+      console.error("Failed to import manifest atomically:", atomicImportErr);
+      const message = atomicImportErr?.message ?? "Operation failed";
+      if (message.includes("insufficient_stock")) {
+        const encoded = message.slice(message.indexOf("insufficient_stock") + "insufficient_stock:".length).trim();
+        let shortfalls: unknown[] = [];
+        try {
+          const parsed = JSON.parse(encoded);
+          if (Array.isArray(parsed)) shortfalls = parsed;
+        } catch { /* PostgreSQL message did not include parseable detail */ }
+        res.status(422).json({ error: "insufficient_stock", shortfalls });
+      } else {
+        res.status(400).json({ error: message });
+      }
+      return;
+    }
+    res.status(201).json(snakeToCamel(atomicImport));
+    return;
+
+    /*
+     * The former multi-request implementation lived here. It intentionally
+     * remains disabled during this migration transition; import_manifest_atomic
+     * now owns every lookup/create and final write in one transaction.
+     *
     // 0. Extract value chain from title/notes (e.g. "TOOLS DISTRIBUTION PLAN FOR CASSAVA COMMUNITIES 2025")
     let valueChainId: number | null = null;
     const titleText = b.notes ?? b.newCampaignName ?? "";
@@ -539,18 +602,10 @@ router.post(
         itemIdMap[col.colIndex] = (existing as any).id;
         continue;
       }
-      // Compute next safe ID (sequence may be behind max after seed imports)
-      const { data: maxRow } = await supa
-        .from("input_items")
-        .select("id")
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const nextId = ((maxRow as any)?.id ?? 0) + 1;
       const itemCode = "ITM-" + randomBytes(4).toString("hex").toUpperCase();
       const { data: newItem, error: itemErr } = await supa
         .from("input_items")
-        .insert({ id: nextId, name: itemName, item_code: itemCode, unit: col.unit || "pcs", category: "Tools", is_active: 1 })
+        .insert({ name: itemName, item_code: itemCode, unit: col.unit || "pcs", category: "Tools", is_active: 1 })
         .select()
         .single();
       if (itemErr || !newItem) {
@@ -761,25 +816,6 @@ router.post(
           farmerCode:   (existing as any).farmer_code   ?? "",
           barcodeToken: (existing as any).barcode_token ?? "",
         });
-        // Ensure allocation exists for this campaign (insert minimal cols, update the rest)
-        const { data: allocExists } = await supa
-          .from("allocations")
-          .select("id")
-          .eq("campaign_id", campaignId)
-          .eq("farmer_id", (existing as any).id)
-          .limit(1)
-          .maybeSingle();
-        if (!allocExists) {
-          const { data: newAlloc } = await supa
-            .from("allocations")
-            .insert({ campaign_id: campaignId, farmer_id: (existing as any).id })
-            .select("id").single();
-          if (newAlloc) {
-            await supa.from("allocations")
-              .update({ notes: "Imported from Excel manifest", allocated_by: createdBy })
-              .eq("id", (newAlloc as any).id);
-          }
-        }
         continue;
       }
 
@@ -789,16 +825,11 @@ router.post(
       const firstName    = nameParts[0] || row.community.trim() || "Group";
       const lastName     = nameParts.slice(1).join(" ") || "Beneficiary";
 
-      // Compute next safe farmer ID (PG sequence may be behind max after seed imports with explicit IDs)
-      const { data: maxFarmerRow } = await supa.from("farmers").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
-      const nextFarmerId = ((maxFarmerRow as any)?.id ?? 0) + 1;
-
       // Insert WITHOUT beneficiary_type — PostgREST INSERT schema cache may be stale for that column.
       // It defaults to 'individual'; we UPDATE immediately after to set 'group'.
       const { data: newFarmer, error: farmerErr } = await supa
         .from("farmers")
         .insert({
-          id:             nextFarmerId,
           farmer_group:   row.community.trim(),
           first_name:     firstName,
           last_name:      lastName,
@@ -830,90 +861,49 @@ router.post(
       newFarmerCount++;
       communities.push({ community: row.community.trim(), district: row.district.trim(), farmerCode, barcodeToken });
 
-      // Allocation: minimal INSERT then UPDATE (notes/allocated_by may be stale in INSERT cache)
-      const { data: newAlloc } = await supa
-        .from("allocations")
-        .insert({ campaign_id: campaignId, farmer_id: farmerId })
-        .select("id").single();
-      if (newAlloc) {
-        await supa.from("allocations")
-          .update({ notes: "Imported from Excel manifest", allocated_by: createdBy })
-          .eq("id", (newAlloc as any).id);
-      }
     }
 
     // 4. Create the dispatch manifest
     const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase() + randomBytes(2).toString("hex").toUpperCase();
     const isHired = b.vehicleType === "hired";
 
-    // Step 1: INSERT without field_officer_id (avoids PostgREST schema cache stale-column issue)
-    const dispInsertObj: Record<string, unknown> = {
-      manifest_code: manifestCode,
-      campaign_id:   campaignId,
-      warehouse_id:  warehouseId,
-      vehicle_type:  b.vehicleType ?? "office",
-      notes:         b.notes ?? null,
-      created_by:    createdBy,
-      ...(isHired
-        ? {
-            hired_plate:       b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
-            hired_driver_name: b.hiredDriverName ? String(b.hiredDriverName)          : null,
-          }
-        : {
-            vehicle_id: b.vehicleId ? Number(b.vehicleId) : null,
-            driver_id:  b.driverId  ? Number(b.driverId)  : null,
-          }),
-    };
-
-    let dispatchId: number;
-    let dispatchRow: Record<string, unknown>;
-
-    const { data: dispData, error: dispInsertErr } = await supa
-      .from("dispatches")
-      .insert(dispInsertObj)
-      .select()
-      .single();
-
-    if (dispInsertErr || !dispData) {
-      console.error("Failed to create dispatch manifest:", dispInsertErr);
-      res.status(500).json({ error: "Operation failed" });
-      return;
-    }
-    dispatchId = (dispData as any).id as number;
-    dispatchRow = dispData as Record<string, unknown>;
-
-    // Step 2: UPDATE field_officer_id separately (avoids schema cache stale-insert issue)
-    if (b.fieldOfficerId) {
-      const { data: updDisp } = await supa
-        .from("dispatches")
-        .update({ field_officer_id: Number(b.fieldOfficerId), updated_at: new Date().toISOString() })
-        .eq("id", dispatchId)
-        .select()
-        .single();
-      if (updDisp) dispatchRow = updDisp as Record<string, unknown>;
-    }
-
-    // 5. Create dispatch_items (sum total quantity per item across all communities)
+    // 4. Build the manifest item totals. The RPC below creates the dispatch,
+    // assigns its officer, creates all items and allocations, and stores the
+    // total in one database transaction.
     // NOTE: row.quantities is a compact 0-based array (one entry per column), so we
     // must use the positional index i — NOT col.colIndex (the original spreadsheet column number).
-    let totalPackages = 0;
+    const dispatchItems: Array<{ input_item_id: number; quantity_loaded: number }> = [];
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i];
       const itemId = itemIdMap[col.colIndex];
       if (!itemId) continue;
       const totalQty = rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantities[i]) || 0), 0);
       if (totalQty <= 0) continue;
-      await supa.from("dispatch_items").insert({
-        dispatch_id: dispatchId,
-        input_item_id: itemId,
-        quantity_loaded: totalQty,
-      });
-      totalPackages += totalQty;
+      dispatchItems.push({ input_item_id: itemId, quantity_loaded: totalQty });
     }
 
-    await supa.from("dispatches")
-      .update({ total_packages: totalPackages, updated_at: new Date().toISOString() })
-      .eq("id", dispatchId);
+    const { data: importResult, error: importErr } = await supa.rpc("import_dispatch_manifest", {
+      p_manifest_code: manifestCode,
+      p_campaign_id: campaignId,
+      p_warehouse_id: Number(warehouseId),
+      p_vehicle_type: b.vehicleType ?? "office",
+      p_vehicle_id: isHired || !b.vehicleId ? null : Number(b.vehicleId),
+      p_driver_id: isHired || !b.driverId ? null : Number(b.driverId),
+      p_hired_plate: isHired && b.hiredPlate ? String(b.hiredPlate).toUpperCase() : null,
+      p_hired_driver_name: isHired && b.hiredDriverName ? String(b.hiredDriverName) : null,
+      p_field_officer_id: b.fieldOfficerId ? Number(b.fieldOfficerId) : null,
+      p_notes: b.notes ?? null,
+      p_created_by: createdBy,
+      p_farmer_ids: farmerIds,
+      p_dispatch_items: dispatchItems,
+    });
+    if (importErr || !importResult) {
+      console.error("Failed to import dispatch manifest atomically:", importErr);
+      res.status(400).json({ error: importErr?.message ?? "Operation failed" });
+      return;
+    }
+    const dispatchRow = importResult as Record<string, unknown>;
+    const dispatchId = Number(dispatchRow.id);
 
     await logAudit(
       req, "IMPORT", "Dispatch",
@@ -937,6 +927,7 @@ router.post(
       communities,
       ...(warnings.length > 0 ? { warnings } : {}),
     });
+    */
   },
 );
 
