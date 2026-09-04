@@ -1,9 +1,14 @@
 import { Router } from "express";
-import { requireAnyAuth } from "../lib/auth.js";
+import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
 import { haversineMeters } from "./gps.js";
 
 const router = Router();
+router.use(
+  "/api/gis",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+);
 
 // ── Palette (vehicle colour mode) ────────────────────────────────────────────
 const ROUTE_COLORS = [
@@ -307,7 +312,7 @@ function fileLabel(from?: string, to?: string): string {
 }
 
 // ── GET /api/gis/routes ───────────────────────────────────────────────────────
-router.get("/api/gis/routes", requireAnyAuth, async (req, res) => {
+router.get("/api/gis/routes", async (req, res) => {
   try {
     const routes = await buildRoutes(parseOpts(req.query as Record<string, string>));
     res.json(routes.map(r => { const { rawPoints: _r, ...rest } = r; return rest; }));
@@ -317,7 +322,7 @@ router.get("/api/gis/routes", requireAnyAuth, async (req, res) => {
 });
 
 // ── GET /api/gis/export/geojson ───────────────────────────────────────────────
-router.get("/api/gis/export/geojson", requireAnyAuth, async (req, res) => {
+router.get("/api/gis/export/geojson", async (req, res) => {
   try {
     const q = req.query as Record<string, string>;
     const routes = await buildRoutes(parseOpts(q));
@@ -392,7 +397,7 @@ router.get("/api/gis/export/geojson", requireAnyAuth, async (req, res) => {
 });
 
 // ── GET /api/gis/export/kml ───────────────────────────────────────────────────
-router.get("/api/gis/export/kml", requireAnyAuth, async (req, res) => {
+router.get("/api/gis/export/kml", async (req, res) => {
   try {
     const q = req.query as Record<string, string>;
     const routes = await buildRoutes(parseOpts(q));
@@ -457,7 +462,7 @@ ${marks}
 });
 
 // ── GET /api/gis/export/gpx ───────────────────────────────────────────────────
-router.get("/api/gis/export/gpx", requireAnyAuth, async (req, res) => {
+router.get("/api/gis/export/gpx", async (req, res) => {
   try {
     const q = req.query as Record<string, string>;
     const routes = await buildRoutes(parseOpts(q));
@@ -520,7 +525,7 @@ ${trkBlocks}
 });
 
 // ── GET /api/gis/export/csv ───────────────────────────────────────────────────
-router.get("/api/gis/export/csv", requireAnyAuth, async (req, res) => {
+router.get("/api/gis/export/csv", async (req, res) => {
   try {
     const q = req.query as Record<string, string>;
     const routes = await buildRoutes(parseOpts(q));

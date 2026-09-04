@@ -20,6 +20,7 @@ const Vehicles = lazy(() => import("@/pages/vehicles"));
 const Dispatch = lazy(() => import("@/pages/dispatch"));
 const DispatchDetail = lazy(() => import("@/pages/dispatch-detail"));
 const GpsTracking = lazy(() => import("@/pages/gps-tracking"));
+const RoadMapping = lazy(() => import("@/pages/road-mapping"));
 const Pod = lazy(() => import("@/pages/pod"));
 const Reconciliation = lazy(() => import("@/pages/reconciliation"));
 const Reports = lazy(() => import("@/pages/reports"));
@@ -99,6 +100,7 @@ function Router() {
         <ProtectedRoute path="/dispatch" component={Dispatch} roles={SUPPLY_CHAIN} />
         <ProtectedRoute path="/dispatch/:id" component={DispatchDetail} roles={SUPPLY_CHAIN} />
         <ProtectedRoute path="/gps-tracking" component={GpsTracking} roles={SUPPLY_CHAIN} />
+        <ProtectedRoute path="/road-mapping" component={RoadMapping} roles={SUPPLY_CHAIN} />
         <ProtectedRoute path="/pod" component={Pod} />
         <ProtectedRoute path="/reconciliation" component={Reconciliation} roles={SUPPLY_CHAIN} />
         <ProtectedRoute path="/reports" component={Reports} roles={[...FIELD_OPERATIONS, "warehousemanager"]} />

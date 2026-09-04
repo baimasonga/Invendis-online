@@ -43,6 +43,7 @@ const NAV_GROUPS = [
       { href: "/vehicles",       label: "Vehicles",          icon: Truck,       roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/dispatch",       label: "Dispatch",          icon: Package,     roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/gps-tracking",   label: "GPS Tracking",      icon: Navigation,  roles: ["admin","projectmanager","warehousemanager"] },
+      { href: "/road-mapping",   label: "Road Mapping",      icon: Map,         roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/pod",            label: "Proof of Delivery", icon: CheckSquare,    roles: [] },
       { href: "/reconciliation", label: "Reconciliation",    icon: RefreshCcw,     roles: ["admin","projectmanager","warehousemanager"] },
       { href: "/incidents",      label: "Incidents",         icon: AlertTriangle,  roles: ["admin","projectmanager","districtcoordinator"] },

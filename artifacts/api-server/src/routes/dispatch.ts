@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
 
 const router = Router();
 
@@ -61,11 +62,12 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   const offset = (pageN - 1) * limitN;
   const showArchived = archived === "true";
 
-  // Determine the effective field_officer_id filter (integer).
-  const officerFilter: number | null =
-    req.user?.role === "FieldOfficer" && req.user?.userId
-      ? Number(req.user.userId)
-      : fieldOfficerId ? Number(fieldOfficerId) : null;
+  const readScope = await getDispatchReadScope(req);
+  // A FieldOfficer's assignment is authoritative; a query parameter must not
+  // broaden or replace it (including for Supabase-authenticated officers).
+  const officerFilter: number | null = !readScope.unrestricted && readScope.fieldOfficerId !== undefined
+    ? readScope.fieldOfficerId
+    : fieldOfficerId ? Number(fieldOfficerId) : null;
 
   if (officerFilter !== null) {
     // Use supa with eq() — field_officer_id is a regular integer column in Supabase
@@ -77,6 +79,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
       .range(offset, offset + limitN - 1);
 
     if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+    if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
     if (status)       q = q.eq("status", status) as typeof q;
     if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
     if (showArchived) q = q.eq("archived", true) as typeof q;
@@ -118,6 +121,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
     .range(offset, offset + limitN - 1);
 
   if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+  if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
   if (status)       q = q.eq("status", status) as typeof q;
   if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
   if (showArchived) q = q.eq("archived", true) as typeof q;
@@ -220,6 +224,10 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
     .maybeSingle();
   if (dispFetchErr) { console.error("Failed to fetch dispatch:", dispFetchErr); res.status(500).json({ error: "Operation failed" }); return; }
   if (!dispRow) { res.status(404).json({ error: "Not found" }); return; }
+  if (!(await canReadDispatch(req, dispRow as any))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   row = dispRow;
   const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap, officerMap }] = await Promise.all([
     supa.from("dispatch_items").select("*").eq("dispatch_id", id),
@@ -955,11 +963,12 @@ router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
 
   const { data: dispRow, error: dispErr } = await supa
     .from("dispatches")
-    .select("campaign_id, manifest_code")
+    .select("campaign_id, manifest_code, field_officer_id")
     .eq("id", id)
     .maybeSingle();
 
   if (dispErr || !dispRow) { res.status(404).json({ error: "Dispatch not found" }); return; }
+  if (!(await canReadDispatch(req, dispRow as any))) { res.status(403).json({ error: "Forbidden" }); return; }
   if (!dispRow.campaign_id) { res.json([]); return; }
 
   const { data: allocs, error: allocErr } = await supa

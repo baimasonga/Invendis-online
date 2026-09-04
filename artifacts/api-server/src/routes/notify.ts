@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { createHash } from "crypto";
 import QRCode from "qrcode";
-import { requireAnyAuth } from "../lib/auth.js";
+import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
+import { canReadDispatch } from "../lib/dispatch-auth.js";
 import { s3, bucket } from "../lib/aws.js";
 import { logger } from "../lib/logger.js";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -43,18 +44,22 @@ async function sendWhatsAppImage(to: string, mediaUrl: string, caption: string):
   if (!body.toUpperCase().startsWith("OK")) throw new Error(`WhatsApp error: ${body}`);
 }
 
-router.post("/api/dispatches/:id/notify-farmers", requireAnyAuth, async (req, res) => {
+router.post("/api/dispatches/:id/notify-farmers", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"), async (req, res) => {
   const dispatchId = Number(req.params["id"]);
   if (!dispatchId) { res.status(400).json({ error: "Invalid dispatch ID" }); return; }
 
   const { data: dispatch, error: dispErr } = await supa
     .from("dispatches")
-    .select("id, campaign_id, manifest_code")
+    .select("id, campaign_id, manifest_code, field_officer_id")
     .eq("id", dispatchId)
     .single();
 
   if (dispErr || !dispatch) {
     res.status(404).json({ error: "Dispatch not found" });
+    return;
+  }
+  if (!(await canReadDispatch(req, dispatch as any))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
