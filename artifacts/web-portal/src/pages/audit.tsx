@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  listAuditLogs, getAuditStats, type AuditFilters, type AuditStats, KEYS,
+  listAuditLogs, listAllAuditLogs, getAuditStats, type AuditFilters, type AuditStats, KEYS,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTip,
+  BarChart, Bar, Cell, XAxis, YAxis, Tooltip as RechartsTip,
   ResponsiveContainer, AreaChart, Area, CartesianGrid,
 } from "recharts";
 import {
@@ -359,7 +359,7 @@ function StatsPanel({ stats, loading }: { stats: AuditStats | undefined; loading
                   />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
                     {stats.byAction.map(entry => (
-                      <rect
+                      <Cell
                         key={entry.action}
                         fill={ACTION_CHART_COLORS[entry.action] ?? "#94a3b8"}
                       />
@@ -632,8 +632,8 @@ export default function AuditLogs() {
   const to         = Math.min(page * limit, total);
 
   async function handleExport() {
-    const all = await listAuditLogs(1, 5000, filters);
-    exportCsv(all.data);
+    // Supabase caps one request at 1000 rows, so the export pages through.
+    exportCsv(await listAllAuditLogs(filters));
   }
 
   const ROW_ALERT_CLASS: Record<SiemAlert["severity"], string> = {

@@ -246,8 +246,8 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
           farmerGroup:     r.farmerGroup     || undefined,
           groupSize:       r.groupSize       ?? undefined,
         })),
-        districtId:   districtId   ? Number(districtId)   : undefined,
-        valueChainId: valueChainId ? Number(valueChainId) : undefined,
+        districtId:   districtId   && districtId   !== "none" ? Number(districtId)   : undefined,
+        valueChainId: valueChainId && valueChainId !== "none" ? Number(valueChainId) : undefined,
       });
       await qc.invalidateQueries({ queryKey: KEYS.farmers() });
       setImportResult(result);
@@ -466,7 +466,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                   <Select value={districtId} onValueChange={setDistrictId}>
                     <SelectTrigger><SelectValue placeholder="Select district" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {districtList.map((d: any) => (
                         <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
                       ))}
@@ -478,7 +478,7 @@ export function BulkFarmerImportModal({ open, onClose }: Props) {
                   <Select value={valueChainId} onValueChange={setValueChainId}>
                     <SelectTrigger><SelectValue placeholder="Select value chain" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {valueChainList.map((v: any) => (
                         <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
                       ))}

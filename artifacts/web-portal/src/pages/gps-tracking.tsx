@@ -303,6 +303,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
   const markerStateRef    = useRef<Record<number, { color: string; selected: boolean; stale: boolean }>>({});
   const routeLineRef      = useRef<any>(null);
   const trackLineRef      = useRef<any>(null);
+  const trackTailRef      = useRef<any>(null);
   const initialFitDone    = useRef(false);
 
   // Init map once
@@ -460,6 +461,8 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
     const map = mapRef.current;
     if (!L || !map) return;
     if (trackLineRef.current) { trackLineRef.current.remove(); trackLineRef.current = null; }
+    // Removed alongside the polyline; otherwise every refetch stacked another dot.
+    if (trackTailRef.current) { trackTailRef.current.remove(); trackTailRef.current = null; }
 
     const latLngs = track
       .filter(p => p.latitude != null && p.longitude != null)
@@ -473,7 +476,7 @@ function GpsMap({ vehicles, selectedId, onSelectVehicle, track = [] }: GpsMapPro
       }).addTo(map);
 
       // Dot at the oldest known point (tail of the trail)
-      L.circleMarker(latLngs[latLngs.length - 1], {
+      trackTailRef.current = L.circleMarker(latLngs[latLngs.length - 1], {
         radius: 5,
         color: "#6366f1",
         fillColor: "#6366f1",

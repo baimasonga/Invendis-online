@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listPod, getPodStats, getPodItems, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, bulkGenerateOtps, listAllCampaigns, KEYS } from "@/lib/db";
+import { listPod, listAllPod, getPodStats, getPodItems, approvePod, flagPodException, batchApprovePods, getPhotoUrl, overrideFacePod, analysePhotoLabels, bulkGenerateOtps, listAllCampaigns, KEYS } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -874,7 +875,9 @@ function ReviewQueue() {
                               className="h-7 px-2 text-xs text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50"
                               disabled={busy}
                               onClick={() => approveMutation.mutate(pod.id, {
-                                onSuccess: () => toast({ title: "PoD approved" }),
+                                // A duplicate returns 409 and opens the override
+                                // dialog instead of completing the approval.
+                                onSuccess: (r) => { if (!r.duplicate) toast({ title: "PoD approved" }); },
                                 onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
                               })}
                             >
@@ -931,7 +934,7 @@ function ReviewQueue() {
               approveMutation={approveMutation}
               flagMutation={flagMutation}
               onApprove={() => approveMutation.mutate(selectedPod.id, {
-                onSuccess: () => { toast({ title: "PoD approved" }); setSelectedPod(null); },
+                onSuccess: (r) => { if (!r.duplicate) { toast({ title: "PoD approved" }); setSelectedPod(null); } },
                 onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
               })}
               onFlag={() => flagMutation.mutate(selectedPod.id, {
@@ -1026,22 +1029,29 @@ function ReviewQueue() {
 export default function ProofOfDelivery() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const queryString = useSearch();
+
   const [page, setPage] = useState(1);
   const [podOpen, setPodOpen] = useState(false);
   const [selectedPod, setSelectedPod] = useState<any>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => new URLSearchParams(queryString).get("status") ?? "");
   const [view, setView] = useState<"list" | "review" | "field-otps">("list");
   const [exporting, setExporting] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+
+  // The alert banner links here as /pod?status=Pending.
+  useEffect(() => {
+    const requested = new URLSearchParams(queryString).get("status");
+    if (requested) { setStatusFilter(requested); setPage(1); }
+  }, [queryString]);
 
   const today = new Date().toISOString().slice(0, 10);
 
   async function exportPodCSV() {
     setExporting(true);
     try {
-      const result = await listPod(1, 9999, undefined, statusFilter || undefined);
-      downloadCSV(result.data ?? [], POD_COLS, `pod-${today}.csv`);
+      downloadCSV(await listAllPod(undefined, statusFilter || undefined), POD_COLS, `pod-${today}.csv`);
     } catch (err: any) {
       toast({ title: "Export failed", description: err.message, variant: "destructive" });
     } finally { setExporting(false); }
@@ -1050,8 +1060,7 @@ export default function ProofOfDelivery() {
   async function exportPodXLSX() {
     setExporting(true);
     try {
-      const result = await listPod(1, 9999, undefined, statusFilter || undefined);
-      downloadXLSX(result.data ?? [], POD_COLS, `pod-${today}.xlsx`);
+      downloadXLSX(await listAllPod(undefined, statusFilter || undefined), POD_COLS, `pod-${today}.xlsx`);
     } catch (err: any) {
       toast({ title: "Export failed", description: err.message, variant: "destructive" });
     } finally { setExporting(false); }
@@ -1070,7 +1079,16 @@ export default function ProofOfDelivery() {
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => approvePod(id),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (result.duplicate) {
+        // The server withheld approval pending a supervisor override.
+        toast({
+          title: "Duplicate delivery",
+          description: "This farmer already has a PoD for this campaign. Approve it from the Review Queue to record an override.",
+          variant: "destructive",
+        });
+        return;
+      }
       trackEvent("pod_approved", { approval_mode: "single" });
       await qc.invalidateQueries({ queryKey: KEYS.pod() });
       await qc.invalidateQueries({ queryKey: KEYS.podStats() });
@@ -1310,10 +1328,7 @@ export default function ProofOfDelivery() {
             <PodDetailBody
               pod={selectedPod}
               approveMutation={approveMutation}
-              onApprove={() => approveMutation.mutate(selectedPod.id, {
-                onSuccess: () => { toast({ title: "PoD approved" }); setSelectedPod(null); },
-                onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
-              })}
+              onApprove={() => approveMutation.mutate(selectedPod.id)}
               onOverride={() => { setOverrideOpen(true); setOverrideReason(""); }}
             />
           )}

@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp, generateSubmissionKey, KEYS, farmerDisplayName } from "@/lib/db";
+import {
+  createPod, listFarmers, listDispatches, getFarmer, sendOtp, verifyOtp, bypassOtp,
+  generateSubmissionKey, getFaceUploadUrl, uploadBlobToS3, getPhotoUrl, KEYS, farmerDisplayName,
+} from "@/lib/db";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -15,7 +18,6 @@ import { FaceVerification, type FaceResult } from "@/components/FaceVerification
 import {
   CheckCircle, Loader2, MapPin, MessageSquare, ScanFace, ClipboardList, ChevronRight, ChevronLeft,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 
 interface Props {
@@ -87,6 +89,16 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     queryKey: KEYS.farmer(Number(farmerId)),
     queryFn: () => getFarmer(Number(farmerId)),
     enabled: !!farmerId,
+  });
+
+  // farmers.photo_url holds an S3 object key, not a URL. It has to be signed
+  // before the browser (or face-api) can load it.
+  const referenceKey: string | undefined = (farmerDetail as any)?.photoUrl ?? undefined;
+  const { data: referenceUrl, isLoading: referenceLoading } = useQuery({
+    queryKey: ["face-view-url", referenceKey],
+    queryFn: () => getPhotoUrl(referenceKey!),
+    enabled: !!referenceKey,
+    staleTime: 10 * 60 * 1000,
   });
 
   const farmers    = (farmersData as any)?.data   ?? [];
@@ -206,16 +218,18 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
   async function handleSubmit() {
     if (!farmerId || !qty) return;
 
-    let photoUrl: string | undefined;
+    // The delivery photo goes to the same private S3 bucket the review screens
+    // read from, and the PoD stores its object key.
+    let facePhotoKey: string | undefined;
 
     if (facePhotoBlob) {
-      const fileName = `pod/${farmerId}_${Date.now()}.jpg`;
-      const { data: uploadData } = await supabase.storage
-        .from("pod-photos")
-        .upload(fileName, facePhotoBlob, { contentType: "image/jpeg", upsert: true });
-      if (uploadData) {
-        const { data: urlData } = supabase.storage.from("pod-photos").getPublicUrl(fileName);
-        photoUrl = urlData.publicUrl;
+      try {
+        const { uploadUrl, key } = await getFaceUploadUrl(Number(farmerId), "delivery");
+        await uploadBlobToS3(uploadUrl, facePhotoBlob);
+        facePhotoKey = key;
+      } catch (err: any) {
+        toast({ title: "Photo upload failed", description: err.message ?? "Could not store the delivery photo.", variant: "destructive" });
+        return;
       }
     }
 
@@ -245,7 +259,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
         ...(otpVerificationToken ? { otpVerificationToken } : {}),
         otpStatus,
         faceStatus,
-        photoUrl,
+        facePhotoKey,
         farmerLatitude: gpsLat ?? undefined,
         farmerLongitude: gpsLng ?? undefined,
         status: otpVerified && (faceResult?.status === "match" || faceResult?.status === "no_ref")
@@ -455,9 +469,13 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
                     : "No registered photo — face will be captured for records."}
                 </p>
               </div>
-              {!faceResult ? (
+              {referenceLoading ? (
+                <div className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading reference photo…
+                </div>
+              ) : !faceResult ? (
                 <FaceVerification
-                  farmerPhotoUrl={farmer?.photoUrl}
+                  farmerPhotoUrl={referenceUrl}
                   farmerName={farmer ? farmerDisplayName(farmer) : ""}
                   onResult={handleFaceResult}
                   onBypass={handleFaceBypass}

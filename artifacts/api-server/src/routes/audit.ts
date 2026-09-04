@@ -1,8 +1,29 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { requireAuth, requireRoles } from "../lib/auth.js";
+import { requireAuth, requireRoles, requireAnyAuth } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
+
+// Browser clients cannot insert into audit_logs directly (INSERT is revoked for
+// the authenticated role), so the portal records its descriptive entries here.
+const ALLOWED_ACTIONS = new Set(["CREATE", "UPDATE", "DELETE", "APPROVE", "REJECT", "SUBMIT", "DISPATCH", "ARRIVE", "RECEIVE", "LINK", "UNLINK"]);
+router.post("/api/audit", requireAnyAuth, async (req, res) => {
+  const { action, module, description, entityType, entityId } = req.body as Record<string, unknown>;
+  const act = String(action ?? "").toUpperCase().slice(0, 32);
+  if (!ALLOWED_ACTIONS.has(act) || typeof module !== "string" || typeof description !== "string") {
+    res.status(400).json({ error: "action, module and description are required" });
+    return;
+  }
+  const numericEntityId = entityId === null || entityId === undefined || entityId === "" ? undefined : Number(entityId);
+  await logAudit(
+    req, act, module.slice(0, 64), description.slice(0, 500),
+    typeof entityType === "string" ? entityType.slice(0, 64) : undefined,
+    Number.isFinite(numericEntityId) ? numericEntityId : undefined,
+    { source: "web_portal" },
+  );
+  res.status(201).json({ ok: true });
+});
 
 router.get("/api/audit", requireAuth, requireRoles("Admin", "ProjectManager"), async (req, res) => {
   const { module, action, userId, fromDate, toDate, page = "1", limit = "50" } = req.query as Record<string, string>;

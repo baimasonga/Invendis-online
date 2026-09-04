@@ -70,9 +70,9 @@ function StatCard({ label, value, icon: Icon, cls, bg }: { label: string; value:
 export default function SupervisorView() {
   const { user } = useAuth();
   const role = (user?.role ?? "").toLowerCase().replace(/\s+/g, "");
-  if (user && !["admin", "projectmanager", "districtcoordinator"].includes(role)) {
-    return <Redirect to="/dashboard" />;
-  }
+  // Computed before the early return below: React requires every hook on this
+  // component to run on every render, so the redirect happens after them.
+  const denied = !!user && !["admin", "projectmanager", "districtcoordinator"].includes(role);
 
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -130,6 +130,8 @@ export default function SupervisorView() {
     },
     onError: (e: any) => toast({ title: "Override failed", description: e.message, variant: "destructive" }),
   });
+
+  if (denied) return <Redirect to="/dashboard" />;
 
   return (
     <div className="space-y-6">

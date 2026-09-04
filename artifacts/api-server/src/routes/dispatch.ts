@@ -81,7 +81,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
     if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
     if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
     if (status)       q = q.eq("status", status) as typeof q;
-    if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
+    if (manifestCode) q = q.ilike("manifest_code", `%${manifestCode.replace(/[%_]/g, "")}%`) as typeof q;
     if (showArchived) q = q.eq("archived", true) as typeof q;
     else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
 
@@ -123,7 +123,7 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
   if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
   if (status)       q = q.eq("status", status) as typeof q;
-  if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
+  if (manifestCode) q = q.ilike("manifest_code", `%${manifestCode.replace(/[%_]/g, "")}%`) as typeof q;
   if (showArchived) q = q.eq("archived", true) as typeof q;
   else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
 

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel, camelToSnake } from "../lib/supabase.js";
+import { ensureIntegerUserId } from "../lib/users.js";
 import { requireAuth, requireAnyAuth, requireRoles, hashPassword } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
@@ -101,6 +102,14 @@ router.patch("/api/users/profile/:id/name", requireAnyAuth, async (req, res) => 
   if (error) { res.status(500).json({ error: error.message }); return; }
   await logAudit(req, "UPDATE", "Users", `Updated name for profile ${req.params.id}`, "user", 0);
   res.json(snakeToCamel(data));
+});
+
+// Returns (and provisions on first use) the integer users.id that FK columns
+// such as registered_by / approved_by reference for the current actor.
+router.get("/api/users/me/integer-id", requireAnyAuth, async (req, res) => {
+  const id = await ensureIntegerUserId(req);
+  if (!id) { res.status(404).json({ error: "No operational user record for this account" }); return; }
+  res.json({ id });
 });
 
 router.post("/api/users/create-profile", requireAnyAuth, async (req, res) => {

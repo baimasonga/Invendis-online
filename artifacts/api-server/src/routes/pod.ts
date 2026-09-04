@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
+import { ensureIntegerUserId } from "../lib/users.js";
 import { requireAuth, requireAnyAuth, requireRoles, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { createHash, randomBytes } from "crypto";
@@ -38,12 +39,9 @@ async function loadAuthorizedPod(req: import("express").Request, podId: number):
 }
 
 async function resolveUserId(req: import("express").Request): Promise<number | null> {
-  if (req.user?.userId) return req.user.userId;
-  if (req.supabaseUser?.email) {
-    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
-    return (u as any)?.id ?? null;
-  }
-  return null;
+  // Portal-only accounts have no integer users row until provisioned; create it
+  // on demand so web submissions are attributed instead of rejected with 403.
+  return ensureIntegerUserId(req);
 }
 
 const router = Router();

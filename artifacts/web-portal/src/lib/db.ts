@@ -50,26 +50,31 @@ async function intUid(): Promise<number | null> {
   const email = await sessionEmail();
   if (!email) return null;
   if (_intUidCache?.email === email) return _intUidCache.id;
-  const { data, error } = await supabase.from("users").select("id").eq("email", email).limit(1).single();
-  if (error || !data) return null;
-  _intUidCache = { email, id: (data as any).id as number };
-  return _intUidCache.id;
+  // Portal-only accounts have no integer users row until the server provisions
+  // one, so ask the API (which creates it on first use) before falling back to
+  // a direct lookup.
+  let id: number | null = null;
+  try {
+    const me = await apiGet("/api/users/me/integer-id");
+    id = Number(me?.id) || null;
+  } catch {
+    const { data } = await supabase.from("users").select("id").eq("email", email).limit(1).maybeSingle();
+    id = (data as any)?.id ?? null;
+  }
+  if (id == null) return null;
+  _intUidCache = { email, id };
+  return id;
 }
 
 export function logAudit(
   action: string, module: string, description: string,
   entityType?: string, entityId?: number
 ): void {
-  // Fire-and-forget — never block the caller or throw
-  Promise.all([intUid(), sessionEmail()]).then(([userId, email]) =>
-    supabase.from("audit_logs").insert({
-      user_id: userId,
-      username: email,
-      action, module, description,
-      entity_type: entityType ?? null,
-      entity_id: entityId ?? null,
-    })
-  ).catch(() => { /* audit failures are non-fatal */ });
+  // Fire-and-forget — never block the caller or throw. Browser sessions cannot
+  // insert into audit_logs directly (INSERT is revoked for the authenticated
+  // role), so the entry is recorded through the API.
+  apiPost("/api/audit", { action, module, description, entityType, entityId })
+    .catch(() => { /* audit failures are non-fatal */ });
 }
 
 async function throwOnError<T>(promise: Promise<{ data: T | null; error: any; count?: number | null }>): Promise<{ data: T; count?: number | null }> {
@@ -86,29 +91,41 @@ async function lookupMap(table: string, ids: (number | string)[], cols: string):
 }
 
 // ── QUERY KEYS ──────────────────────────────────────────────────────────────
+// Trailing undefined parameters are dropped so that a bare factory call such as
+// KEYS.farmers() yields ["farmers"] and partially matches every farmers query.
+// TanStack treats an explicit undefined element as a value, so a padded key
+// like ["farmers", undefined, …] would never match ["farmers", 1, "pending"].
+function k(...parts: unknown[]): unknown[] {
+  let end = parts.length;
+  while (end > 1 && parts[end - 1] === undefined) end--;
+  return parts.slice(0, end);
+}
+
 export const KEYS = {
   dashboard:     () => ["dashboard"],
   alertCounts:   () => ["alert-counts"],
-  farmers:       (page?: number, search?: string, status?: string, districtId?: number, beneficiaryType?: string) => ["farmers", page, search, status, districtId, beneficiaryType],
+  farmers:       (page?: number, search?: string, status?: string, districtId?: number, beneficiaryType?: string) => k("farmers", page, search, status, districtId, beneficiaryType),
   farmer:        (id: number) => ["farmer", id],
-  campaigns:     (page?: number) => ["campaigns", page],
+  campaigns:     (page?: number) => k("campaigns", page),
   campaign:      (id: number) => ["campaign", id],
-  allocations:   (page?: number, cId?: number) => ["allocations", page, cId],
-  inventory:     () => ["inventory"],
+  allocations:   (page?: number, cId?: number) => k("allocations", page, cId),
+  // The input-item catalogue is shared by the inventory, settings, campaign and
+  // manifest screens; they must all read and invalidate the same cache entry.
+  inventory:     () => ["input-items"],
   stockBalance:  () => ["stock-balance"],
   procurement:   () => ["procurement"],
   vehicles:      () => ["vehicles"],
   gpsVehicles:   () => ["gps-vehicles"],
   drivers:       () => ["drivers"],
-  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string, showArchived?: boolean) => ["dispatches", page, fieldOfficerId, status, manifestCode, showArchived],
+  dispatches:    (page?: number, fieldOfficerId?: number, status?: string, manifestCode?: string, showArchived?: boolean) => k("dispatches", page, fieldOfficerId, status, manifestCode, showArchived),
   dispatch:      (id: number) => ["dispatch", id],
-  pod:           (page?: number, dId?: number, status?: string) => ["pod", page, dId, status],
+  pod:           (page?: number, dId?: number, status?: string) => k("pod", page, dId, status),
   podStats:      () => ["pod-stats"],
   reconciliations: () => ["reconciliations"],
-  reports:       (type: string, from?: string, to?: string) => ["reports", type, from, to],
-  incidents:     (page?: number, status?: string) => ["incidents", page, status],
-  auditLogs:          (page?: number, filters?: Record<string, any>) => ["audit-logs", page, filters],
-  auditStats:         (days?: number) => ["audit-stats", days],
+  reports:       (type: string, from?: string, to?: string) => k("reports", type, from, to),
+  incidents:     (page?: number, status?: string) => k("incidents", page, status),
+  auditLogs:          (page?: number, filters?: Record<string, any>) => k("audit-logs", page, filters),
+  auditStats:         (days?: number) => k("audit-stats", days),
   auditSiem:          () => ["audit-siem-events"],
   consolidation:      (opts?: Record<string, any>) => ["consolidation-report", opts],
   meReport:           () => ["me-report"],
@@ -116,7 +133,7 @@ export const KEYS = {
   users:         () => ["users"],
   fieldOfficers: () => ["field-officers"],
   districts:         () => ["districts"],
-  chiefdoms:         (districtId?: number) => ["chiefdoms", districtId],
+  chiefdoms:         (districtId?: number) => k("chiefdoms", districtId),
   valueChains:       () => ["value-chains"],
   warehouses:        () => ["warehouses"],
   distributionSites: () => ["distribution-sites"],
@@ -366,7 +383,10 @@ export async function listFarmers(page = 1, limit = 20, search?: string, status?
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
-  if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`);
+  // Commas, parentheses and quotes are PostgREST filter delimiters; a raw term
+  // containing them makes the whole request fail with a 400.
+  const term = (search ?? "").replace(/[,()"'\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (term) q = q.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,farmer_code.ilike.%${term}%,farmer_group.ilike.%${term}%`);
   if (status) q = q.eq("status", status);
   if (districtId) q = q.eq("district_id", districtId);
   if (beneficiaryType) q = q.eq("beneficiary_type", beneficiaryType);
@@ -728,7 +748,7 @@ export async function removeAllocation(id: number) {
   await logAudit("DELETE", "allocations", `Removed allocation #${id}`, "allocation", id);
 }
 
-export async function updateAllocation(id: number, payload: { notes?: string; status?: string }) {
+export async function updateAllocation(id: number, payload: { notes?: string | null; status?: string }) {
   const update: Record<string, any> = {};
   if (payload.notes !== undefined) update.notes = payload.notes;
   if (payload.status !== undefined) update.status = payload.status;
@@ -1280,6 +1300,31 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
     })),
     total: count ?? 0,
   };
+}
+
+// Supabase caps a single request at 1000 rows, so exports and full-dispatch
+// views must page through the data rather than request one oversized page.
+const EXPORT_PAGE_SIZE = 1000;
+async function fetchAllPages<T>(fetchPage: (page: number, limit: number) => Promise<{ data: T[]; total: number }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page++) {
+    const { data, total } = await fetchPage(page, EXPORT_PAGE_SIZE);
+    rows.push(...data);
+    if (data.length < EXPORT_PAGE_SIZE || rows.length >= total) break;
+  }
+  return rows;
+}
+
+export function listAllPod(dispatchId?: number, status?: string, faceStatus?: string) {
+  return fetchAllPages((page, limit) => listPod(page, limit, dispatchId, status, faceStatus));
+}
+
+export function listAllIncidents(status?: string) {
+  return fetchAllPages((page, limit) => listIncidents(page, limit, status));
+}
+
+export function listAllAuditLogs(filters: AuditFilters = {}) {
+  return fetchAllPages((page, limit) => listAuditLogs(page, limit, filters));
 }
 
 export async function getPodItems(podId: number) {

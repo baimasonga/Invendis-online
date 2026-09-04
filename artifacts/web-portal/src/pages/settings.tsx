@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   listDistricts, createDistrict, updateDistrict, deleteDistrict,
@@ -87,15 +87,27 @@ function WarehouseDialog({ open, item, districts, onClose }: {
   const { toast } = useToast();
   const isEdit = !!item;
 
-  const [code, setCode]       = useState(item?.code ?? "");
-  const [name, setName]       = useState(item?.name ?? "");
-  const [districtId, setDist] = useState(item?.districtId ? String(item.districtId) : "");
-  const [address, setAddr]    = useState(item?.address ?? "");
+  const [code, setCode]       = useState("");
+  const [name, setName]       = useState("");
+  const [districtId, setDist] = useState("");
+  const [address, setAddr]    = useState("");
+
+  // The dialog stays mounted between edits, so state must follow the item
+  // rather than being seeded once on first mount.
+  useEffect(() => {
+    if (!open) return;
+    setCode(item?.code ?? "");
+    setName(item?.name ?? "");
+    setDist(item?.districtId ? String(item.districtId) : "");
+    setAddr(item?.address ?? "");
+  }, [item, open]);
+
+  const districtValue = districtId && districtId !== "none" ? Number(districtId) : null;
 
   const save = useMutation({
     mutationFn: () => isEdit
-      ? updateWarehouse(item.id, { name, code, districtId: districtId ? Number(districtId) : null, address: address || null })
-      : createWarehouse({ name, code: code.toUpperCase(), districtId: districtId ? Number(districtId) : undefined, address: address || undefined }),
+      ? updateWarehouse(item.id, { name, code, districtId: districtValue, address: address || null })
+      : createWarehouse({ name, code: code.toUpperCase(), districtId: districtValue ?? undefined, address: address || undefined }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: KEYS.warehouses() });
       toast({ title: isEdit ? "Warehouse updated" : "Warehouse added" });
@@ -150,8 +162,14 @@ function ValueChainDialog({ open, item, onClose }: { open: boolean; item: any | 
   const { toast } = useToast();
   const isEdit = !!item;
 
-  const [name, setName] = useState(item?.name ?? "");
-  const [desc, setDesc] = useState(item?.description ?? "");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(item?.name ?? "");
+    setDesc(item?.description ?? "");
+  }, [item, open]);
 
   const save = useMutation({
     mutationFn: () => isEdit
@@ -197,8 +215,14 @@ function DistrictDialog({ open, item, onClose }: { open: boolean; item: any | nu
   const { toast } = useToast();
   const isEdit = !!item;
 
-  const [name, setName] = useState(item?.name ?? "");
-  const [code, setCode] = useState(item?.code ?? "");
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(item?.name ?? "");
+    setCode(item?.code ?? "");
+  }, [item, open]);
 
   const save = useMutation({
     mutationFn: () => isEdit
@@ -248,13 +272,24 @@ function InputItemDialog({ open, item, valueChains, onClose }: {
   const { toast } = useToast();
   const isEdit = !!item;
 
-  const [name, setName]           = useState(item?.name ?? "");
-  const [itemCode, setItemCode]   = useState(item?.itemCode ?? "");
-  const [unit, setUnit]           = useState(item?.unit ?? "");
-  const [category, setCategory]   = useState(item?.category ?? "");
-  const [vcId, setVcId]           = useState(item?.valueChainId ? String(item.valueChainId) : "");
-  const [barcode, setBarcode]     = useState(item?.barcode ?? "");
-  const [description, setDesc]    = useState(item?.description ?? "");
+  const [name, setName]           = useState("");
+  const [itemCode, setItemCode]   = useState("");
+  const [unit, setUnit]           = useState("");
+  const [category, setCategory]   = useState("");
+  const [vcId, setVcId]           = useState("");
+  const [barcode, setBarcode]     = useState("");
+  const [description, setDesc]    = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(item?.name ?? "");
+    setItemCode(item?.itemCode ?? "");
+    setUnit(item?.unit ?? "");
+    setCategory(item?.category ?? "");
+    setVcId(item?.valueChainId ? String(item.valueChainId) : "");
+    setBarcode(item?.barcode ?? "");
+    setDesc(item?.description ?? "");
+  }, [item, open]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -262,8 +297,9 @@ function InputItemDialog({ open, item, valueChains, onClose }: {
         name,
         itemCode,
         unit,
-        category: category || null,
-        valueChainId: vcId ? Number(vcId) : null,
+        // "none" is the placeholder option's value, not a real category.
+        category: category && category !== "none" ? category : null,
+        valueChainId: vcId && vcId !== "none" ? Number(vcId) : null,
         barcode: barcode || null,
         description: description || null,
       };

@@ -70,7 +70,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
   const { data: driversData }   = useQuery({ queryKey: KEYS.drivers(),        queryFn: () => listDrivers(1, 200) });
   const { data: warehouses }    = useQuery({ queryKey: KEYS.warehouses(),     queryFn: listWarehouses });
   const { data: officersList }  = useQuery({ queryKey: KEYS.fieldOfficers(),  queryFn: listFieldOfficers });
-  const { data: existingItems } = useQuery({ queryKey: ["inputItems"],        queryFn: listInputItems });
+  const { data: existingItems } = useQuery({ queryKey: KEYS.inventory(),      queryFn: listInputItems });
 
   const campaigns:     any[] = (campaignsData as any)?.data ?? [];
   const vehicleList:   any[] = (vehiclesData as any)?.data  ?? [];

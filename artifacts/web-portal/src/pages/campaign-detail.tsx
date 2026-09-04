@@ -35,6 +35,13 @@ function DeliveryProgress({ delivered, allocated }: { delivered: number; allocat
   );
 }
 
+// An undated campaign (common for imported ones) must not render as 1970.
+function formatDate(value?: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function Field({ label, value, icon: Icon }: { label: string; value?: string | null; icon?: React.ElementType }) {
   return (
     <div className="space-y-1">
@@ -88,7 +95,7 @@ export default function CampaignDetail() {
   const approveMutation = useMutation({ mutationFn: () => approveCampaign(id) });
 
   const { data: allInputItems } = useQuery({
-    queryKey: ["inputItems"],
+    queryKey: KEYS.inventory(),
     queryFn: listInputItems,
   });
 
@@ -216,8 +223,8 @@ export default function CampaignDetail() {
                 <CardContent className="grid grid-cols-2 gap-4">
                   <Field label="District"    value={c.districtName}   icon={MapPin} />
                   <Field label="Value Chain" value={c.valueChainName} icon={Sprout} />
-                  <Field label="Start Date"  value={new Date(c.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} icon={CalendarDays} />
-                  <Field label="End Date"    value={new Date(c.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
+                  <Field label="Start Date"  value={formatDate(c.startDate)} icon={CalendarDays} />
+                  <Field label="End Date"    value={formatDate(c.endDate)} />
                   {(c.description ?? c.notes) && (
                     <div className="col-span-2 space-y-1">
                       <p className="text-xs text-muted-foreground">Description</p>

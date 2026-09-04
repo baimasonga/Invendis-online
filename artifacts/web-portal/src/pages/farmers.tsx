@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listFarmers, approveFarmer, rejectFarmer, deleteFarmer, listDistricts, KEYS, farmerDisplayName } from "@/lib/db";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -10,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Search, Plus, Upload, ChevronLeft, ChevronRight, Users, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { RegisterFarmerModal } from "@/components/modals/RegisterFarmerModal";
@@ -44,9 +44,11 @@ export default function Farmers() {
   const { toast } = useToast();
   const can = usePermissions();
 
+  const queryString = useSearch();
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => new URLSearchParams(queryString).get("status") ?? "");
   const [districtFilter, setDistrictFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
@@ -54,6 +56,12 @@ export default function Farmers() {
   const [rejectTarget, setRejectTarget] = useState<{ id: number; name: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
+
+  // The alert banner links here as /farmers?status=pending.
+  useEffect(() => {
+    const requested = new URLSearchParams(queryString).get("status");
+    if (requested) { setStatusFilter(requested); setPage(1); }
+  }, [queryString]);
 
   const limit = 20;
   const districtId = districtFilter && districtFilter !== "all" ? parseInt(districtFilter) : undefined;

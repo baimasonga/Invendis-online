@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listAllocations, removeAllocation, updateAllocation, KEYS } from "@/lib/db";
@@ -25,20 +25,23 @@ import { useToast } from "@/hooks/use-toast";
 function EditAllocationModal({ open, allocation, onClose }: { open: boolean; allocation: any | null; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [notes, setNotes] = useState(allocation?.notes ?? "");
-  const [status, setStatus] = useState(allocation?.status ?? "Pending");
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState("Pending");
 
-  const updateMut = useMutation({ mutationFn: (payload: { notes?: string; status?: string }) => updateAllocation(allocation?.id, payload) });
+  const updateMut = useMutation({ mutationFn: (payload: { notes?: string | null; status?: string }) => updateAllocation(allocation?.id, payload) });
 
-  function handleOpen() {
+  // The dialog is always mounted, so state follows the selected allocation.
+  useEffect(() => {
+    if (!open) return;
     setNotes(allocation?.notes ?? "");
     setStatus(allocation?.status ?? "Pending");
-  }
+  }, [allocation, open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await updateMut.mutateAsync({ notes: notes || undefined, status });
+      // null clears the note; undefined would leave the old value in place.
+      await updateMut.mutateAsync({ notes: notes.trim() ? notes : null, status });
       await qc.invalidateQueries({ queryKey: KEYS.allocations() });
       toast({ title: "Allocation updated" });
       onClose();
@@ -49,7 +52,7 @@ function EditAllocationModal({ open, allocation, onClose }: { open: boolean; all
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }} >
-      <DialogContent className="sm:max-w-sm" onAnimationStart={handleOpen}>
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Edit Allocation</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-1">
           <div className="space-y-1.5">
