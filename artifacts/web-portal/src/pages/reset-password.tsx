@@ -17,12 +17,46 @@ export default function ResetPassword() {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (mounted) {
-        setHasRecoverySession(Boolean(data.session));
-        setIsChecking(false);
+
+    const establishRecoverySession = async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      const isRecoveryLink =
+        hash.get("type") === "recovery" || Boolean(code) || Boolean(accessToken);
+
+      let session = null;
+      let sessionError: Error | null = null;
+
+      if (code) {
+        const result = await supabase.auth.exchangeCodeForSession(code);
+        session = result.data.session;
+        sessionError = result.error;
+      } else if (accessToken && refreshToken) {
+        const result = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        session = result.data.session;
+        sessionError = result.error;
+      } else {
+        const result = await supabase.auth.getSession();
+        session = result.data.session;
+        sessionError = result.error;
       }
-    });
+
+      if (!mounted) return;
+      setHasRecoverySession(Boolean(session) && isRecoveryLink);
+      if (sessionError) {
+        setError("This reset link is invalid or has expired.");
+      }
+      setIsChecking(false);
+    };
+
+    void establishRecoverySession();
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -49,6 +83,13 @@ export default function ResetPassword() {
       return;
     }
     setIsLoading(true);
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      setHasRecoverySession(false);
+      setError("This reset link is invalid or has expired.");
+      setIsLoading(false);
+      return;
+    }
     const { error: updateError } = await supabase.auth.updateUser({ password });
     if (updateError)
       setError(updateError.message || "Password could not be updated.");
