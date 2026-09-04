@@ -26,13 +26,63 @@ app.use(
     },
   }),
 );
-// CORS_ORIGIN can be a comma-separated list of allowed origins (e.g. Railway portal URL).
-// Defaults to open (*) so existing Replit / local setups continue to work.
-const corsOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim())
-  : true; // true = reflect any origin
+const defaultCorsOrigins = [
+  "https://invendisapp.com",
+  "https://www.invendisapp.com",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+const corsOrigins = new Set(
+  (process.env.CORS_ORIGIN?.split(",") ?? defaultCorsOrigins)
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean),
+);
 
-app.use(cors({ origin: corsOrigins, credentials: true }));
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(self), geolocation=(self), microphone=()",
+  );
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "object-src 'none'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
+      "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.supabase.co https://*.amazonaws.com",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      "worker-src 'self' blob:",
+    ].join("; "),
+  );
+  next();
+});
+
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      // Requests without Origin are server-to-server or same-origin navigation.
+      if (!origin || corsOrigins.has(origin.replace(/\/$/, ""))) {
+        callback(null, true);
+        return;
+      }
+      const error = new Error("Origin is not allowed by CORS") as Error & {
+        status: number;
+      };
+      error.status = 403;
+      callback(error);
+    },
+  }),
+);
 // Raw body buffer for the GPS retranslator webhook — must come BEFORE json() middleware
 // so binary sutran payloads are not corrupted by JSON parsing attempts.
 app.use("/api/gps/retranslator", express.raw({ type: "*/*", limit: "64kb" }));

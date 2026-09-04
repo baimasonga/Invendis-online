@@ -200,7 +200,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     alertParts.push(
       <Link key="pod" href="/pod?status=Pending">
         <span className="font-semibold underline underline-offset-2 cursor-pointer hover:text-amber-900">
-          {pendingPod} PoD{pendingPod !== 1 ? "s" : ""} awaiting verification
+          {pendingPod} PoD {pendingPod === 1 ? "record" : "records"} awaiting verification
         </span>
       </Link>
     );

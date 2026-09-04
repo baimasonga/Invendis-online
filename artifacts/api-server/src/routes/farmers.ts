@@ -188,11 +188,8 @@ router.post(
       }
     }
 
-    // 2. Get next safe ID base (PG sequence may lag after seed imports)
-    const { data: maxRow } = await supa.from("farmers").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
-    let nextId = ((maxRow as any)?.id ?? 0) + 1;
-
-    // 3. Process rows — detect intra-file and DB duplicates
+    // 2. Process rows — detect intra-file and DB duplicates. PostgreSQL assigns
+    // IDs atomically; the integrity migration synchronizes the sequence first.
     const seenPhonesInBatch = new Map<string, number>(); // phone → first 1-based row number
     const toInsert: any[]   = [];
     const duplicates: Array<{ row: number; name: string; phone: string; matchedFarmerCode: string }> = [];
@@ -225,7 +222,6 @@ router.post(
       }
 
       toInsert.push({
-        id:               nextId++,
         first_name:       r.firstName    || null,
         last_name:        r.lastName     || null,
         gender:           r.gender       || null,

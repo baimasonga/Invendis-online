@@ -599,10 +599,7 @@ export async function updateCampaign(id: number, payload: any) {
 }
 
 export async function addCampaignItem(campaignId: number, inputItemId: number) {
-  const { data: mx } = await supabase.from("campaign_items").select("id").order("id", { ascending: false }).limit(1);
-  const nextId = ((mx as any)?.[0]?.id ?? 0) + 1;
   const { data, error } = await supabase.from("campaign_items").insert({
-    id: nextId,
     campaign_id: campaignId,
     input_item_id: inputItemId,
   }).select().single();

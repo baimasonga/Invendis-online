@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
-import { requireAuth, requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
+import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -67,13 +67,17 @@ router.post("/api/master-data/chiefdoms", requireAnyAuth, requireRoleIfJwt("Admi
 });
 router.put("/api/master-data/chiefdoms/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, districtId } = req.body;
-  const { data, error } = await supa.from("chiefdoms").update({ name, district_id: districtId }).eq("id", Number(req.params.id)).select().single();
+  const id = Number(req.params.id);
+  const { data, error } = await supa.from("chiefdoms").update({ name, district_id: districtId }).eq("id", id).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated chiefdom: ${name}`, "chiefdom", id);
   res.json(snakeToCamel(data));
 });
 router.delete("/api/master-data/chiefdoms/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
-  const { error } = await supa.from("chiefdoms").delete().eq("id", Number(req.params.id));
+  const id = Number(req.params.id);
+  const { error } = await supa.from("chiefdoms").delete().eq("id", id);
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "DELETE", "MasterData", `Deleted chiefdom ID ${id}`, "chiefdom", id);
   res.json({ success: true });
 });
 
@@ -111,8 +115,10 @@ router.post("/api/master-data/value-chains", requireAnyAuth, requireRoleIfJwt("A
 });
 router.put("/api/master-data/value-chains/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, description } = req.body;
-  const { data, error } = await supa.from("value_chains").update({ name, description }).eq("id", Number(req.params.id)).select().single();
+  const id = Number(req.params.id);
+  const { data, error } = await supa.from("value_chains").update({ name, description }).eq("id", id).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated value chain: ${name}`, "value_chain", id);
   res.json(snakeToCamel(data));
 });
 router.patch("/api/master-data/value-chains/:id/toggle", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -121,6 +127,7 @@ router.patch("/api/master-data/value-chains/:id/toggle", requireAnyAuth, require
   const next = (cur as any).is_active ? 0 : 1;
   const { data, error } = await supa.from("value_chains").update({ is_active: next }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `${next ? "Activated" : "Deactivated"} value chain ID ${req.params.id}`, "value_chain", Number(req.params.id));
   res.json(snakeToCamel(data));
 });
 
@@ -149,10 +156,12 @@ router.post("/api/master-data/warehouses", requireAnyAuth, requireRoleIfJwt("Adm
 });
 router.put("/api/master-data/warehouses/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, code, districtId, address } = req.body;
+  const id = Number(req.params.id);
   const { data, error } = await supa.from("warehouses")
     .update({ name, code, district_id: districtId ?? null, address: address ?? null })
-    .eq("id", Number(req.params.id)).select().single();
+    .eq("id", id).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated warehouse: ${name}`, "warehouse", id);
   res.json(snakeToCamel(data));
 });
 router.patch("/api/master-data/warehouses/:id/toggle", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -161,6 +170,7 @@ router.patch("/api/master-data/warehouses/:id/toggle", requireAnyAuth, requireRo
   const next = (cur as any).is_active ? 0 : 1;
   const { data, error } = await supa.from("warehouses").update({ is_active: next }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `${next ? "Activated" : "Deactivated"} warehouse ID ${req.params.id}`, "warehouse", Number(req.params.id));
   res.json(snakeToCamel(data));
 });
 router.post("/api/master-data/warehouses/import", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -204,10 +214,12 @@ router.post("/api/master-data/distribution-sites", requireAnyAuth, requireRoleIf
 });
 router.put("/api/master-data/distribution-sites/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, districtId, latitude, longitude, geofenceRadius } = req.body;
+  const id = Number(req.params.id);
   const { data, error } = await supa.from("distribution_sites")
     .update({ name, district_id: districtId ?? null, latitude: latitude ?? null, longitude: longitude ?? null, geofence_radius: geofenceRadius ?? 500 })
-    .eq("id", Number(req.params.id)).select().single();
+    .eq("id", id).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated distribution site: ${name}`, "distribution_site", id);
   res.json(snakeToCamel(data));
 });
 router.patch("/api/master-data/distribution-sites/:id/toggle", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -216,6 +228,7 @@ router.patch("/api/master-data/distribution-sites/:id/toggle", requireAnyAuth, r
   const next = (cur as any).is_active ? 0 : 1;
   const { data, error } = await supa.from("distribution_sites").update({ is_active: next }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `${next ? "Activated" : "Deactivated"} distribution site ID ${req.params.id}`, "distribution_site", Number(req.params.id));
   res.json(snakeToCamel(data));
 });
 router.post("/api/master-data/distribution-sites/import", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -264,12 +277,14 @@ router.post("/api/master-data/input-items", requireAnyAuth, requireRoleIfJwt("Ad
 });
 router.put("/api/master-data/input-items/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
   const { name, unit, category, valueChainId, description, barcode } = req.body;
+  const id = Number(req.params.id);
   const update: Record<string, any> = { name, unit, category: category ?? null, value_chain_id: valueChainId ?? null, description: description ?? null };
   if ("barcode" in req.body) update.barcode = barcode || null;
   const { data, error } = await supa.from("input_items")
     .update(update)
-    .eq("id", Number(req.params.id)).select().single();
+    .eq("id", id).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated input item: ${name}`, "input_item", id);
   res.json(snakeToCamel(data));
 });
 router.patch("/api/master-data/input-items/:id/toggle", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
@@ -278,6 +293,7 @@ router.patch("/api/master-data/input-items/:id/toggle", requireAnyAuth, requireR
   const next = (cur as any).is_active ? 0 : 1;
   const { data, error } = await supa.from("input_items").update({ is_active: next }).eq("id", Number(req.params.id)).select().single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `${next ? "Activated" : "Deactivated"} input item ID ${req.params.id}`, "input_item", Number(req.params.id));
   res.json(snakeToCamel(data));
 });
 router.delete("/api/master-data/input-items/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {

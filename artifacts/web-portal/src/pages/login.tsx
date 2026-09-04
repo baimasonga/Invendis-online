@@ -4,13 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Redirect } from "wouter";
+import { Link, Redirect } from "wouter";
 import { Leaf, Wheat, Truck, ClipboardCheck } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const { login, isAuthenticated } = useAuth();
   const { toast } = useToast();
 
@@ -19,11 +20,14 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
+    setLoginError("");
     setIsLoading(true);
     try {
       await login({ email, password });
     } catch (error: any) {
-      toast({ title: "Login failed", description: error.message || "Invalid credentials.", variant: "destructive" });
+      const message = error.message || "Invalid email or password.";
+      setLoginError(message);
+      toast({ title: "Login failed", description: message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -76,7 +80,7 @@ export default function Login() {
         {/* Bottom stats */}
         <div className="grid grid-cols-3 gap-3 relative z-10">
           {[
-            { value: "25+", label: "Farmers" },
+            { value: "Live", label: "Operations" },
             { value: "14", label: "Districts" },
             { value: "4", label: "Warehouses" },
           ].map(({ value, label }) => (
@@ -112,25 +116,35 @@ export default function Login() {
                 type="email"
                 placeholder="Enter your email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setLoginError(""); }}
                 className="h-10"
                 required
                 autoComplete="email"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                <Link href="/forgot-password" className="text-xs font-medium text-green-700 hover:text-green-800 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
                 placeholder="Enter your password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); setLoginError(""); }}
                 className="h-10"
                 required
                 autoComplete="current-password"
               />
             </div>
+            {loginError && (
+              <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {loginError}
+              </p>
+            )}
             <Button
               type="submit"
               className="w-full h-10 bg-green-700 hover:bg-green-800 text-white font-medium"
