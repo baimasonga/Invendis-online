@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
+import { buildWebPodProofPayload } from "@/lib/pod-proof-payload";
 
 interface Props {
   open: boolean;
@@ -104,7 +105,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setSubmissionKey(generateSubmissionKey());
     setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
-    setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpBypassed(false);
+    setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpVerificationToken(null); setOtpBypassed(false);
     setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpDevCode(null); setOtpResendSecs(0); setOtpError(""); setShowOtpBypass(false);
     setFaceResult(null); setFaceBypassed(false); setFacePhotoBlob(null);
     setGpsLat(null); setGpsLng(null); setGpsError("");
@@ -242,7 +243,7 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
         campaignId: selectedDispatch?.campaignId ?? undefined,
         quantityDelivered: Number(qty),
         notes: bypassNotes || undefined,
-        ...(otpVerificationToken ? { otpVerificationToken } : {}),
+        ...buildWebPodProofPayload(otpVerificationToken),
         otpStatus,
         faceStatus,
         photoUrl,

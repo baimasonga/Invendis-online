@@ -4,6 +4,7 @@ import { supa } from "../lib/supabase.js";
 import { getPresignedViewUrl, compareFaces, detectLabels, detectFaces, bucket } from "../lib/aws.js";
 import { logAudit } from "../lib/audit.js";
 import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
+import { isFarmerInCampaignScope } from "../lib/dispatch-scope.js";
 import { createHash, randomBytes } from "crypto";
 
 const router = Router();
@@ -18,17 +19,15 @@ function keyForFarmer(key: string, farmerId: number, purposes: string[]): boolea
 async function canAccessFarmer(req: import("express").Request, farmerId: number): Promise<boolean> {
   const scope = await getDispatchReadScope(req);
   if (scope.unrestricted) return !!(await supa.from("farmers").select("id").eq("id", farmerId).maybeSingle()).data;
+  let allowedCampaignIds = scope.campaignIds ?? [];
   if (scope.fieldOfficerId !== undefined) {
     const { data: dispatches } = await supa.from("dispatches").select("campaign_id")
       .eq("field_officer_id", scope.fieldOfficerId);
-    const campaignIds = (dispatches ?? []).map((d: any) => d.campaign_id).filter(Boolean);
-    if (!campaignIds.length) return false;
-    const { data } = await supa.from("allocations").select("farmer_id").eq("farmer_id", farmerId).in("campaign_id", campaignIds).limit(1);
-    return !!data?.length;
+    allowedCampaignIds = (dispatches ?? []).map((d: any) => d.campaign_id).filter(Boolean);
   }
-  if (!(scope.campaignIds ?? []).length) return false;
-  const { data } = await supa.from("allocations").select("farmer_id").eq("farmer_id", farmerId).in("campaign_id", scope.campaignIds ?? []).limit(1);
-  return !!data?.length;
+  if (!allowedCampaignIds.length) return false;
+  const { data } = await supa.from("allocations").select("campaign_id").eq("farmer_id", farmerId).in("campaign_id", allowedCampaignIds).limit(1);
+  return isFarmerInCampaignScope(scope, (data ?? []).map((row: any) => Number(row.campaign_id)), allowedCampaignIds);
 }
 async function mintFaceProof(farmerId: number, dispatchId: number, status: string, similarity: number | null): Promise<string> {
   const token = randomBytes(32).toString("base64url");

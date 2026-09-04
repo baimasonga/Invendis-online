@@ -40,6 +40,7 @@ import {
   type InputItem,
   type DispatchItem,
 } from "@/lib/api";
+import { buildVerificationProofPayload, saveFirstReferenceIfNeeded } from "@/lib/pod-proof";
 
 let CameraView: React.ComponentType<{
   style?: any;
@@ -467,13 +468,16 @@ export default function ConfirmPodScreen() {
 
       // When no reference photo exists, save this delivery photo as the reference
       // so all future deliveries compare against it.
-      if (result.faceStatus === "NoReference") {
-        try {
-          await saveFaceReference(token!, Number(farmerId), uploadInfo.key, Number(dispatchId));
-        } catch (refErr) {
-          // Non-fatal — log but don't block the flow
-          console.warn("Could not save reference photo:", refErr);
-        }
+      try {
+        await saveFirstReferenceIfNeeded({
+          faceStatus: result.faceStatus,
+          deliveryKey: uploadInfo.key,
+          dispatchId,
+          saveReference: () => saveFaceReference(token!, Number(farmerId), uploadInfo.key, Number(dispatchId)),
+        });
+      } catch (refErr) {
+        // Non-fatal — log but don't block the flow
+        console.warn("Could not save reference photo:", refErr);
       }
 
       setFaceResult(result);
@@ -590,8 +594,7 @@ export default function ConfirmPodScreen() {
             ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
           }
       ),
-      ...(otpVerificationToken ? { otpVerificationToken } : {}),
-      ...(faceVerificationToken ? { faceVerificationToken } : {}),
+      ...buildVerificationProofPayload(otpVerificationToken, faceVerificationToken),
       ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
