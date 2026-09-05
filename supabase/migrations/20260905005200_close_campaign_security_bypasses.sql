@@ -44,7 +44,9 @@ BEGIN
     FROM pg_policies
     WHERE schemaname = 'public'
       AND tablename = ANY (ARRAY['campaigns','campaign_items','allocations'])
-      AND cmd = 'SELECT'
+      -- FOR ALL policies also authorize SELECT and would otherwise be ORed
+      -- with the district-scoped policies below.
+      AND cmd IN ('SELECT','ALL')
   LOOP
     EXECUTE format(
       'DROP POLICY IF EXISTS %I ON %I.%I',
@@ -262,7 +264,7 @@ BEGIN
 
   WITH required AS (
     SELECT (col.value->>'itemId')::integer AS input_item_id,
-           sum(greatest(0,coalesce((row_data.value->'quantities'->>(col.ordinality-1))::double precision,0))) AS quantity
+           sum(greatest(0,coalesce((row_data.value->'quantities'->>((col.ordinality-1)::integer))::double precision,0))) AS quantity
     FROM jsonb_array_elements(v_columns) WITH ORDINALITY col(value,ordinality)
     CROSS JOIN jsonb_array_elements(v_rows) row_data(value)
     GROUP BY (col.value->>'itemId')::integer
@@ -285,7 +287,7 @@ BEGIN
 
   WITH required AS (
     SELECT (col.value->>'itemId')::integer AS input_item_id,
-           sum(greatest(0,coalesce((row_data.value->'quantities'->>(col.ordinality-1))::double precision,0))) AS quantity
+           sum(greatest(0,coalesce((row_data.value->'quantities'->>((col.ordinality-1)::integer))::double precision,0))) AS quantity
     FROM jsonb_array_elements(v_columns) WITH ORDINALITY col(value,ordinality)
     CROSS JOIN jsonb_array_elements(v_rows) row_data(value)
     GROUP BY (col.value->>'itemId')::integer
@@ -307,7 +309,7 @@ BEGIN
 
   WITH required AS (
     SELECT (col.value->>'itemId')::integer AS input_item_id,
-           sum(greatest(0,coalesce((row_data.value->'quantities'->>(col.ordinality-1))::double precision,0))) AS quantity
+           sum(greatest(0,coalesce((row_data.value->'quantities'->>((col.ordinality-1)::integer))::double precision,0))) AS quantity
     FROM jsonb_array_elements(v_columns) WITH ORDINALITY col(value,ordinality)
     CROSS JOIN jsonb_array_elements(v_rows) row_data(value)
     GROUP BY (col.value->>'itemId')::integer
@@ -332,11 +334,11 @@ BEGIN
 
   INSERT INTO public.dispatch_items(dispatch_id,input_item_id,quantity_loaded)
   SELECT v_dispatch_id,(col.value->>'itemId')::integer,
-         sum(greatest(0,coalesce((row_data.value->'quantities'->>(col.ordinality-1))::double precision,0)))
+         sum(greatest(0,coalesce((row_data.value->'quantities'->>((col.ordinality-1)::integer))::double precision,0)))
   FROM jsonb_array_elements(v_columns) WITH ORDINALITY col(value,ordinality)
   CROSS JOIN jsonb_array_elements(v_rows) row_data(value)
   GROUP BY (col.value->>'itemId')::integer
-  HAVING sum(greatest(0,coalesce((row_data.value->'quantities'->>(col.ordinality-1))::double precision,0)))>0;
+  HAVING sum(greatest(0,coalesce((row_data.value->'quantities'->>((col.ordinality-1)::integer))::double precision,0)))>0;
 
   SELECT coalesce(jsonb_agg(jsonb_build_object(
            'community',f.farmer_group,

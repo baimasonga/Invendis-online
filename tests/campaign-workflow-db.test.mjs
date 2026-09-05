@@ -142,6 +142,9 @@ function installSchema() {
     ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
     ALTER TABLE campaign_items ENABLE ROW LEVEL SECURITY;
     ALTER TABLE allocations ENABLE ROW LEVEL SECURITY;
+    -- Reproduce the live FOR ALL policy that caused the district data leak.
+    CREATE POLICY field_operations_write ON allocations
+      FOR ALL TO authenticated USING (true) WITH CHECK (true);
     GRANT SELECT ON campaigns,campaign_items,allocations TO authenticated;
   `);
   run("psql", [
@@ -214,6 +217,12 @@ test("campaign database blocks exhausted reservations, cross-district reads, and
     psql(`SET ROLE authenticated; SET request.jwt.claim.sub='${coordinatorId}';
     SELECT (SELECT count(*) FROM campaigns)||','||(SELECT count(*) FROM campaign_items)||','||(SELECT count(*) FROM allocations)`);
   assert.equal(visible, "1,1,1");
+  assert.equal(
+    psql(
+      "SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='allocations' AND policyname='field_operations_write'",
+    ),
+    "0",
+  );
 
   assert.equal(
     psql(

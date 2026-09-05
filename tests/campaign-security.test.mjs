@@ -50,7 +50,13 @@ test("campaign correction scopes reads and disables the legacy manifest RPC", ()
   );
   assert.match(
     correctiveMigration,
-    /tablename = ANY \(ARRAY\['campaigns','campaign_items','allocations'\]\)/i,
+    /tablename = ANY \(ARRAY\['campaigns','campaign_items','allocations'\]\)[\s\S]*cmd IN \('SELECT','ALL'\)/i,
+  );
+  assert.doesNotMatch(correctiveMigration, /->>\s*\(col\.ordinality-1\)/i);
+  assert.equal(
+    correctiveMigration.match(/->>\(\(col\.ordinality-1\)::integer\)/gi)
+      ?.length,
+    5,
   );
   assert.match(correctiveMigration, /import_campaign_manifest_atomic/i);
   assert.match(
