@@ -518,7 +518,10 @@ INSERT INTO system_settings (key, value, description) VALUES
   ('sms_sender_name',        'AgriPoD', 'Sender name shown on OTP SMS messages (max 11 chars)'),
   ('otp_expiry_minutes',     '10',      'OTP code expiry time in minutes'),
   ('otp_max_attempts',       '5',       'Maximum OTP verification attempts before lockout'),
-  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer')
+  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer'),
+  ('pod_vehicle_gps_match_radius_m', '500', 'Maximum vehicle-to-mobile distance for a confirmed PoD GPS match'),
+  ('pod_vehicle_gps_near_radius_m', '2000', 'Maximum vehicle-to-mobile distance shown as a near match requiring review'),
+  ('pod_vehicle_gps_max_age_minutes', '30', 'Maximum age of the vehicle tracker position used for PoD matching')
 ON CONFLICT (key) DO NOTHING;
 
 -- ── PERFORMANCE INDEXES ───────────────────────────────────────
@@ -533,6 +536,7 @@ CREATE INDEX IF NOT EXISTS pod_campaign_id_idx ON pod (campaign_id);
 
 CREATE INDEX IF NOT EXISTS gps_track_vehicle_id_idx  ON gps_track (vehicle_id);
 CREATE INDEX IF NOT EXISTS gps_track_recorded_at_idx ON gps_track (recorded_at DESC);
+CREATE INDEX IF NOT EXISTS gps_track_vehicle_recorded_idx ON gps_track (vehicle_id, recorded_at DESC);
 
 CREATE INDEX IF NOT EXISTS allocations_campaign_id_idx ON allocations (campaign_id);
 CREATE INDEX IF NOT EXISTS allocations_farmer_id_idx   ON allocations (farmer_id);

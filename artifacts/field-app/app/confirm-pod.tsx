@@ -56,6 +56,7 @@ interface GPSCoords {
   latitude: number;
   longitude: number;
   accuracy?: number;
+  capturedAt: string;
 }
 
 async function getLocation(): Promise<GPSCoords | null> {
@@ -63,7 +64,7 @@ async function getLocation(): Promise<GPSCoords | null> {
     return new Promise((resolve) => {
       if (!navigator.geolocation) { resolve(null); return; }
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, capturedAt: new Date(pos.timestamp || Date.now()).toISOString() }),
         () => resolve(null),
         { timeout: 8000 }
       );
@@ -74,7 +75,7 @@ async function getLocation(): Promise<GPSCoords | null> {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return null;
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, capturedAt: new Date(pos.timestamp || Date.now()).toISOString() };
   } catch {
     return null;
   }
@@ -595,7 +596,12 @@ export default function ConfirmPodScreen() {
           }
       ),
       ...buildVerificationProofPayload(otpVerificationToken, faceVerificationToken),
-      ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
+      ...(gps ? {
+        farmerLatitude: gps.latitude,
+        farmerLongitude: gps.longitude,
+        farmerGpsAccuracy: gps.accuracy,
+        farmerGpsCapturedAt: gps.capturedAt,
+      } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
       photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
@@ -685,6 +691,8 @@ export default function ConfirmPodScreen() {
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "result" && submittedPod) {
     const gpsStatus = submittedPod.gpsStatus;
+    const vehicleGpsStatus = submittedPod.vehicleGpsStatus ?? submittedPod.vehicleGpsSnapshot?.status ?? "Pending";
+    const vehicleDistanceM = submittedPod.vehicleGpsSnapshot?.distanceM;
     const gpsCfg: Record<string, { icon: "map-pin" | "alert-triangle" | "wifi-off" | "clock"; title: string; desc: string; colorKey: "success" | "warning" | "mutedForeground" }> = {
       Verified:   { icon: "map-pin",       title: "Location Verified",     desc: "Delivery confirmed within the expected distribution zone.",          colorKey: "success"          },
       Mismatch:   { icon: "alert-triangle", title: "Location Outside Zone", desc: "Delivery recorded outside the expected area — flagged for review.", colorKey: "warning"          },
@@ -742,6 +750,7 @@ export default function ConfirmPodScreen() {
             { icon: "image" as const,    label: "Photos",     val: `${((submittedPod as any).photoKeys?.length ?? 0)} captured`, ok: ((submittedPod as any).photoKeys?.length ?? 0) >= 5 },
             { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
             { icon: "map-pin" as const,  label: "GPS",        val: gpsStatus ?? "Pending",          ok: gpsStatus === "Verified" },
+            { icon: "truck" as const,    label: "Vehicle GPS", val: `${vehicleGpsStatus}${vehicleDistanceM != null ? ` · ${vehicleDistanceM} m` : ""}`, ok: vehicleGpsStatus === "Matched" },
           ].map(({ icon, label, val, ok }) => (
             <View key={label} style={resultStyles.summaryRow}>
               <Feather name={icon} size={14} color={ok ? colors.success : colors.mutedForeground} />

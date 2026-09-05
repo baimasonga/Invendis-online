@@ -1269,6 +1269,9 @@ export async function listPod(page = 1, limit = 20, dispatchId?: number, status?
   return {
     data: rows.map((r: any) => ({
       ...cc(r),
+      // The atomic PoD function stores the assessment in the immutable snapshot.
+      // Prefer it so legacy schemas do not need a vehicle_gps_status column update.
+      vehicleGpsStatus: r.vehicle_gps_snapshot?.status ?? r.vehicle_gps_status ?? "Pending",
       farmerName: farmerDisplayName(farmerMap[r.farmer_id]) || null,
       farmerCode: farmerMap[r.farmer_id]?.farmer_code ?? null,
       beneficiaryType: farmerMap[r.farmer_id]?.beneficiary_type ?? null,
@@ -1344,6 +1347,8 @@ export async function createPod(payload: any) {
       photoGpsCoords: payload.photoGpsCoords ?? undefined,
       farmerLatitude: payload.farmerLatitude ?? undefined,
       farmerLongitude: payload.farmerLongitude ?? undefined,
+      farmerGpsAccuracy: payload.farmerGpsAccuracy ?? undefined,
+      farmerGpsCapturedAt: payload.farmerGpsCapturedAt ?? undefined,
       overrideReason: payload.overrideReason ?? undefined,
       otpCode: payload.otpCode ?? undefined,
       actualGroupSize: payload.actualGroupSize ?? undefined,

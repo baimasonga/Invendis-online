@@ -51,6 +51,25 @@ function OtpPill({ status }: { status?: string }) {
   return <span className="text-xs text-muted-foreground">—</span>;
 }
 
+function VehicleGpsPill({ pod }: { pod: any }) {
+  const status = String(pod.vehicleGpsStatus ?? pod.vehicleGpsSnapshot?.status ?? "Pending");
+  const distance = pod.vehicleGpsSnapshot?.distanceM;
+  const styles: Record<string, { label: string; cls: string }> = {
+    Matched: { label: "Matched", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+    NearMatch: { label: "Near match", cls: "text-amber-700 bg-amber-50 border-amber-200" },
+    Mismatch: { label: "Mismatch", cls: "text-red-700 bg-red-50 border-red-200" },
+    StaleVehicleLocation: { label: "Tracker stale", cls: "text-amber-700 bg-amber-50 border-amber-200" },
+    NoVehicleLocation: { label: "No vehicle GPS", cls: "text-slate-600 bg-slate-50 border-slate-200" },
+    NoMobileLocation: { label: "No mobile GPS", cls: "text-slate-600 bg-slate-50 border-slate-200" },
+  };
+  const style = styles[status] ?? { label: status, cls: "text-slate-600 bg-slate-50 border-slate-200" };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${style.cls}`}>
+      <Truck className="h-3 w-3" /> {style.label}{Number.isFinite(distance) ? ` · ${fmtDist(Number(distance))}` : ""}
+    </span>
+  );
+}
+
 function timeAgo(date: string) {
   const diff = Date.now() - new Date(date).getTime();
   const mins = Math.floor(diff / 60000);
@@ -421,6 +440,21 @@ function PodDetailBody({
             {Number(pod.farmerLatitude).toFixed(5)}, {Number(pod.farmerLongitude).toFixed(5)} — View on map
           </a>
         ) : null}
+        <div className="rounded-lg border bg-muted/30 px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium">Vehicle-to-delivery GPS check</p>
+            <VehicleGpsPill pod={pod} />
+          </div>
+          {pod.vehicleGpsSnapshot?.recordedAt && (
+            <p className="text-[11px] text-muted-foreground">
+              Vehicle tracker fix: {new Date(pod.vehicleGpsSnapshot.recordedAt).toLocaleString("en-GB")}
+              {pod.vehicleGpsSnapshot.plateNumber ? ` · ${pod.vehicleGpsSnapshot.plateNumber}` : ""}
+            </p>
+          )}
+          {pod.vehicleGpsSnapshot?.mobile?.accuracyM != null && (
+            <p className="text-[11px] text-muted-foreground">Mobile GPS accuracy: ±{Math.round(pod.vehicleGpsSnapshot.mobile.accuracyM)} m</p>
+          )}
+        </div>
         {pod.notes && <div><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p className="text-sm bg-muted/50 rounded-lg px-3 py-2">{pod.notes}</p></div>}
         <p className="text-[11px] text-muted-foreground">
           Submitted {pod.submittedAt
@@ -828,7 +862,9 @@ function ReviewQueue() {
                   )
                 : rows.map((pod) => {
                     const faceKey = (pod.faceStatus ?? "").toLowerCase().replace(/\s+/g, "");
-                    const needsAttention = faceKey === "failed" || faceKey === "noface";
+                    const vehicleGpsStatus = String(pod.vehicleGpsStatus ?? pod.vehicleGpsSnapshot?.status ?? "");
+                    const needsAttention = faceKey === "failed" || faceKey === "noface"
+                      || ["Mismatch", "StaleVehicleLocation", "NoVehicleLocation", "NoMobileLocation"].includes(vehicleGpsStatus);
                     const busy = approveMutation.isPending || flagMutation.isPending;
                     return (
                       <TableRow
@@ -860,9 +896,7 @@ function ReviewQueue() {
                           <FaceStatusPill status={pod.faceStatus} />
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
-                          {pod.farmerLatitude
-                            ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium"><MapPin className="h-3 w-3" />Yes</span>
-                            : <span className="text-xs text-muted-foreground">—</span>}
+                          <VehicleGpsPill pod={pod} />
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
                           {pod.submittedAt ? timeAgo(pod.submittedAt) : pod.createdAt ? timeAgo(pod.createdAt) : "—"}

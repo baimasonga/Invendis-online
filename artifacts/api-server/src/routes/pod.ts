@@ -8,6 +8,7 @@ import { bucket } from "../lib/aws.js";
 import { generateProxyUploadUrl } from "../lib/auth.js";
 import { sendSms } from "../lib/sms.js";
 import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
+import { assessVehicleGpsMatch } from "../lib/pod-gps.js";
 
 const OPERATIONAL_ROLES = ["FieldOfficer", "Admin", "ProjectManager", "DistrictCoordinator", "WarehouseManager"];
 
@@ -58,6 +59,41 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+async function loadVehicleGpsThresholds(): Promise<{ matchRadiusM: number; nearRadiusM: number; maxVehicleAgeMinutes: number }> {
+  const defaults = { matchRadiusM: 500, nearRadiusM: 2000, maxVehicleAgeMinutes: 30 };
+  const { data, error } = await supa.from("system_settings").select("key,value").in("key", [
+    "pod_vehicle_gps_match_radius_m", "pod_vehicle_gps_near_radius_m", "pod_vehicle_gps_max_age_minutes",
+  ]);
+  if (error) return defaults;
+  const values = Object.fromEntries((data ?? []).map((row: any) => [row.key, Number(row.value)]));
+  const matchRadiusM = Number.isFinite(values.pod_vehicle_gps_match_radius_m)
+    ? Math.min(5000, Math.max(50, values.pod_vehicle_gps_match_radius_m)) : defaults.matchRadiusM;
+  const nearRadiusM = Number.isFinite(values.pod_vehicle_gps_near_radius_m)
+    ? Math.min(20_000, Math.max(matchRadiusM, values.pod_vehicle_gps_near_radius_m)) : defaults.nearRadiusM;
+  const maxVehicleAgeMinutes = Number.isFinite(values.pod_vehicle_gps_max_age_minutes)
+    ? Math.min(1440, Math.max(1, values.pod_vehicle_gps_max_age_minutes)) : defaults.maxVehicleAgeMinutes;
+  return { matchRadiusM, nearRadiusM, maxVehicleAgeMinutes };
+}
+
+function effectiveVehicleGpsStatus(row: any): string {
+  return row.vehicle_gps_snapshot?.status ?? row.vehicle_gps_status ?? "Pending";
+}
+
+async function nearestVehiclePosition(vehicleId: number, capturedAt: string, windowMinutes: number): Promise<any | null> {
+  const capturedMs = Date.parse(capturedAt);
+  const from = new Date(capturedMs - windowMinutes * 60_000).toISOString();
+  const to = new Date(capturedMs + windowMinutes * 60_000).toISOString();
+  const base = () => supa.from("gps_track").select("latitude,longitude,accuracy,recorded_at").eq("vehicle_id", vehicleId);
+  const [before, after] = await Promise.all([
+    base().gte("recorded_at", from).lte("recorded_at", capturedAt).order("recorded_at", { ascending: false }).limit(1).maybeSingle(),
+    base().gte("recorded_at", capturedAt).lte("recorded_at", to).order("recorded_at", { ascending: true }).limit(1).maybeSingle(),
+  ]);
+  const candidates = [before.data, after.data].filter(Boolean) as any[];
+  return candidates.sort((a, b) =>
+    Math.abs(Date.parse(a.recorded_at) - capturedMs) - Math.abs(Date.parse(b.recorded_at) - capturedMs)
+  )[0] ?? null;
+}
+
 router.get("/api/pod", requireAnyAuth, async (req, res) => {
   const { campaignId, dispatchId, status, faceStatus, page = "1", limit = "20" } = req.query as Record<string, string>;
   const offset = (Number(page) - 1) * Number(limit);
@@ -90,6 +126,7 @@ router.get("/api/pod", requireAnyAuth, async (req, res) => {
       beneficiary_type:        farmers?.beneficiary_type ?? null,
       group_size:              farmers?.group_size       ?? null,
       reference_photo_key:     farmers?.photo_url        ?? null,
+      vehicle_gps_status:      effectiveVehicleGpsStatus(row),
       items: (pod_items ?? []).map((pi: any) => ({
         id:                 pi.id,
         input_item_id:      pi.input_item_id,
@@ -129,6 +166,7 @@ router.get("/api/pod/:id", requireAnyAuth, async (req, res) => {
   const { pod_items, ...rest } = rows[0] as any;
   const result = {
     ...rest,
+    vehicle_gps_status: effectiveVehicleGpsStatus(rest),
     items: (pod_items ?? []).map((pi: any) => ({
       id:                 pi.id,
       input_item_id:      pi.input_item_id,
@@ -367,23 +405,64 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
     }
   }
 
-  // Capture vehicle GPS snapshot (linked via dispatch → vehicle)
-  let vehicleGpsSnapshot: { lat: number; lng: number; plateNumber: string; distanceM?: number } | null = null;
+  // Compare the mobile delivery coordinate with a server-side snapshot from
+  // the dispatch vehicle's tracker. The browser/mobile client never supplies
+  // the vehicle position or the resulting classification.
+  const mobileGpsAccuracyM = raw.farmerGpsAccuracy != null && Number.isFinite(Number(raw.farmerGpsAccuracy))
+    ? Math.max(0, Number(raw.farmerGpsAccuracy)) : null;
+  const mobileGpsCapturedAt = typeof raw.farmerGpsCapturedAt === "string" && Number.isFinite(Date.parse(raw.farmerGpsCapturedAt))
+    ? new Date(raw.farmerGpsCapturedAt).toISOString() : null;
+  const thresholds = await loadVehicleGpsThresholds();
+  let vehicleGpsSnapshot: Record<string, unknown> | null = null;
+  let vehicleGpsStatus = "NoVehicleLocation";
   if (body.dispatch_id) {
     const { data: dispVeh } = await supa.from("dispatches").select("vehicle_id").eq("id", Number(body.dispatch_id)).single();
     const vehicleId = (dispVeh as any)?.vehicle_id;
     if (vehicleId) {
-      const { data: vehicle } = await supa.from("vehicles").select("plate_number, last_latitude, last_longitude").eq("id", vehicleId).single();
-      const vLat = (vehicle as any)?.last_latitude != null ? Number((vehicle as any).last_latitude) : null;
-      const vLng = (vehicle as any)?.last_longitude != null ? Number((vehicle as any).last_longitude) : null;
-      if (vLat != null && vLng != null) {
-        vehicleGpsSnapshot = {
-          lat: vLat,
-          lng: vLng,
-          plateNumber: (vehicle as any)?.plate_number ?? "",
-          ...(farmerLat != null && farmerLng != null ? { distanceM: Math.round(haversineMeters(farmerLat, farmerLng, vLat, vLng)) } : {}),
-        };
+      const { data: vehicle } = await supa.from("vehicles").select("plate_number, last_latitude, last_longitude, last_ping").eq("id", vehicleId).single();
+      let vLat = (vehicle as any)?.last_latitude != null ? Number((vehicle as any).last_latitude) : null;
+      let vLng = (vehicle as any)?.last_longitude != null ? Number((vehicle as any).last_longitude) : null;
+      let vehicleRecordedAt = (vehicle as any)?.last_ping ?? null;
+      let vehicleAccuracyM: number | null = null;
+      let vehiclePositionSource = "latest";
+      if (mobileGpsCapturedAt) {
+        const historical = await nearestVehiclePosition(Number(vehicleId), mobileGpsCapturedAt, thresholds.maxVehicleAgeMinutes);
+        if (historical) {
+          vLat = Number(historical.latitude);
+          vLng = Number(historical.longitude);
+          vehicleRecordedAt = historical.recorded_at;
+          vehicleAccuracyM = historical.accuracy != null ? Number(historical.accuracy) : null;
+          vehiclePositionSource = "history-nearest-capture";
+        }
       }
+      const assessment = assessVehicleGpsMatch({
+        mobile: { lat: farmerLat, lng: farmerLng },
+        vehicle: { lat: vLat, lng: vLng },
+        vehicleRecordedAt,
+        nowMs: mobileGpsCapturedAt ? Date.parse(mobileGpsCapturedAt) : undefined,
+        ...thresholds,
+      });
+      vehicleGpsStatus = assessment.status;
+      vehicleGpsSnapshot = {
+        lat: vLat,
+        lng: vLng,
+        plateNumber: (vehicle as any)?.plate_number ?? "",
+        recordedAt: vehicleRecordedAt,
+        accuracyM: vehicleAccuracyM,
+        source: vehiclePositionSource,
+        ageSeconds: assessment.vehicleAgeSeconds,
+        distanceM: assessment.distanceM,
+        status: assessment.status,
+        matchRadiusM: thresholds.matchRadiusM,
+        nearRadiusM: thresholds.nearRadiusM,
+        maxAgeMinutes: thresholds.maxVehicleAgeMinutes,
+        mobile: {
+          lat: farmerLat,
+          lng: farmerLng,
+          accuracyM: mobileGpsAccuracyM,
+          capturedAt: mobileGpsCapturedAt,
+        },
+      };
     }
   }
 
@@ -410,6 +489,7 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
       pod_code:             podCode,
       status:               "Pending",
       gps_status:           gpsStatus,
+      vehicle_gps_status:   vehicleGpsStatus,
       vehicle_gps_snapshot: vehicleGpsSnapshot,
       submitted_at:         new Date().toISOString(),
       field_officer_id:     fieldOfficerId,
@@ -443,7 +523,13 @@ router.post(["/api/pod", "/api/pod/submit"], requireAnyAuth, async (req, res) =>
     res.status(validationFailure ? 422 : 500).json({ error: message });
     return;
   }
-  let podRow = podInserted as Record<string, unknown>;
+  let podRow: Record<string, unknown> = {
+    ...(podInserted as Record<string, unknown>),
+    vehicle_gps_status:
+      (podInserted as Record<string, any>).vehicle_gps_snapshot?.status
+      ?? (podInserted as Record<string, any>).vehicle_gps_status
+      ?? vehicleGpsStatus,
+  };
 
   // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
   if (body.farmer_id && campaignId) {

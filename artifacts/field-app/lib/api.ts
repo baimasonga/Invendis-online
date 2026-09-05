@@ -132,6 +132,16 @@ export interface PoD {
   otpStatus: string | null;
   faceStatus: string | null;
   gpsStatus: string | null;
+  vehicleGpsStatus?: string | null;
+  vehicleGpsSnapshot?: {
+    lat?: number | null;
+    lng?: number | null;
+    plateNumber?: string;
+    recordedAt?: string | null;
+    ageSeconds?: number | null;
+    distanceM?: number | null;
+    status?: string;
+  } | null;
   farmerLatitude: number | null;
   farmerLongitude: number | null;
   inputItemId: number | null;
