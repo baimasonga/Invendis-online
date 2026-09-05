@@ -894,7 +894,6 @@ router.post(
   async (req, res) => {
     const b = req.body as {
       campaignId?: number;
-      newCampaignName?: string;
       warehouseId: number;
       vehicleType: "office" | "hired";
       vehicleId?: number;
@@ -921,7 +920,37 @@ router.post(
     };
 
     const { warehouseId, columns, rows } = b;
-    let campaignId: number | undefined = b.campaignId;
+    const campaignId = Number(b.campaignId);
+    if (!Number.isInteger(campaignId) || campaignId <= 0) {
+      res.status(400).json({
+        error:
+          "Select an existing approved campaign before importing a manifest",
+      });
+      return;
+    }
+    if (!Number.isInteger(Number(warehouseId)) || Number(warehouseId) <= 0) {
+      res.status(400).json({ error: "A valid source warehouse is required" });
+      return;
+    }
+    if (
+      !Array.isArray(columns) ||
+      columns.length === 0 ||
+      columns.some(
+        (column) =>
+          !Number.isInteger(Number(column.itemId)) ||
+          Number(column.itemId) <= 0,
+      )
+    ) {
+      res.status(400).json({
+        error:
+          "Every manifest column must be linked to an existing campaign item",
+      });
+      return;
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res.status(400).json({ error: "The manifest has no beneficiary rows" });
+      return;
+    }
 
     let createdBy: number | null = req.user?.userId ?? null;
     if (!createdBy && req.supabaseUser?.email) {
@@ -934,9 +963,9 @@ router.post(
       createdBy = (u as any)?.id ?? null;
     }
 
-    // The database function owns every lookup/create and final manifest write.
-    // Keeping the route mutation-free before this call ensures any failure
-    // rolls the complete import back, including newly discovered master data.
+    // The guarded database function only creates a dispatch for an existing,
+    // approved campaign. Campaigns, items, farmers, and allocations must pass
+    // through their own lifecycle before a manifest can reference them.
     const rpcPayload = {
       ...b,
       rows: Array.isArray(b.rows)
@@ -949,7 +978,7 @@ router.post(
         : b.rows,
     };
     const { data: atomicImport, error: atomicImportErr } = await supa.rpc(
-      "import_manifest_atomic",
+      "import_campaign_manifest_atomic",
       {
         p_payload: rpcPayload,
         p_created_by: createdBy,
@@ -958,12 +987,15 @@ router.post(
     if (atomicImportErr || !atomicImport) {
       console.error("Failed to import manifest atomically:", atomicImportErr);
       const message = atomicImportErr?.message ?? "Operation failed";
-      if (message.includes("insufficient_stock")) {
+      if (
+        message.includes("insufficient_stock") ||
+        message.includes("campaign_reservation_exceeded")
+      ) {
+        const errorCode = message.includes("campaign_reservation_exceeded")
+          ? "campaign_reservation_exceeded"
+          : "insufficient_stock";
         const encoded = message
-          .slice(
-            message.indexOf("insufficient_stock") +
-              "insufficient_stock:".length,
-          )
+          .slice(message.indexOf(errorCode) + errorCode.length + 1)
           .trim();
         let shortfalls: unknown[] = [];
         try {
@@ -972,7 +1004,7 @@ router.post(
         } catch {
           /* PostgreSQL message did not include parseable detail */
         }
-        res.status(422).json({ error: "insufficient_stock", shortfalls });
+        res.status(422).json({ error: errorCode, shortfalls });
       } else {
         res.status(400).json({ error: message });
       }
@@ -983,8 +1015,8 @@ router.post(
 
     /*
      * The former multi-request implementation lived here. It intentionally
-     * remains disabled during this migration transition; import_manifest_atomic
-     * now owns every lookup/create and final write in one transaction.
+     * remains disabled during this migration transition; the guarded atomic
+     * import owns the validated dispatch write in one transaction.
      *
     // 0. Extract value chain from title/notes (e.g. "TOOLS DISTRIBUTION PLAN FOR CASSAVA COMMUNITIES 2025")
     let valueChainId: number | null = null;

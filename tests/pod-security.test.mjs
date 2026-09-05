@@ -11,6 +11,10 @@ const port = 56000 + (process.pid % 500);
 let directory;
 let postgres;
 
+function commandExists(command) {
+  return spawnSync("sh", ["-c", `command -v ${command}`]).status === 0;
+}
+
 function run(command, args, input) {
   const result = spawnSync(command, args, { input, encoding: "utf8" });
   if (result.status !== 0) {
@@ -106,6 +110,10 @@ async function installSchema() {
 }
 
 test("PoD migrations enforce proof lifecycle, concurrent idempotency, and duplicate rejection", async (t) => {
+  if (!["initdb", "postgres", "psql", "pg_ctl"].every(commandExists)) {
+    t.skip("PostgreSQL command-line tools are not installed");
+    return;
+  }
   await startDatabase();
   t.after(stopDatabase);
   await installSchema();

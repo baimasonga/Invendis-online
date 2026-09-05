@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -113,7 +112,6 @@ export function ImportManifestModal({ open, onClose }: Props) {
   const [hiredDriver, setHiredDriver] = useState("");
   const [notes, setNotes] = useState("");
   const [fieldOfficerId, setFieldOfficerId] = useState("");
-  const [autoCampaignName, setAutoCampaignName] = useState("");
   const [parsedTitle, setParsedTitle] = useState("");
   const [stockShortfalls, setStockShortfalls] = useState<any[] | null>(null);
   const [importResult, setImportResult] = useState<any>(null);
@@ -367,8 +365,6 @@ export function ImportManifestModal({ open, onClose }: Props) {
         setParsedRows(rows);
         if (extractedTitle) {
           setParsedTitle(extractedTitle);
-          setAutoCampaignName(extractedTitle);
-          setCampaignId("_new");
         }
         setColumnMapping(
           dedupedHeaders.map((name, i) => ({
@@ -410,7 +406,6 @@ export function ImportManifestModal({ open, onClose }: Props) {
     setHiredDriver("");
     setNotes("");
     setFieldOfficerId("");
-    setAutoCampaignName("");
     setParsedTitle("");
     setStockShortfalls(null);
     setImportResult(null);
@@ -529,12 +524,11 @@ export function ImportManifestModal({ open, onClose }: Props) {
     setTimeout(() => win.print(), 700);
   }
 
-  async function handleImport(force = false) {
+  async function handleImport() {
     if (!campaignId || !warehouseId) {
       toast({
         title: "Required fields",
-        description:
-          "Select or auto-create a campaign, and select a warehouse.",
+        description: "Select an approved campaign and its source warehouse.",
         variant: "destructive",
       });
       return;
@@ -544,19 +538,13 @@ export function ImportManifestModal({ open, onClose }: Props) {
       vehicleType: vehicleMode,
       fieldOfficerId: fieldOfficerId ? Number(fieldOfficerId) : undefined,
       notes: notes || parsedTitle || undefined,
-      force: force || undefined,
       columns: columnMapping.map((c) => ({
         ...c,
         name: c.name.trim() || `Item ${c.colIndex + 1}`,
       })),
       rows: parsedRows,
     };
-    if (campaignId === "_new") {
-      const defaultName = `Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`;
-      payload.newCampaignName = autoCampaignName.trim() || defaultName;
-    } else {
-      payload.campaignId = Number(campaignId);
-    }
+    payload.campaignId = Number(campaignId);
     if (vehicleMode === "office") {
       if (vehicleId) payload.vehicleId = Number(vehicleId);
       if (driverId) payload.driverId = Number(driverId);
@@ -578,7 +566,12 @@ export function ImportManifestModal({ open, onClose }: Props) {
         vehicle_mode: vehicleMode,
       });
     } catch (err: any) {
-      if (err.message === "insufficient_stock" && err.shortfalls) {
+      if (
+        ["insufficient_stock", "campaign_reservation_exceeded"].includes(
+          err.message,
+        ) &&
+        err.shortfalls
+      ) {
         setStockShortfalls(err.shortfalls);
         trackEvent("manifest_import_blocked_stock", {
           shortfall_count: countBucket(err.shortfalls.length),
@@ -726,9 +719,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
                     <span className="font-semibold">
                       {districts.length} district(s)
                     </span>
-                    . Give each tool column a proper name — new items will be
-                    added to Inventory automatically. Link to an existing item
-                    to avoid duplicates.
+                    . Link every tool column to an existing item that is already
+                    configured on the approved campaign.
                   </p>
                 </div>
 
@@ -781,20 +773,15 @@ export function ImportManifestModal({ open, onClose }: Props) {
                       </div>
                       <div className="col-span-4">
                         <Select
-                          value={col.itemId ? String(col.itemId) : "new"}
+                          value={col.itemId ? String(col.itemId) : ""}
                           onValueChange={(v) =>
-                            updateCol(i, {
-                              itemId: v === "new" ? null : Number(v),
-                            })
+                            updateCol(i, { itemId: Number(v) })
                           }
                         >
                           <SelectTrigger className="h-8 text-sm">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="new">
-                              ✦ Create new item
-                            </SelectItem>
                             {itemList.map((it: any) => (
                               <SelectItem key={it.id} value={String(it.id)}>
                                 {it.name}
@@ -900,23 +887,19 @@ export function ImportManifestModal({ open, onClose }: Props) {
                   </p>
                   <ul className="list-disc list-inside space-y-0.5 mt-1">
                     <li>
-                      {parsedRows.length} group beneficiaries with
-                      auto-generated barcodes (existing communities will be
-                      reused)
+                      {parsedRows.length} existing, approved group beneficiaries
                     </li>
                     <li>
-                      {columnMapping.filter((c) => !c.itemId).length} new
-                      inventory item(s) ·{" "}
-                      {columnMapping.filter((c) => c.itemId).length} linked to
-                      existing items
+                      {columnMapping.filter((c) => c.itemId).length} linked
+                      campaign item(s)
                     </li>
                     <li>
                       1 draft dispatch manifest with {columnMapping.length} item
                       line(s) totalling {grandTotal} units
                     </li>
                     <li>
-                      {parsedRows.length} campaign allocations (one per
-                      community)
+                      No campaigns, items, farmers, or allocations will be
+                      created by this import
                     </li>
                   </ul>
                 </div>
@@ -931,12 +914,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
                     <Label>Campaign *</Label>
                     <Select value={campaignId} onValueChange={setCampaignId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select or auto-create" />
+                        <SelectValue placeholder="Select approved campaign" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="_new">
-                          ✦ Auto-create from this import
-                        </SelectItem>
                         {campaigns.map((c: any) => (
                           <SelectItem key={c.id} value={String(c.id)}>
                             {c.name}
@@ -944,17 +924,10 @@ export function ImportManifestModal({ open, onClose }: Props) {
                         ))}
                       </SelectContent>
                     </Select>
-                    {campaignId === "_new" && (
-                      <Input
-                        placeholder={
-                          parsedTitle ||
-                          `Distribution - ${districts.join(", ")} - ${new Date().toLocaleDateString("en-GB")}`
-                        }
-                        value={autoCampaignName}
-                        onChange={(e) => setAutoCampaignName(e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Beneficiaries and items must already belong to this
+                      campaign.
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Source Warehouse *</Label>
@@ -1154,13 +1127,11 @@ export function ImportManifestModal({ open, onClose }: Props) {
               <Button
                 onClick={() => {
                   if (step === 2) {
-                    const blank = columnMapping.findIndex(
-                      (c) => !c.name.trim() && !c.itemId,
-                    );
-                    if (blank >= 0) {
+                    const unlinked = columnMapping.findIndex((c) => !c.itemId);
+                    if (unlinked >= 0) {
                       toast({
-                        title: "Name required",
-                        description: `Column ${blank + 1} needs a name or must be linked to an existing item.`,
+                        title: "Campaign item required",
+                        description: `Column ${unlinked + 1} must be linked to an existing item before import.`,
                         variant: "destructive",
                       });
                       return;
@@ -1200,21 +1171,22 @@ export function ImportManifestModal({ open, onClose }: Props) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-600" /> Insufficient
-              Stock
+              <AlertCircle className="h-5 w-5 text-amber-600" /> Import blocked
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
                 <p className="mb-3 text-sm">
-                  The following items have insufficient stock in the selected
-                  warehouse:
+                  The requested quantities exceed warehouse stock or the
+                  campaign&apos;s remaining approved reservation:
                 </p>
                 <table className="w-full text-xs border rounded-md overflow-hidden mb-3">
                   <thead>
                     <tr className="bg-muted">
                       <th className="p-2 text-left font-medium">Item</th>
                       <th className="p-2 text-right font-medium">Required</th>
-                      <th className="p-2 text-right font-medium">Available</th>
+                      <th className="p-2 text-right font-medium">
+                        Available / Reserved
+                      </th>
                       <th className="p-2 text-right font-medium">Shortfall</th>
                     </tr>
                   </thead>
@@ -1226,18 +1198,18 @@ export function ImportManifestModal({ open, onClose }: Props) {
                           {s.needed}
                         </td>
                         <td className="p-2 text-right tabular-nums">
-                          {s.available}
+                          {s.available ?? s.reserved ?? 0}
                         </td>
                         <td className="p-2 text-right text-red-600 font-medium tabular-nums">
-                          {s.needed - s.available}
+                          {s.needed - (s.available ?? s.reserved ?? 0)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <p className="text-xs text-muted-foreground">
-                  You can proceed anyway or cancel to adjust quantities.
-                  Force-importing will create the manifest regardless.
+                  Reduce the quantities or update the campaign through its
+                  normal approval workflow before trying again.
                 </p>
               </div>
             </AlertDialogDescription>
@@ -1246,15 +1218,6 @@ export function ImportManifestModal({ open, onClose }: Props) {
             <AlertDialogCancel onClick={() => setStockShortfalls(null)}>
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setStockShortfalls(null);
-                handleImport(true);
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-            >
-              Import Anyway
-            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1323,7 +1323,9 @@ export async function importDispatch(payload: any) {
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     if (resp.status === 422 && (err as any).shortfalls) {
-      const stockError: any = new Error("insufficient_stock");
+      const stockError: any = new Error(
+        (err as any).error ?? "insufficient_stock",
+      );
       stockError.shortfalls = (err as any).shortfalls;
       throw stockError;
     }

@@ -240,14 +240,31 @@ BEGIN
   IF c.source_warehouse_id IS NOT NULL AND NEW.warehouse_id<>c.source_warehouse_id THEN
     RAISE EXCEPTION 'Dispatch warehouse must match the campaign source warehouse';
   END IF;
-  IF NEW.status='In Transit' AND EXISTS (
-    SELECT 1 FROM public.campaign_stock_reservations WHERE campaign_id=NEW.campaign_id
-  ) AND EXISTS (
-    SELECT 1 FROM public.dispatch_items di
-    LEFT JOIN public.campaign_stock_reservations r
-      ON r.campaign_id=NEW.campaign_id AND r.input_item_id=di.input_item_id
-    WHERE di.dispatch_id=NEW.id AND di.quantity_loaded>coalesce(r.reserved_quantity,0)
-  ) THEN RAISE EXCEPTION 'Dispatch quantities exceed the campaign stock reservation'; END IF;
+  IF NEW.status='In Transit'
+     AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM NEW.status) THEN
+    -- Reservation rows are also exhaustion markers. Lock every marker in a
+    -- stable order so concurrent dispatch starts cannot spend the same units.
+    PERFORM r.id FROM public.campaign_stock_reservations r
+     WHERE r.campaign_id=NEW.campaign_id
+     ORDER BY r.input_item_id FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Campaign has no active stock reservation';
+    END IF;
+    IF EXISTS (
+      SELECT 1
+      FROM (
+        SELECT di.input_item_id, sum(di.quantity_loaded) AS quantity_loaded
+        FROM public.dispatch_items di
+        WHERE di.dispatch_id=NEW.id
+        GROUP BY di.input_item_id
+      ) di
+      LEFT JOIN public.campaign_stock_reservations r
+        ON r.campaign_id=NEW.campaign_id AND r.input_item_id=di.input_item_id
+      WHERE r.id IS NULL OR di.quantity_loaded>r.reserved_quantity
+    ) THEN
+      RAISE EXCEPTION 'Dispatch quantities exceed the campaign stock reservation';
+    END IF;
+  END IF;
   RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION public.enforce_campaign_dispatch_integrity() FROM PUBLIC, anon, authenticated;
@@ -264,9 +281,15 @@ BEGIN
       WHERE id=NEW.campaign_id AND lower(status)='approved';
     UPDATE public.campaign_stock_reservations r
        SET reserved_quantity=greatest(0,r.reserved_quantity-di.quantity_loaded),updated_at=now()
-      FROM public.dispatch_items di
-     WHERE di.dispatch_id=NEW.id AND r.campaign_id=NEW.campaign_id AND r.input_item_id=di.input_item_id;
-    DELETE FROM public.campaign_stock_reservations WHERE campaign_id=NEW.campaign_id AND reserved_quantity<=0;
+      FROM (
+        SELECT input_item_id, sum(quantity_loaded) AS quantity_loaded
+        FROM public.dispatch_items
+        WHERE dispatch_id=NEW.id
+        GROUP BY input_item_id
+      ) di
+     WHERE r.campaign_id=NEW.campaign_id AND r.input_item_id=di.input_item_id;
+    -- Keep zero-balance rows: their presence proves the campaign was reserved,
+    -- and their zero value prevents a later dispatch from bypassing exhaustion.
   END IF;
   RETURN NEW;
 END $$;
