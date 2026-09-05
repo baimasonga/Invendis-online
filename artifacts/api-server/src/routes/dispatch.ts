@@ -14,10 +14,17 @@ function normalisePhoneForStorage(raw: string): string {
   return "+" + p;
 }
 
-async function resolveUserId(req: import("express").Request): Promise<number | null> {
+async function resolveUserId(
+  req: import("express").Request,
+): Promise<number | null> {
   if (req.user?.userId) return req.user.userId;
   if (req.supabaseUser?.email) {
-    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
+    const { data: u } = await supa
+      .from("users")
+      .select("id")
+      .eq("email", req.supabaseUser.email)
+      .limit(1)
+      .single();
     return (u as any)?.id ?? null;
   }
   return null;
@@ -32,32 +39,69 @@ async function fetchLookups(
   officerIds: string[] = [],
 ) {
   const [camps, wares, vehs, drivs, officers] = await Promise.all([
-    campaignIds.length  ? supa.from("campaigns").select("id,name,district_id").in("id", campaignIds)  : Promise.resolve({ data: [] }),
-    warehouseIds.length ? supa.from("warehouses").select("id,name").in("id", warehouseIds)             : Promise.resolve({ data: [] }),
-    vehicleIds.length   ? supa.from("vehicles").select("id,plate_number,vehicle_type").in("id", vehicleIds) : Promise.resolve({ data: [] }),
-    driverIds.length    ? supa.from("drivers").select("id,full_name").in("id", driverIds)              : Promise.resolve({ data: [] }),
-    officerIds.length   ? supa.from("users").select("id,full_name").in("id", officerIds)               : Promise.resolve({ data: [] }),
+    campaignIds.length
+      ? supa
+          .from("campaigns")
+          .select("id,name,district_id")
+          .in("id", campaignIds)
+      : Promise.resolve({ data: [] }),
+    warehouseIds.length
+      ? supa.from("warehouses").select("id,name").in("id", warehouseIds)
+      : Promise.resolve({ data: [] }),
+    vehicleIds.length
+      ? supa
+          .from("vehicles")
+          .select("id,plate_number,vehicle_type")
+          .in("id", vehicleIds)
+      : Promise.resolve({ data: [] }),
+    driverIds.length
+      ? supa.from("drivers").select("id,full_name").in("id", driverIds)
+      : Promise.resolve({ data: [] }),
+    officerIds.length
+      ? supa.from("users").select("id,full_name").in("id", officerIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
   // Resolve district names for campaigns
-  const districtIds = [...new Set((camps.data ?? []).map((c: any) => c.district_id).filter(Boolean))];
+  const districtIds = [
+    ...new Set(
+      (camps.data ?? []).map((c: any) => c.district_id).filter(Boolean),
+    ),
+  ];
   const { data: distData } = districtIds.length
     ? await supa.from("districts").select("id,name").in("id", districtIds)
     : { data: [] };
-  const distMap = Object.fromEntries((distData ?? []).map((d: any) => [d.id, d]));
+  const distMap = Object.fromEntries(
+    (distData ?? []).map((d: any) => [d.id, d]),
+  );
 
   return {
-    campMap:    Object.fromEntries((camps.data   ?? []).map((r: any) => [r.id, { ...r, districtName: distMap[r.district_id]?.name ?? null }])),
-    wareMap:    Object.fromEntries((wares.data   ?? []).map((r: any) => [r.id, r])),
-    vehMap:     Object.fromEntries((vehs.data    ?? []).map((r: any) => [r.id, r])),
-    drivMap:    Object.fromEntries((drivs.data   ?? []).map((r: any) => [r.id, r])),
-    officerMap: Object.fromEntries((officers.data ?? []).map((r: any) => [r.id, r])),
+    campMap: Object.fromEntries(
+      (camps.data ?? []).map((r: any) => [
+        r.id,
+        { ...r, districtName: distMap[r.district_id]?.name ?? null },
+      ]),
+    ),
+    wareMap: Object.fromEntries((wares.data ?? []).map((r: any) => [r.id, r])),
+    vehMap: Object.fromEntries((vehs.data ?? []).map((r: any) => [r.id, r])),
+    drivMap: Object.fromEntries((drivs.data ?? []).map((r: any) => [r.id, r])),
+    officerMap: Object.fromEntries(
+      (officers.data ?? []).map((r: any) => [r.id, r]),
+    ),
   };
 }
 
 router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
-  const { campaignId, status, manifestCode, fieldOfficerId, page = "1", limit = "20", archived } = req.query as Record<string, string>;
-  const pageN  = Math.max(1, Number(page));
+  const {
+    campaignId,
+    status,
+    manifestCode,
+    fieldOfficerId,
+    page = "1",
+    limit = "20",
+    archived,
+  } = req.query as Record<string, string>;
+  const pageN = Math.max(1, Number(page));
   const limitN = Math.min(200, Math.max(1, Number(limit)));
   const offset = (pageN - 1) * limitN;
   const showArchived = archived === "true";
@@ -65,9 +109,12 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
   const readScope = await getDispatchReadScope(req);
   // A FieldOfficer's assignment is authoritative; a query parameter must not
   // broaden or replace it (including for Supabase-authenticated officers).
-  const officerFilter: number | null = !readScope.unrestricted && readScope.fieldOfficerId !== undefined
-    ? readScope.fieldOfficerId
-    : fieldOfficerId ? Number(fieldOfficerId) : null;
+  const officerFilter: number | null =
+    !readScope.unrestricted && readScope.fieldOfficerId !== undefined
+      ? readScope.fieldOfficerId
+      : fieldOfficerId
+        ? Number(fieldOfficerId)
+        : null;
 
   if (officerFilter !== null) {
     // Use supa with eq() — field_officer_id is a regular integer column in Supabase
@@ -78,35 +125,47 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
       .order("created_at", { ascending: false })
       .range(offset, offset + limitN - 1);
 
-    if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
-    if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
-    if (status)       q = q.eq("status", status) as typeof q;
+    if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+    if (!readScope.unrestricted && readScope.campaignIds !== undefined)
+      q = q.in("campaign_id", readScope.campaignIds) as typeof q;
+    if (status) q = q.eq("status", status) as typeof q;
     if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
     if (showArchived) q = q.eq("archived", true) as typeof q;
-    else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
+    else q = q.or("archived.eq.false,archived.is.null") as typeof q;
 
     const { data: ofData, count: ofCount, error: ofErr } = await q;
-    if (ofErr) { console.error("Failed to list dispatches (officer filter):", ofErr); res.status(500).json({ error: "Operation failed" }); return; }
+    if (ofErr) {
+      console.error("Failed to list dispatches (officer filter):", ofErr);
+      res.status(500).json({ error: "Operation failed" });
+      return;
+    }
 
     const rows = ofData ?? [];
 
-    const { campMap, wareMap, vehMap, drivMap, officerMap } = await fetchLookups(
-      [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))],
-      [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))],
-      [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))],
-      [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))],
-      [...new Set(rows.map((r: any) => r.field_officer_id).filter(Boolean))],
-    );
+    const { campMap, wareMap, vehMap, drivMap, officerMap } =
+      await fetchLookups(
+        [...new Set(rows.map((r: any) => r.campaign_id).filter(Boolean))],
+        [...new Set(rows.map((r: any) => r.warehouse_id).filter(Boolean))],
+        [...new Set(rows.map((r: any) => r.vehicle_id).filter(Boolean))],
+        [...new Set(rows.map((r: any) => r.driver_id).filter(Boolean))],
+        [...new Set(rows.map((r: any) => r.field_officer_id).filter(Boolean))],
+      );
 
     const result = rows.map((r: any) => ({
       ...snakeToCamel(r),
-      campaignName:        campMap[r.campaign_id]?.name          ?? null,
-      destinationDistrict: campMap[r.campaign_id]?.districtName  ?? null,
-      warehouseName:       wareMap[r.warehouse_id]?.name         ?? null,
-      plateNumber:         r.vehicle_type === "hired" ? r.hired_plate       : (vehMap[r.vehicle_id]?.plate_number ?? null),
-      driverName:          r.vehicle_type === "hired" ? r.hired_driver_name : (drivMap[r.driver_id]?.full_name    ?? null),
-      isHired:             r.vehicle_type === "hired",
-      fieldOfficerName:    officerMap[r.field_officer_id]?.full_name ?? null,
+      campaignName: campMap[r.campaign_id]?.name ?? null,
+      destinationDistrict: campMap[r.campaign_id]?.districtName ?? null,
+      warehouseName: wareMap[r.warehouse_id]?.name ?? null,
+      plateNumber:
+        r.vehicle_type === "hired"
+          ? r.hired_plate
+          : (vehMap[r.vehicle_id]?.plate_number ?? null),
+      driverName:
+        r.vehicle_type === "hired"
+          ? r.hired_driver_name
+          : (drivMap[r.driver_id]?.full_name ?? null),
+      isHired: r.vehicle_type === "hired",
+      fieldOfficerName: officerMap[r.field_officer_id]?.full_name ?? null,
     }));
 
     res.json({ data: result, total: ofCount ?? 0, page: pageN, limit: limitN });
@@ -120,15 +179,20 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
     .order("created_at", { ascending: false })
     .range(offset, offset + limitN - 1);
 
-  if (campaignId)   q = q.eq("campaign_id", Number(campaignId)) as typeof q;
-  if (!readScope.unrestricted && readScope.campaignIds !== undefined) q = q.in("campaign_id", readScope.campaignIds) as typeof q;
-  if (status)       q = q.eq("status", status) as typeof q;
+  if (campaignId) q = q.eq("campaign_id", Number(campaignId)) as typeof q;
+  if (!readScope.unrestricted && readScope.campaignIds !== undefined)
+    q = q.in("campaign_id", readScope.campaignIds) as typeof q;
+  if (status) q = q.eq("status", status) as typeof q;
   if (manifestCode) q = q.ilike("manifest_code", manifestCode) as typeof q;
   if (showArchived) q = q.eq("archived", true) as typeof q;
-  else              q = q.or("archived.eq.false,archived.is.null") as typeof q;
+  else q = q.or("archived.eq.false,archived.is.null") as typeof q;
 
   const { data, count, error } = await q;
-  if (error) { console.error("Failed to list dispatches:", error); res.status(500).json({ error: "Operation failed" }); return; }
+  if (error) {
+    console.error("Failed to list dispatches:", error);
+    res.status(500).json({ error: "Operation failed" });
+    return;
+  }
 
   const rows = data ?? [];
   const { campMap, wareMap, vehMap, drivMap, officerMap } = await fetchLookups(
@@ -141,77 +205,139 @@ router.get("/api/dispatch", requireAnyAuth, async (req, res) => {
 
   const result = rows.map((r: any) => ({
     ...snakeToCamel(r),
-    campaignName:        campMap[r.campaign_id]?.name          ?? null,
-    destinationDistrict: campMap[r.campaign_id]?.districtName  ?? null,
-    warehouseName:       wareMap[r.warehouse_id]?.name         ?? null,
-    plateNumber:         r.vehicle_type === "hired" ? r.hired_plate       : (vehMap[r.vehicle_id]?.plate_number ?? null),
-    driverName:          r.vehicle_type === "hired" ? r.hired_driver_name : (drivMap[r.driver_id]?.full_name    ?? null),
-    isHired:             r.vehicle_type === "hired",
-    fieldOfficerName:    officerMap[r.field_officer_id]?.full_name ?? null,
+    campaignName: campMap[r.campaign_id]?.name ?? null,
+    destinationDistrict: campMap[r.campaign_id]?.districtName ?? null,
+    warehouseName: wareMap[r.warehouse_id]?.name ?? null,
+    plateNumber:
+      r.vehicle_type === "hired"
+        ? r.hired_plate
+        : (vehMap[r.vehicle_id]?.plate_number ?? null),
+    driverName:
+      r.vehicle_type === "hired"
+        ? r.hired_driver_name
+        : (drivMap[r.driver_id]?.full_name ?? null),
+    isHired: r.vehicle_type === "hired",
+    fieldOfficerName: officerMap[r.field_officer_id]?.full_name ?? null,
   }));
 
   res.json({ data: result, total: count ?? 0, page: pageN, limit: limitN });
 });
 
-router.post("/api/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
-  const b = req.body as Record<string, any>;
-  const vehicleType: string = b.vehicleType ?? "office";
+router.post(
+  "/api/dispatch",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const manifestCode = "MAN-" + Date.now().toString(36).toUpperCase();
+    const b = req.body as Record<string, any>;
+    const vehicleType: string = b.vehicleType ?? "office";
+    const campaignId = Number(b.campaignId),
+      warehouseId = Number(b.warehouseId);
+    if (!Number.isInteger(campaignId) || !Number.isInteger(warehouseId)) {
+      res
+        .status(422)
+        .json({ error: "Campaign and source warehouse are required" });
+      return;
+    }
+    const { data: campaign } = await supa
+      .from("campaigns")
+      .select("status,source_warehouse_id")
+      .eq("id", campaignId)
+      .maybeSingle();
+    if (
+      !campaign ||
+      !["Approved", "Active"].includes((campaign as any).status)
+    ) {
+      res
+        .status(409)
+        .json({ error: "Dispatch requires an Approved or Active campaign" });
+      return;
+    }
+    if (
+      (campaign as any).source_warehouse_id != null &&
+      Number((campaign as any).source_warehouse_id) !== warehouseId
+    ) {
+      res
+        .status(422)
+        .json({ error: "Source warehouse must match the campaign" });
+      return;
+    }
 
-  let createdBy: number | null = req.user?.userId ?? null;
-  if (!createdBy && req.supabaseUser?.email) {
-    const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).single();
-    createdBy = (u as any)?.id ?? null;
-  }
+    let createdBy: number | null = req.user?.userId ?? null;
+    if (!createdBy && req.supabaseUser?.email) {
+      const { data: u } = await supa
+        .from("users")
+        .select("id")
+        .eq("email", req.supabaseUser.email)
+        .limit(1)
+        .single();
+      createdBy = (u as any)?.id ?? null;
+    }
 
-  const isHired = vehicleType === "hired";
+    const isHired = vehicleType === "hired";
 
-  // Step 1: INSERT without field_officer_id (avoids PostgREST schema cache stale-column issue)
-  const insertObj: Record<string, unknown> = {
-    manifest_code: manifestCode,
-    campaign_id:   b.campaignId  ? Number(b.campaignId)  : null,
-    warehouse_id:  b.warehouseId ? Number(b.warehouseId) : null,
-    vehicle_type:  vehicleType,
-    notes:         b.notes ?? null,
-    created_by:    createdBy,
-    ...(isHired
-      ? {
-          hired_plate:       b.hiredPlate      ? String(b.hiredPlate).toUpperCase() : null,
-          hired_driver_name: b.hiredDriverName ? String(b.hiredDriverName)          : null,
-        }
-      : {
-          vehicle_id: b.vehicleId ? Number(b.vehicleId) : null,
-          driver_id:  b.driverId  ? Number(b.driverId)  : null,
-        }),
-  };
+    // Step 1: INSERT without field_officer_id (avoids PostgREST schema cache stale-column issue)
+    const insertObj: Record<string, unknown> = {
+      manifest_code: manifestCode,
+      campaign_id: b.campaignId ? Number(b.campaignId) : null,
+      warehouse_id: b.warehouseId ? Number(b.warehouseId) : null,
+      vehicle_type: vehicleType,
+      notes: b.notes ?? null,
+      created_by: createdBy,
+      ...(isHired
+        ? {
+            hired_plate: b.hiredPlate
+              ? String(b.hiredPlate).toUpperCase()
+              : null,
+            hired_driver_name: b.hiredDriverName
+              ? String(b.hiredDriverName)
+              : null,
+          }
+        : {
+            vehicle_id: b.vehicleId ? Number(b.vehicleId) : null,
+            driver_id: b.driverId ? Number(b.driverId) : null,
+          }),
+    };
 
-  const { data: insertedRow, error: insertErr } = await supa
-    .from("dispatches")
-    .insert(insertObj)
-    .select()
-    .single();
-
-  if (insertErr || !insertedRow) {
-    console.error("Failed to create dispatch:", insertErr);
-    res.status(500).json({ error: "Operation failed" }); return;
-  }
-
-  let row: Record<string, unknown> = insertedRow as Record<string, unknown>;
-
-  // Step 2: UPDATE field_officer_id separately (avoids schema cache stale-insert issue)
-  if (b.fieldOfficerId) {
-    const { data: updRow } = await supa
+    const { data: insertedRow, error: insertErr } = await supa
       .from("dispatches")
-      .update({ field_officer_id: Number(b.fieldOfficerId), updated_at: new Date().toISOString() })
-      .eq("id", (row as any).id)
+      .insert(insertObj)
       .select()
       .single();
-    if (updRow) row = updRow as Record<string, unknown>;
-  }
 
-  await logAudit(req, "CREATE", "Dispatch", `Created dispatch manifest: ${manifestCode}`, "dispatch", row.id as number);
-  res.status(201).json(snakeToCamel(row));
-});
+    if (insertErr || !insertedRow) {
+      console.error("Failed to create dispatch:", insertErr);
+      res.status(500).json({ error: "Operation failed" });
+      return;
+    }
+
+    let row: Record<string, unknown> = insertedRow as Record<string, unknown>;
+
+    // Step 2: UPDATE field_officer_id separately (avoids schema cache stale-insert issue)
+    if (b.fieldOfficerId) {
+      const { data: updRow } = await supa
+        .from("dispatches")
+        .update({
+          field_officer_id: Number(b.fieldOfficerId),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", (row as any).id)
+        .select()
+        .single();
+      if (updRow) row = updRow as Record<string, unknown>;
+    }
+
+    await logAudit(
+      req,
+      "CREATE",
+      "Dispatch",
+      `Created dispatch manifest: ${manifestCode}`,
+      "dispatch",
+      row.id as number,
+    );
+    res.status(201).json(snakeToCamel(row));
+  },
+);
 
 router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
@@ -222,33 +348,51 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (dispFetchErr) { console.error("Failed to fetch dispatch:", dispFetchErr); res.status(500).json({ error: "Operation failed" }); return; }
-  if (!dispRow) { res.status(404).json({ error: "Not found" }); return; }
+  if (dispFetchErr) {
+    console.error("Failed to fetch dispatch:", dispFetchErr);
+    res.status(500).json({ error: "Operation failed" });
+    return;
+  }
+  if (!dispRow) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
   if (!(await canReadDispatch(req, dispRow as any))) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
   row = dispRow;
-  const [{ data: itemRows, error: itemsErr }, { campMap, wareMap, vehMap, drivMap, officerMap }] = await Promise.all([
+  const [
+    { data: itemRows, error: itemsErr },
+    { campMap, wareMap, vehMap, drivMap, officerMap },
+  ] = await Promise.all([
     supa.from("dispatch_items").select("*").eq("dispatch_id", id),
     fetchLookups(
-      row.campaign_id      ? [row.campaign_id]      : [],
-      row.warehouse_id     ? [row.warehouse_id]     : [],
-      row.vehicle_id       ? [row.vehicle_id]       : [],
-      row.driver_id        ? [row.driver_id]        : [],
+      row.campaign_id ? [row.campaign_id] : [],
+      row.warehouse_id ? [row.warehouse_id] : [],
+      row.vehicle_id ? [row.vehicle_id] : [],
+      row.driver_id ? [row.driver_id] : [],
       row.field_officer_id ? [row.field_officer_id] : [],
     ),
   ]);
 
-  if (itemsErr) { console.error("Failed to fetch dispatch items:", itemsErr); res.status(500).json({ error: "Operation failed" }); return; }
+  if (itemsErr) {
+    console.error("Failed to fetch dispatch items:", itemsErr);
+    res.status(500).json({ error: "Operation failed" });
+    return;
+  }
 
   const camp = campMap[row.campaign_id] as any;
   const ware = wareMap[row.warehouse_id] as any;
-  const veh  = vehMap[row.vehicle_id]   as any;
-  const driv = drivMap[row.driver_id]   as any;
+  const veh = vehMap[row.vehicle_id] as any;
+  const driv = drivMap[row.driver_id] as any;
 
   // Fetch related data for items and codes in parallel
-  const inputItemIds = [...new Set((itemRows ?? []).map((i: any) => i.input_item_id).filter(Boolean))];
+  const inputItemIds = [
+    ...new Set(
+      (itemRows ?? []).map((i: any) => i.input_item_id).filter(Boolean),
+    ),
+  ];
 
   const [
     { data: campFull },
@@ -256,124 +400,330 @@ router.get("/api/dispatch/:id", requireAnyAuth, async (req, res) => {
     { data: drivFull },
     { data: inputItems },
   ] = await Promise.all([
-    row.campaign_id  ? supa.from("campaigns").select("campaign_code").eq("id", row.campaign_id).single()   : Promise.resolve({ data: null }),
-    row.warehouse_id ? supa.from("warehouses").select("code").eq("id", row.warehouse_id).single()           : Promise.resolve({ data: null }),
-    row.driver_id    ? supa.from("drivers").select("driver_code").eq("id", row.driver_id).single()          : Promise.resolve({ data: null }),
-    inputItemIds.length ? supa.from("input_items").select("id, name, unit").in("id", inputItemIds)          : Promise.resolve({ data: [] }),
+    row.campaign_id
+      ? supa
+          .from("campaigns")
+          .select("campaign_code")
+          .eq("id", row.campaign_id)
+          .single()
+      : Promise.resolve({ data: null }),
+    row.warehouse_id
+      ? supa
+          .from("warehouses")
+          .select("code")
+          .eq("id", row.warehouse_id)
+          .single()
+      : Promise.resolve({ data: null }),
+    row.driver_id
+      ? supa
+          .from("drivers")
+          .select("driver_code")
+          .eq("id", row.driver_id)
+          .single()
+      : Promise.resolve({ data: null }),
+    inputItemIds.length
+      ? supa.from("input_items").select("id, name, unit").in("id", inputItemIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
-  const inputItemMap = Object.fromEntries((inputItems ?? []).map((it: any) => [it.id, it]));
+  const inputItemMap = Object.fromEntries(
+    (inputItems ?? []).map((it: any) => [it.id, it]),
+  );
 
   const items = (itemRows ?? []).map((i: any) => {
     const itm = inputItemMap[i.input_item_id] as any;
     return {
-      id:                i.id,
-      dispatchId:        i.dispatch_id,
-      inputItemId:       i.input_item_id,
-      inputItemName:     itm?.name ?? null,
-      unit:              itm?.unit ?? null,
-      quantityLoaded:    i.quantity_loaded,
+      id: i.id,
+      dispatchId: i.dispatch_id,
+      inputItemId: i.input_item_id,
+      inputItemName: itm?.name ?? null,
+      unit: itm?.unit ?? null,
+      quantityLoaded: i.quantity_loaded,
       quantityDelivered: i.quantity_delivered,
-      quantityReturned:  i.quantity_returned,
+      quantityReturned: i.quantity_returned,
     };
   });
 
   res.json({
     ...snakeToCamel(row),
-    campaignName:        camp?.name                          ?? null,
-    campaignCode:        (campFull as any)?.campaign_code    ?? null,
-    destinationDistrict: camp?.districtName                  ?? null,
-    warehouseName:       ware?.name                          ?? null,
-    warehouseCode:       (wareFull as any)?.code             ?? null,
-    vehicleCategory:     veh?.vehicle_type                   ?? null,
-    plateNumber:         row.vehicle_type === "hired" ? row.hired_plate       : (veh?.plate_number ?? null),
-    driverName:          row.vehicle_type === "hired" ? row.hired_driver_name : (driv?.full_name   ?? null),
-    driverCode:          (drivFull as any)?.driver_code      ?? null,
-    isHired:             row.vehicle_type === "hired",
-    fieldOfficerName:    officerMap[row.field_officer_id]?.full_name ?? null,
+    campaignName: camp?.name ?? null,
+    campaignCode: (campFull as any)?.campaign_code ?? null,
+    destinationDistrict: camp?.districtName ?? null,
+    warehouseName: ware?.name ?? null,
+    warehouseCode: (wareFull as any)?.code ?? null,
+    vehicleCategory: veh?.vehicle_type ?? null,
+    plateNumber:
+      row.vehicle_type === "hired"
+        ? row.hired_plate
+        : (veh?.plate_number ?? null),
+    driverName:
+      row.vehicle_type === "hired"
+        ? row.hired_driver_name
+        : (driv?.full_name ?? null),
+    driverCode: (drivFull as any)?.driver_code ?? null,
+    isHired: row.vehicle_type === "hired",
+    fieldOfficerName: officerMap[row.field_officer_id]?.full_name ?? null,
     items,
   });
 });
 
 // Assign / reassign a field officer to a dispatch
-router.patch("/api/dispatch/:id/assign", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  const { fieldOfficerId } = req.body as { fieldOfficerId: string | null };
+router.patch(
+  "/api/dispatch/:id/assign",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const { fieldOfficerId } = req.body as { fieldOfficerId: string | null };
 
-  const { data: assignData, error: assignErr } = await supa
-    .from("dispatches")
-    .update({ field_officer_id: fieldOfficerId ? Number(fieldOfficerId) : null, updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select()
-    .maybeSingle();
+    const { data: assignData, error: assignErr } = await supa
+      .from("dispatches")
+      .update({
+        field_officer_id: fieldOfficerId ? Number(fieldOfficerId) : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
 
-  if (assignErr) { console.error("Failed to assign dispatch:", assignErr); res.status(500).json({ error: "Operation failed" }); return; }
-  if (!assignData) { res.status(404).json({ error: "Dispatch not found" }); return; }
-  await logAudit(req, "ASSIGN", "Dispatch", `Assigned field officer ${fieldOfficerId ?? "none"} to dispatch ID ${id}`, "dispatch", id);
-  res.json(snakeToCamel(assignData));
-});
+    if (assignErr) {
+      console.error("Failed to assign dispatch:", assignErr);
+      res.status(500).json({ error: "Operation failed" });
+      return;
+    }
+    if (!assignData) {
+      res.status(404).json({ error: "Dispatch not found" });
+      return;
+    }
+    await logAudit(
+      req,
+      "ASSIGN",
+      "Dispatch",
+      `Assigned field officer ${fieldOfficerId ?? "none"} to dispatch ID ${id}`,
+      "dispatch",
+      id,
+    );
+    res.json(snakeToCamel(assignData));
+  },
+);
 
-router.post("/api/dispatch/:id/items", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const dispatchId = Number(req.params.id);
-  const { inputItemId, quantityLoaded } = req.body as { inputItemId: number; quantityLoaded: number };
+router.post(
+  "/api/dispatch/:id/items",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const dispatchId = Number(req.params.id);
+    const { inputItemId, quantityLoaded } = req.body as {
+      inputItemId: number;
+      quantityLoaded: number;
+    };
+    if (
+      !Number.isInteger(Number(inputItemId)) ||
+      !Number.isFinite(Number(quantityLoaded)) ||
+      Number(quantityLoaded) <= 0
+    ) {
+      res
+        .status(422)
+        .json({ error: "Input item and a positive quantity are required" });
+      return;
+    }
+    const { data: dispatch } = await supa
+      .from("dispatches")
+      .select("campaign_id,status")
+      .eq("id", dispatchId)
+      .maybeSingle();
+    if (!dispatch) {
+      res.status(404).json({ error: "Dispatch not found" });
+      return;
+    }
+    if (!["Draft", "Pending"].includes((dispatch as any).status)) {
+      res
+        .status(409)
+        .json({ error: "Items can only change before dispatch approval" });
+      return;
+    }
+    const { count: configuredItems } = await supa
+      .from("campaign_items")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", (dispatch as any).campaign_id);
+    if ((configuredItems ?? 0) > 0) {
+      const { data: configured } = await supa
+        .from("campaign_items")
+        .select("id")
+        .eq("campaign_id", (dispatch as any).campaign_id)
+        .eq("input_item_id", inputItemId)
+        .maybeSingle();
+      if (!configured) {
+        res
+          .status(422)
+          .json({ error: "This item is not configured for the campaign" });
+        return;
+      }
+    }
 
-  const { data: itemData, error: itemErr } = await supa
-    .from("dispatch_items")
-    .insert({ dispatch_id: dispatchId, input_item_id: inputItemId, quantity_loaded: quantityLoaded })
-    .select()
-    .single();
+    const { data: itemData, error: itemErr } = await supa
+      .from("dispatch_items")
+      .insert({
+        dispatch_id: dispatchId,
+        input_item_id: inputItemId,
+        quantity_loaded: quantityLoaded,
+      })
+      .select()
+      .single();
 
-  if (itemErr) { console.error("Failed to add dispatch item:", itemErr); res.status(500).json({ error: "Operation failed" }); return; }
+    if (itemErr) {
+      console.error("Failed to add dispatch item:", itemErr);
+      res.status(500).json({ error: "Operation failed" });
+      return;
+    }
 
-  const { data: allItems } = await supa.from("dispatch_items").select("quantity_loaded").eq("dispatch_id", dispatchId);
-  const totalPkgs = (allItems ?? []).reduce((s: number, i: any) => s + (Number(i.quantity_loaded) || 0), 0);
-  await supa.from("dispatches").update({ total_packages: totalPkgs, updated_at: new Date().toISOString() }).eq("id", dispatchId);
+    const { data: allItems } = await supa
+      .from("dispatch_items")
+      .select("quantity_loaded")
+      .eq("dispatch_id", dispatchId);
+    const totalPkgs = (allItems ?? []).reduce(
+      (s: number, i: any) => s + (Number(i.quantity_loaded) || 0),
+      0,
+    );
+    await supa
+      .from("dispatches")
+      .update({
+        total_packages: totalPkgs,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", dispatchId);
 
-  await logAudit(req, "ADD_ITEM", "Dispatch", `Added item to manifest ID ${dispatchId}`, "dispatch", dispatchId);
-  res.status(201).json(snakeToCamel(itemData));
-});
+    await logAudit(
+      req,
+      "ADD_ITEM",
+      "Dispatch",
+      `Added item to manifest ID ${dispatchId}`,
+      "dispatch",
+      dispatchId,
+    );
+    res.status(201).json(snakeToCamel(itemData));
+  },
+);
 
-router.post("/api/dispatch/:id/approve", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  const userId = await resolveUserId(req);
+router.post(
+  "/api/dispatch/:id/approve",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = await resolveUserId(req);
+    const { data: dispatch } = await supa
+      .from("dispatches")
+      .select("campaign_id,status")
+      .eq("id", id)
+      .maybeSingle();
+    if (!dispatch) {
+      res.status(404).json({ error: "Dispatch not found" });
+      return;
+    }
+    if (!["Draft", "Pending"].includes((dispatch as any).status)) {
+      res
+        .status(409)
+        .json({ error: "Only a Draft or Pending dispatch can be approved" });
+      return;
+    }
+    const [{ data: campaign }, { count: itemCount }] = await Promise.all([
+      supa
+        .from("campaigns")
+        .select("status")
+        .eq("id", (dispatch as any).campaign_id)
+        .maybeSingle(),
+      supa
+        .from("dispatch_items")
+        .select("id", { count: "exact", head: true })
+        .eq("dispatch_id", id),
+    ]);
+    if (
+      !campaign ||
+      !["Approved", "Active"].includes((campaign as any).status)
+    ) {
+      res.status(409).json({ error: "Campaign must be Approved or Active" });
+      return;
+    }
+    if (!itemCount) {
+      res
+        .status(422)
+        .json({ error: "Add at least one item before approving the dispatch" });
+      return;
+    }
 
-  const { data, error } = await supa
-    .from("dispatches")
-    .update({ status: "Approved", approved_by: userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select()
-    .single();
+    const { data, error } = await supa
+      .from("dispatches")
+      .update({
+        status: "Approved",
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .single();
 
-  if (error || !data) { if (error) console.error("Failed to approve dispatch:", error); res.status(error ? 500 : 404).json({ error: error ? "Operation failed" : "Dispatch not found" }); return; }
-  await logAudit(req, "APPROVE", "Dispatch", `Approved dispatch ID ${id}`, "dispatch", id);
-  res.json(snakeToCamel(data));
-});
+    if (error || !data) {
+      if (error) console.error("Failed to approve dispatch:", error);
+      res
+        .status(error ? 500 : 404)
+        .json({ error: error ? "Operation failed" : "Dispatch not found" });
+      return;
+    }
+    await logAudit(
+      req,
+      "APPROVE",
+      "Dispatch",
+      `Approved dispatch ID ${id}`,
+      "dispatch",
+      id,
+    );
+    res.json(snakeToCamel(data));
+  },
+);
 
-router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid dispatch id" });
+router.post(
+  "/api/dispatch/:id/dispatch",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid dispatch id" });
+      return;
+    }
+    const createdBy = await resolveUserId(req);
+    const { data, error } = await supa.rpc("start_dispatch_atomic", {
+      p_dispatch_id: id,
+      p_created_by: createdBy,
+    });
+    if (error || !data) {
+      const message = error?.message ?? "Operation failed";
+      const status = /does not exist/i.test(message)
+        ? 404
+        : /cannot start from status/i.test(message)
+          ? 409
+          : /insufficient stock|no items|no warehouse|positive finite/i.test(
+                message,
+              )
+            ? 422
+            : 500;
+      res.status(status).json({ error: message });
+      return;
+    }
+    await logAudit(
+      req,
+      "DISPATCH",
+      "Dispatch",
+      `Started dispatch ID ${id}`,
+      "dispatch",
+      id,
+    );
+    res.json(snakeToCamel(data));
     return;
-  }
-  const createdBy = await resolveUserId(req);
-  const { data, error } = await supa.rpc("start_dispatch_atomic", {
-    p_dispatch_id: id,
-    p_created_by: createdBy,
-  });
-  if (error || !data) {
-    const message = error?.message ?? "Operation failed";
-    const status = /does not exist/i.test(message) ? 404
-      : /cannot start from status/i.test(message) ? 409
-      : /insufficient stock|no items|no warehouse|positive finite/i.test(message) ? 422
-      : 500;
-    res.status(status).json({ error: message });
-    return;
-  }
-  await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
-  res.json(snakeToCamel(data));
-  return;
 
-  /* Replaced by start_dispatch_atomic so stock and status cannot diverge.
+    /* Replaced by start_dispatch_atomic so stock and status cannot diverge.
   const { data, error } = await supa
     .from("dispatches")
     .update({ status: "In Transit", departed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -429,64 +779,112 @@ router.post("/api/dispatch/:id/dispatch", requireAnyAuth, requireRoleIfJwt("Admi
   await logAudit(req, "DISPATCH", "Dispatch", `Started dispatch ID ${id}`, "dispatch", id);
   res.json(snakeToCamel(row));
   */
-});
+  },
+);
 
-router.post("/api/dispatch/:id/arrive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid dispatch id" });
-    return;
-  }
-  const { data, error } = await supa.rpc("arrive_dispatch_atomic", { p_dispatch_id: id });
-  if (error || !data) {
-    const message = error?.message ?? "Operation failed";
-    const status = /does not exist/i.test(message) ? 404
-      : /cannot arrive from status/i.test(message) ? 409
-      : 500;
-    res.status(status).json({ error: message });
-    return;
-  }
-  await logAudit(req, "ARRIVE", "Dispatch", `Marked dispatch ID ${id} arrived`, "dispatch", id);
-  res.json(snakeToCamel(data));
-});
+router.post(
+  "/api/dispatch/:id/arrive",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid dispatch id" });
+      return;
+    }
+    const { data, error } = await supa.rpc("arrive_dispatch_atomic", {
+      p_dispatch_id: id,
+    });
+    if (error || !data) {
+      const message = error?.message ?? "Operation failed";
+      const status = /does not exist/i.test(message)
+        ? 404
+        : /cannot arrive from status/i.test(message)
+          ? 409
+          : 500;
+      res.status(status).json({ error: message });
+      return;
+    }
+    await logAudit(
+      req,
+      "ARRIVE",
+      "Dispatch",
+      `Marked dispatch ID ${id} arrived`,
+      "dispatch",
+      id,
+    );
+    res.json(snakeToCamel(data));
+  },
+);
 
-router.post("/api/dispatch/:id/cancel", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  const { reason } = req.body as { reason?: string };
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid dispatch id" });
-    return;
-  }
-  if (reason !== undefined && typeof reason !== "string") {
-    res.status(400).json({ error: "Cancellation reason must be a string" });
-    return;
-  }
-  const cancelledBy = await resolveUserId(req);
-  const { data, error } = await supa.rpc("cancel_dispatch_atomic", {
-    p_dispatch_id: id,
-    p_reason: reason ?? null,
-    p_cancelled_by: cancelledBy,
-  });
-  if (error || !data) {
-    const message = error?.message ?? "Operation failed";
-    const status = /does not exist/i.test(message) ? 404
-      : /cannot cancel from status/i.test(message) ? 409
-      : /unsafe|insufficient|missing|no warehouse/i.test(message) ? 422
-      : 500;
-    res.status(status).json({ error: message });
-    return;
-  }
-  await logAudit(req, "CANCEL", "Dispatch", `Cancelled dispatch ID ${id}${reason ? `: ${reason}` : ""}`, "dispatch", id);
-  res.json(snakeToCamel(data));
-});
+router.post(
+  "/api/dispatch/:id/cancel",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const { reason } = req.body as { reason?: string };
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid dispatch id" });
+      return;
+    }
+    if (reason !== undefined && typeof reason !== "string") {
+      res.status(400).json({ error: "Cancellation reason must be a string" });
+      return;
+    }
+    const cancelledBy = await resolveUserId(req);
+    const { data, error } = await supa.rpc("cancel_dispatch_atomic", {
+      p_dispatch_id: id,
+      p_reason: reason ?? null,
+      p_cancelled_by: cancelledBy,
+    });
+    if (error || !data) {
+      const message = error?.message ?? "Operation failed";
+      const status = /does not exist/i.test(message)
+        ? 404
+        : /cannot cancel from status/i.test(message)
+          ? 409
+          : /unsafe|insufficient|missing|no warehouse/i.test(message)
+            ? 422
+            : 500;
+      res.status(status).json({ error: message });
+      return;
+    }
+    await logAudit(
+      req,
+      "CANCEL",
+      "Dispatch",
+      `Cancelled dispatch ID ${id}${reason ? `: ${reason}` : ""}`,
+      "dispatch",
+      id,
+    );
+    res.json(snakeToCamel(data));
+  },
+);
 
-router.delete("/api/dispatch/:id", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  const { error } = await supa.from("dispatches").delete().eq("id", id);
-  if (error) { console.error("Failed to delete dispatch:", error); res.status(500).json({ error: "Operation failed" }); return; }
-  await logAudit(req, "DELETE", "Dispatch", `Deleted dispatch ID ${id}`, "dispatch", id);
-  res.json({ success: true });
-});
+router.delete(
+  "/api/dispatch/:id",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const { error } = await supa.from("dispatches").delete().eq("id", id);
+    if (error) {
+      console.error("Failed to delete dispatch:", error);
+      res.status(500).json({ error: "Operation failed" });
+      return;
+    }
+    await logAudit(
+      req,
+      "DELETE",
+      "Dispatch",
+      `Deleted dispatch ID ${id}`,
+      "dispatch",
+      id,
+    );
+    res.json({ success: true });
+  },
+);
 
 // ── Excel Import ──────────────────────────────────────────────────────────────
 router.post(
@@ -506,7 +904,12 @@ router.post(
       fieldOfficerId?: string;
       notes?: string;
       force?: boolean;
-      columns: Array<{ colIndex: number; name: string; unit: string; itemId: number | null }>;
+      columns: Array<{
+        colIndex: number;
+        name: string;
+        unit: string;
+        itemId: number | null;
+      }>;
       rows: Array<{
         community: string;
         district: string;
@@ -522,7 +925,12 @@ router.post(
 
     let createdBy: number | null = req.user?.userId ?? null;
     if (!createdBy && req.supabaseUser?.email) {
-      const { data: u } = await supa.from("users").select("id").eq("email", req.supabaseUser.email).limit(1).maybeSingle();
+      const { data: u } = await supa
+        .from("users")
+        .select("id")
+        .eq("email", req.supabaseUser.email)
+        .limit(1)
+        .maybeSingle();
       createdBy = (u as any)?.id ?? null;
     }
 
@@ -532,26 +940,38 @@ router.post(
     const rpcPayload = {
       ...b,
       rows: Array.isArray(b.rows)
-        ? b.rows.map(row => ({
+        ? b.rows.map((row) => ({
             ...row,
-            contactPhone: row.contactPhone ? normalisePhoneForStorage(row.contactPhone) : null,
+            contactPhone: row.contactPhone
+              ? normalisePhoneForStorage(row.contactPhone)
+              : null,
           }))
         : b.rows,
     };
-    const { data: atomicImport, error: atomicImportErr } = await supa.rpc("import_manifest_atomic", {
-      p_payload: rpcPayload,
-      p_created_by: createdBy,
-    });
+    const { data: atomicImport, error: atomicImportErr } = await supa.rpc(
+      "import_manifest_atomic",
+      {
+        p_payload: rpcPayload,
+        p_created_by: createdBy,
+      },
+    );
     if (atomicImportErr || !atomicImport) {
       console.error("Failed to import manifest atomically:", atomicImportErr);
       const message = atomicImportErr?.message ?? "Operation failed";
       if (message.includes("insufficient_stock")) {
-        const encoded = message.slice(message.indexOf("insufficient_stock") + "insufficient_stock:".length).trim();
+        const encoded = message
+          .slice(
+            message.indexOf("insufficient_stock") +
+              "insufficient_stock:".length,
+          )
+          .trim();
         let shortfalls: unknown[] = [];
         try {
           const parsed = JSON.parse(encoded);
           if (Array.isArray(parsed)) shortfalls = parsed;
-        } catch { /* PostgreSQL message did not include parseable detail */ }
+        } catch {
+          /* PostgreSQL message did not include parseable detail */
+        }
         res.status(422).json({ error: "insufficient_stock", shortfalls });
       } else {
         res.status(400).json({ error: message });
@@ -936,25 +1356,56 @@ router.post(
 
 // ── GET /api/dispatch/:id/farmers ────────────────────────────────────────────
 // Returns allocated farmers for the dispatch's campaign (for web-portal OTP sender).
-router.patch("/api/dispatch/:id/archive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  const { error } = await supa.from("dispatches").update({ archived: true }).eq("id", id);
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json({ ok: true });
-});
+router.patch(
+  "/api/dispatch/:id/archive",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const { error } = await supa
+      .from("dispatches")
+      .update({ archived: true })
+      .eq("id", id);
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    res.json({ ok: true });
+  },
+);
 
-router.patch("/api/dispatch/:id/unarchive", requireAnyAuth, requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  const { error } = await supa.from("dispatches").update({ archived: false }).eq("id", id);
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json({ ok: true });
-});
+router.patch(
+  "/api/dispatch/:id/unarchive",
+  requireAnyAuth,
+  requireRoleIfJwt("Admin", "ProjectManager", "WarehouseManager"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const { error } = await supa
+      .from("dispatches")
+      .update({ archived: false })
+      .eq("id", id);
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    res.json({ ok: true });
+  },
+);
 
 router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
   const id = Number(req.params.id);
-  if (!id) { res.status(400).json({ error: "Invalid dispatch id" }); return; }
+  if (!id) {
+    res.status(400).json({ error: "Invalid dispatch id" });
+    return;
+  }
 
   const { data: dispRow, error: dispErr } = await supa
     .from("dispatches")
@@ -962,9 +1413,18 @@ router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
     .eq("id", id)
     .maybeSingle();
 
-  if (dispErr || !dispRow) { res.status(404).json({ error: "Dispatch not found" }); return; }
-  if (!(await canReadDispatch(req, dispRow as any))) { res.status(403).json({ error: "Forbidden" }); return; }
-  if (!dispRow.campaign_id) { res.json([]); return; }
+  if (dispErr || !dispRow) {
+    res.status(404).json({ error: "Dispatch not found" });
+    return;
+  }
+  if (!(await canReadDispatch(req, dispRow as any))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  if (!dispRow.campaign_id) {
+    res.json([]);
+    return;
+  }
 
   const { data: allocs, error: allocErr } = await supa
     .from("allocations")
@@ -972,25 +1432,33 @@ router.get("/api/dispatch/:id/farmers", requireAnyAuth, async (req, res) => {
     .eq("campaign_id", dispRow.campaign_id)
     .order("id");
 
-  if (allocErr) { res.status(500).json({ error: allocErr.message }); return; }
+  if (allocErr) {
+    res.status(500).json({ error: allocErr.message });
+    return;
+  }
 
   // Fetch farmer details separately to avoid PostgREST embedded-join FK resolution issues
   const farmerIds = (allocs ?? []).map((a: any) => a.farmer_id).filter(Boolean);
   const { data: farmerRows } = farmerIds.length
-    ? await supa.from("farmers").select("id, first_name, last_name, farmer_code, phone, barcode_token").in("id", farmerIds)
+    ? await supa
+        .from("farmers")
+        .select("id, first_name, last_name, farmer_code, phone, barcode_token")
+        .in("id", farmerIds)
     : { data: [] };
 
-  const farmerMap = Object.fromEntries((farmerRows ?? []).map((f: any) => [f.id, f]));
+  const farmerMap = Object.fromEntries(
+    (farmerRows ?? []).map((f: any) => [f.id, f]),
+  );
 
   const rows = (allocs ?? []).map((a: any) => {
     const f = farmerMap[a.farmer_id] ?? {};
     return {
-      allocationId:     a.id,
-      farmerId:         a.farmer_id,
-      farmerName:       `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "—",
-      farmerCode:       f.farmer_code   ?? null,
-      phone:            f.phone         ?? null,
-      barcodeToken:     f.barcode_token ?? null,
+      allocationId: a.id,
+      farmerId: a.farmer_id,
+      farmerName: `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "—",
+      farmerCode: f.farmer_code ?? null,
+      phone: f.phone ?? null,
+      barcodeToken: f.barcode_token ?? null,
       allocationStatus: a.status,
     };
   });

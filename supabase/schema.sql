@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   district_id          integer REFERENCES districts(id),
   value_chain_id       integer REFERENCES value_chains(id),
   distribution_site_id integer REFERENCES distribution_sites(id),
+  source_warehouse_id  integer REFERENCES warehouses(id),
   start_date           timestamptz,
   end_date             timestamptz,
   status               text NOT NULL DEFAULT 'Draft',
@@ -260,6 +261,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_by           uuid REFERENCES profiles(id),
   approved_by          uuid REFERENCES profiles(id),
   approved_at          timestamptz,
+  rejection_reason     text,
+  cancelled_at         timestamptz,
+  completed_at         timestamptz,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz
 );
@@ -274,7 +278,7 @@ CREATE TABLE IF NOT EXISTS campaign_items (
   id                  serial PRIMARY KEY,
   campaign_id         integer NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   input_item_id       integer NOT NULL REFERENCES input_items(id),
-  quantity_per_farmer integer NOT NULL DEFAULT 1,
+  quantity_per_farmer double precision NOT NULL DEFAULT 1 CHECK (quantity_per_farmer > 0),
   unit                text
 );
 
@@ -287,6 +291,22 @@ CREATE TABLE IF NOT EXISTS allocations (
   allocated_by uuid REFERENCES profiles(id),
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS allocations_campaign_farmer_unique
+  ON allocations (campaign_id, farmer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_items_campaign_input_unique
+  ON campaign_items (campaign_id, input_item_id);
+
+CREATE TABLE IF NOT EXISTS campaign_stock_reservations (
+  id                bigserial PRIMARY KEY,
+  campaign_id       integer NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  warehouse_id      integer NOT NULL REFERENCES warehouses(id),
+  input_item_id     integer NOT NULL REFERENCES input_items(id),
+  reserved_quantity double precision NOT NULL CHECK (reserved_quantity >= 0),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (campaign_id, input_item_id)
 );
 
 -- ── VEHICLES ─────────────────────────────────────────────────

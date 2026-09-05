@@ -1,15 +1,36 @@
 import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createAllocation, listFarmers, listCampaigns, KEYS, farmerDisplayName } from "@/lib/db";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  createAllocation,
+  listFarmers,
+  listCampaigns,
+  KEYS,
+  farmerDisplayName,
+} from "@/lib/db";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
-interface Props { open: boolean; onClose: () => void; }
+interface Props {
+  open: boolean;
+  onClose: () => void;
+}
 
 export function NewAllocationModal({ open, onClose }: Props) {
   const qc = useQueryClient();
@@ -17,25 +38,46 @@ export function NewAllocationModal({ open, onClose }: Props) {
   const create = useMutation({ mutationFn: createAllocation });
 
   const [campaignId, setCampaignId] = useState("");
-  const [farmerId, setFarmerId]     = useState("");
-  const [notes, setNotes]           = useState("");
-  const [search, setSearch]         = useState("");
+  const [farmerId, setFarmerId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [search, setSearch] = useState("");
 
-  const { data: campaignsData } = useQuery({ queryKey: KEYS.campaigns(), queryFn: () => listCampaigns(1, 100) });
-  const { data: farmersData }   = useQuery({
+  const { data: campaignsData } = useQuery({
+    queryKey: KEYS.campaigns(),
+    queryFn: () => listCampaigns(1, 100),
+  });
+  const { data: farmersData } = useQuery({
     queryKey: KEYS.farmers(1, undefined, "approved"),
     queryFn: () => listFarmers(1, 200, undefined, "approved"),
   });
 
-  const campaigns: any[]  = (campaignsData as any)?.data ?? [];
-  const allFarmers: any[] = (farmersData as any)?.data   ?? [];
+  const campaigns: any[] = ((campaignsData as any)?.data ?? []).filter(
+    (c: any) => ["draft", "rejected"].includes(String(c.status).toLowerCase()),
+  );
+  const allFarmers: any[] = (farmersData as any)?.data ?? [];
+  const selectedCampaign = campaigns.find((c) => String(c.id) === campaignId);
+  const eligibleFarmers = allFarmers.filter(
+    (f: any) =>
+      !selectedCampaign ||
+      (Number(f.districtId) === Number(selectedCampaign.districtId) &&
+        (!f.valueChainId ||
+          Number(f.valueChainId) === Number(selectedCampaign.valueChainId))),
+  );
 
   const filtered = search
-    ? allFarmers.filter((f: any) =>
-        `${farmerDisplayName(f)} ${f.farmerCode}`.toLowerCase().includes(search.toLowerCase()))
-    : allFarmers;
+    ? eligibleFarmers.filter((f: any) =>
+        `${farmerDisplayName(f)} ${f.farmerCode}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      )
+    : eligibleFarmers;
 
-  function reset() { setCampaignId(""); setFarmerId(""); setNotes(""); setSearch(""); }
+  function reset() {
+    setCampaignId("");
+    setFarmerId("");
+    setNotes("");
+    setSearch("");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,22 +93,46 @@ export function NewAllocationModal({ open, onClose }: Props) {
       reset();
       onClose();
     } catch (err: any) {
-      toast({ title: "Failed to allocate", description: err.message, variant: "destructive" });
+      toast({
+        title: "Failed to allocate",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          reset();
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>New Allocation</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>New Allocation</DialogTitle>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-1">
           <div className="space-y-1.5">
             <Label>Campaign *</Label>
-            <Select value={campaignId} onValueChange={setCampaignId}>
-              <SelectTrigger><SelectValue placeholder="Select campaign…" /></SelectTrigger>
+            <Select
+              value={campaignId}
+              onValueChange={(v) => {
+                setCampaignId(v);
+                setFarmerId("");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select campaign…" />
+              </SelectTrigger>
               <SelectContent>
                 {campaigns.map((c: any) => (
-                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -74,34 +140,66 @@ export function NewAllocationModal({ open, onClose }: Props) {
 
           <div className="space-y-1.5">
             <Label>Search Farmer</Label>
-            <Input placeholder="Name or farmer code…" value={search} onChange={e => setSearch(e.target.value)} />
+            <Input
+              placeholder="Name or farmer code…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label>Farmer *</Label>
             <Select value={farmerId} onValueChange={setFarmerId}>
-              <SelectTrigger><SelectValue placeholder="Select farmer…" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Select farmer…" />
+              </SelectTrigger>
               <SelectContent className="max-h-60">
-                {filtered.length === 0
-                  ? <div className="py-6 text-center text-sm text-muted-foreground">No approved farmers</div>
-                  : filtered.map((f: any) => (
-                      <SelectItem key={f.id} value={String(f.id)}>
-                        <span className="font-medium">{farmerDisplayName(f)}</span>
-                        <span className="text-muted-foreground text-xs ml-1.5">{f.farmerCode}</span>
-                      </SelectItem>
-                    ))}
+                {filtered.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    No approved farmers
+                  </div>
+                ) : (
+                  filtered.map((f: any) => (
+                    <SelectItem key={f.id} value={String(f.id)}>
+                      <span className="font-medium">
+                        {farmerDisplayName(f)}
+                      </span>
+                      <span className="text-muted-foreground text-xs ml-1.5">
+                        {f.farmerCode}
+                      </span>
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-1.5">
             <Label>Notes</Label>
-            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any additional notes…" rows={2} />
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional notes…"
+              rows={2}
+            />
           </div>
 
           <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-            <Button type="submit" className="bg-green-700 hover:bg-green-800 text-white" disabled={create.isPending || !campaignId || !farmerId}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                reset();
+                onClose();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              className="bg-green-700 hover:bg-green-800 text-white"
+              disabled={create.isPending || !campaignId || !farmerId}
+            >
               {create.isPending ? "Allocating…" : "Add Allocation"}
             </Button>
           </DialogFooter>
