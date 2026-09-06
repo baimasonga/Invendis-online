@@ -62,9 +62,9 @@ jobs:
       - name: Verify build output
         run: |
           test -d artifacts/field-app/static-build
-          test -f artifacts/field-app/static-build/index.html
           test -d artifacts/field-app/static-build/android
           test -f artifacts/field-app/static-build/android/manifest.json
+          find artifacts/field-app/static-build -path "*/_expo/static/js/android/bundle.js" -type f -print -quit | grep -q .
 
       - name: Upload static build artifact
         if: success()
