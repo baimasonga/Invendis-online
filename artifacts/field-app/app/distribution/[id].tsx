@@ -162,6 +162,7 @@ export default function DistributionDetailScreen() {
 
   const isInTransit = dispatch.status === "In Transit" || dispatch.status === "InTransit";
   const isArrived   = dispatch.status === "Arrived" || !!dispatch.arrivedAt;
+  const canRecordDelivery = isInTransit || isArrived;
 
   return (
     <ScrollView
@@ -308,14 +309,17 @@ export default function DistributionDetailScreen() {
       )}
 
       {/* Record Delivery button */}
-      <TouchableOpacity
+      {canRecordDelivery ? <TouchableOpacity
         style={[styles.recordBtn, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
         onPress={() => router.push(`/scan-farmer?dispatchId=${dispatchId}`)}
         activeOpacity={0.85}
       >
         <Feather name="camera" size={18} color="#fff" />
         <Text style={styles.recordBtnText}>Record Delivery</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> : <View style={[styles.recordBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
+        <Feather name="lock" size={18} color={colors.mutedForeground} />
+        <Text style={[styles.recordBtnText, { color: colors.mutedForeground }]}>Delivery unavailable in {dispatch.status}</Text>
+      </View>}
 
       {/* PoDs summary */}
       <View>

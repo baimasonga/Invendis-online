@@ -16,6 +16,18 @@ on:
       - main
     paths:
       - "artifacts/field-app/**"
+      - "artifacts/api-server/src/routes/auth.ts"
+      - "artifacts/api-server/src/routes/dispatch.ts"
+      - "artifacts/api-server/src/routes/farmers.ts"
+      - "artifacts/api-server/src/routes/delivery-farmers.ts"
+      - "artifacts/api-server/src/routes/delivery-guard.ts"
+      - "artifacts/api-server/src/routes/gps.ts"
+      - "artifacts/api-server/src/routes/pod.ts"
+      - "artifacts/api-server/src/lib/dispatch-auth.ts"
+      - "artifacts/api-server/src/lib/gpstrace.ts"
+      - "artifacts/api-server/src/lib/pod-gps.ts"
+      - "supabase/migrations/**"
+      - "pnpm-lock.yaml"
       - ".github/workflows/build-android.yml"
 
 permissions:
@@ -124,17 +136,19 @@ jobs:
             echo "key_password=$KEY_PASS"     >> $GITHUB_OUTPUT
             echo "signed=production"          >> $GITHUB_OUTPUT
           else
+            TEMP_PASS="$(openssl rand -hex 24)"
+            echo "::add-mask::$TEMP_PASS"
             keytool -genkeypair -v \
               -keystore release.keystore \
               -alias release \
               -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass invendis123 -keypass invendis123 \
+              -storepass "$TEMP_PASS" -keypass "$TEMP_PASS" \
               -dname "CN=Invendis Field,OU=Mobile,O=Invendis,L=Freetown,C=SL" \
               2>/dev/null || true
             echo "store_file=$(pwd)/release.keystore" >> $GITHUB_OUTPUT
-            echo "store_password=invendis123"         >> $GITHUB_OUTPUT
+            echo "store_password=$TEMP_PASS"           >> $GITHUB_OUTPUT
             echo "key_alias=release"                  >> $GITHUB_OUTPUT
-            echo "key_password=invendis123"           >> $GITHUB_OUTPUT
+            echo "key_password=$TEMP_PASS"             >> $GITHUB_OUTPUT
             echo "signed=auto-keystore"               >> $GITHUB_OUTPUT
           fi
 

@@ -199,12 +199,15 @@ export default function DashboardScreen() {
       {/* Record Delivery CTA */}
       <TouchableOpacity
         style={[styles.recordDeliveryCard, { backgroundColor: colors.primary, borderRadius: colors.radius }]}
-        onPress={() => router.push("/(tabs)/scan")}
+        onPress={() => {
+          if (activeDispatches.length === 1) { router.push(`/distribution/${activeDispatches[0].id}`); return; }
+          router.push("/(tabs)/distributions");
+        }}
         activeOpacity={0.87}
       >
         <View style={styles.recordDeliveryLeft}>
           <Text style={styles.recordDeliveryTitle}>Record Delivery</Text>
-          <Text style={styles.recordDeliverySub}>Scan farmer · Capture GPS · Take photos · OTP verify</Text>
+          <Text style={styles.recordDeliverySub}>Choose assigned dispatch · Scan farmer · Capture proof</Text>
           <View style={styles.recordDeliveryIcons}>
             <View style={styles.recordDeliveryIconChip}>
               <Feather name="user" size={12} color="rgba(255,255,255,0.9)" />

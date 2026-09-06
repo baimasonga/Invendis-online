@@ -160,7 +160,7 @@ function SimilarityMeter({ similarity }: { similarity?: number | null }) {
 
 const EVIDENCE_LABELS = ["Inputs Only", "Inputs + Beneficiary", "Farmer Receiving", "Community / Group", "Additional Evidence"];
 
-type PhotoGps = { lat: number; lng: number; accuracy?: number } | null;
+type PhotoGps = { label?: string; lat?: number; lng?: number; accuracy?: number } | null;
 type VehicleSnapshot = { lat: number; lng: number; plateNumber?: string; distanceM?: number } | null;
 
 function fmtDist(m: number): string {
@@ -168,7 +168,7 @@ function fmtDist(m: number): string {
 }
 
 function GpsBadge({ gps, vehicleSnapshot }: { gps: PhotoGps; vehicleSnapshot: VehicleSnapshot }) {
-  if (!gps) return (
+  if (!gps || gps.lat == null || gps.lng == null) return (
     <div className="flex items-center gap-1 text-[9px] text-amber-600">
       <MapPin className="h-2.5 w-2.5 shrink-0" />
       <span>No GPS on photo</span>
@@ -274,7 +274,7 @@ function EvidencePhotoGrid({ photoKeys, photoGpsCoords, vehicleSnapshot }: { pho
         <EvidencePhotoCard
           key={key}
           photoKey={key}
-          label={EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`}
+          label={photoGpsCoords?.[i]?.label ?? EVIDENCE_LABELS[i] ?? `Photo ${i + 1}`}
           gps={photoGpsCoords?.[i] ?? null}
           vehicleSnapshot={vehicleSnapshot}
         />

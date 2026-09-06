@@ -21,6 +21,8 @@ import incidentsRouter from "./incidents";
 import notifyRouter from "./notify";
 import uploadProxyRouter from "./upload-proxy";
 import gisRouter from "./gis";
+import deliveryFarmersRouter from "./delivery-farmers";
+import deliveryGuardRouter from "./delivery-guard";
 
 const router: IRouter = Router();
 
@@ -35,6 +37,7 @@ router.use(vehiclesRouter);
 router.use(dispatchRouter);
 router.use(gpsRouter);
 router.use(gpsTraceRouter);
+router.use(deliveryGuardRouter);
 router.use(podRouter);
 router.use(otpRouter);
 router.use(reconciliationRouter);
@@ -46,5 +49,6 @@ router.use(incidentsRouter);
 router.use(notifyRouter);
 router.use(uploadProxyRouter);
 router.use(gisRouter);
+router.use(deliveryFarmersRouter);
 
 export default router;

@@ -693,6 +693,9 @@ router.post(
       res.status(400).json({ error: "Invalid dispatch id" });
       return;
     }
+    const { data: dispatchReady } = await supa.from("dispatches").select("field_officer_id").eq("id", id).maybeSingle();
+    if (!dispatchReady) { res.status(404).json({ error: "Dispatch not found" }); return; }
+    if (!(dispatchReady as any).field_officer_id) { res.status(422).json({ error: "Assign a field officer before starting this dispatch" }); return; }
     const createdBy = await resolveUserId(req);
     const { data, error } = await supa.rpc("start_dispatch_atomic", {
       p_dispatch_id: id,
