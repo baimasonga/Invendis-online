@@ -43,7 +43,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -51,7 +51,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck field app
         run: pnpm --filter @workspace/field-app run typecheck
@@ -67,7 +67,7 @@ jobs:
           test -f artifacts/field-app/static-build/android/manifest.json
 
       - name: Upload static build artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: field-app-static-build-${{ github.run_number }}
