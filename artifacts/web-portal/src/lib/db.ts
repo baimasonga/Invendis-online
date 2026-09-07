@@ -2864,7 +2864,6 @@ export async function deleteUser(profileId: string): Promise<void> {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as any).error ?? "Failed to delete user");
   }
-  logAudit("DELETE", "Users", `Deleted user ${profileId}`, "user");
 }
 
 export async function resetUserPassword(
