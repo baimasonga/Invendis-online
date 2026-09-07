@@ -414,32 +414,26 @@ router.post("/api/master-data/item-templates", requireAnyAuth, requireRoleIfJwt(
   if (!name) { res.status(422).json({ error: "A template name is required." }); return; }
   const parsed = readTemplateLines(req.body?.lines);
   if ("error" in parsed) { res.status(422).json({ error: parsed.error }); return; }
-  const { data, error } = await supa
-    .from("campaign_item_templates")
-    .insert({
-      name,
-      description: req.body?.description ?? null,
-      value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
-      created_by: req.supabaseUser?.id ?? null,
-    })
-    .select()
-    .single();
+  // One statement: header and lines are written together, so a rejected edit
+  // cannot leave a template that exists but has no items.
+  const { data: templateId, error } = await supa.rpc("save_campaign_item_template", {
+    p_template_id: null,
+    p_name: name,
+    p_description: req.body?.description ?? null,
+    p_value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
+    p_lines: parsed.lines.map((line) => ({
+      input_item_id: line.input_item_id,
+      quantity: line.quantity,
+      basis: line.basis,
+    })),
+    p_created_by: req.supabaseUser?.id ?? null,
+  });
   if (error) {
-    res.status(/duplicate/i.test(error.message) ? 409 : 500).json({ error: error.message });
+    res.status(/duplicate/i.test(error.message) ? 409 : 422).json({ error: error.message });
     return;
   }
-  const templateId = (data as any).id;
-  const { error: lineError } = await supa
-    .from("campaign_item_template_lines")
-    .insert(parsed.lines.map((line) => ({ ...line, template_id: templateId })));
-  if (lineError) {
-    // Without the lines the template is unusable, so do not leave a husk behind.
-    await supa.from("campaign_item_templates").delete().eq("id", templateId);
-    res.status(500).json({ error: lineError.message });
-    return;
-  }
-  await logAudit(req, "CREATE", "MasterData", `Created input package template: ${name}`, "item-template", templateId);
-  res.status(201).json(await templateWithLines(templateId));
+  await logAudit(req, "CREATE", "MasterData", `Created input package template: ${name}`, "item-template", Number(templateId));
+  res.status(201).json(await templateWithLines(Number(templateId)));
 });
 
 router.put("/api/master-data/item-templates/:id", requireAnyAuth, requireRoleIfJwt(...PACKAGE_MANAGERS), async (req, res) => {
@@ -448,27 +442,27 @@ router.put("/api/master-data/item-templates/:id", requireAnyAuth, requireRoleIfJ
   if (!id || !name) { res.status(422).json({ error: "A template name is required." }); return; }
   const parsed = readTemplateLines(req.body?.lines);
   if ("error" in parsed) { res.status(422).json({ error: parsed.error }); return; }
-  const { data, error } = await supa
-    .from("campaign_item_templates")
-    .update({
-      name,
-      description: req.body?.description ?? null,
-      value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .maybeSingle();
+  const { error } = await supa.rpc("save_campaign_item_template", {
+    p_template_id: id,
+    p_name: name,
+    p_description: req.body?.description ?? null,
+    p_value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
+    p_lines: parsed.lines.map((line) => ({
+      input_item_id: line.input_item_id,
+      quantity: line.quantity,
+      basis: line.basis,
+    })),
+    p_created_by: null,
+  });
   if (error) {
-    res.status(/duplicate/i.test(error.message) ? 409 : 500).json({ error: error.message });
+    const status = /not found/i.test(error.message)
+      ? 404
+      : /duplicate/i.test(error.message)
+        ? 409
+        : 422;
+    res.status(status).json({ error: error.message });
     return;
   }
-  if (!data) { res.status(404).json({ error: "Template not found." }); return; }
-  await supa.from("campaign_item_template_lines").delete().eq("template_id", id);
-  const { error: lineError } = await supa
-    .from("campaign_item_template_lines")
-    .insert(parsed.lines.map((line) => ({ ...line, template_id: id })));
-  if (lineError) { res.status(500).json({ error: lineError.message }); return; }
   await logAudit(req, "UPDATE", "MasterData", `Updated input package template: ${name}`, "item-template", id);
   res.json(await templateWithLines(id));
 });

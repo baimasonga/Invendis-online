@@ -138,3 +138,71 @@ export async function hasTrackedEntitlement(
     .eq("allocation_id", (allocation as any).id);
   return (count ?? 0) > 0;
 }
+
+/**
+ * Provisional entitlements for many beneficiaries at once.
+ *
+ * A Draft campaign has no materialised lines, so the figures have to be derived
+ * on the fly. Doing that per beneficiary means four round trips each, and a
+ * campaign with hundreds of them would fire thousands of concurrent PostgREST
+ * requests and exhaust the connection pool. The package and the beneficiaries
+ * are the same for every line, so they are fetched once and the arithmetic runs
+ * in memory.
+ */
+export async function provisionalEntitlements(
+  campaignId: number,
+  farmerIds: number[],
+): Promise<Record<number, EntitlementLine[]>> {
+  const ids = [...new Set(farmerIds.filter(Boolean))];
+  if (!ids.length) return {};
+
+  const [{ data: items }, { data: farmers }] = await Promise.all([
+    supa
+      .from("campaign_items")
+      .select("input_item_id,quantity_per_farmer,basis")
+      .eq("campaign_id", campaignId),
+    supa
+      .from("farmers")
+      .select("id,beneficiary_type,group_size,farm_size")
+      .in("id", ids),
+  ]);
+  const rows = items ?? [];
+  if (!rows.length) return {};
+
+  const inputs = await inputItemMap(
+    rows.map((row: any) => row.input_item_id).filter(Boolean),
+  );
+  const byFarmer: Record<number, EntitlementLine[]> = {};
+  for (const farmer of (farmers ?? []) as any[]) {
+    const lines: EntitlementLine[] = [];
+    for (const row of rows as any[]) {
+      const rate = Number(row.quantity_per_farmer ?? 1);
+      const basis = row.basis ?? "per_beneficiary";
+      const quantity = computeEntitlement(
+        basis,
+        rate,
+        farmer.beneficiary_type ?? null,
+        farmer.group_size ?? null,
+        farmer.farm_size ?? null,
+      );
+      if (quantity == null) continue;
+      const input = inputs[row.input_item_id];
+      lines.push({
+        inputItemId: row.input_item_id,
+        name: input?.name ?? null,
+        itemCode: input?.item_code ?? null,
+        unit: input?.unit ?? null,
+        basis,
+        rate,
+        quantityEntitled: quantity,
+        quantityDelivered: 0,
+        isOverridden: false,
+        provisional: true,
+      });
+    }
+    byFarmer[farmer.id] = lines.sort((a, b) =>
+      (a.name ?? "").localeCompare(b.name ?? ""),
+    );
+  }
+  return byFarmer;
+}

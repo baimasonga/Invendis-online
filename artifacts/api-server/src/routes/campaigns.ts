@@ -15,6 +15,7 @@ import {
   entitlementText,
   entitlementsByAllocation,
   normaliseBasis,
+  provisionalEntitlements,
 } from "../lib/entitlements.js";
 
 const router = Router();
@@ -1138,15 +1139,22 @@ router.get(
     const stored = await entitlementsByAllocation(
       rows.map((row: any) => row.id),
     );
-    const results = await Promise.all(
-      rows.map(async (row: any) => ({
-        allocationId: row.id,
-        farmerId: row.farmer_id,
-        lines: stored[row.id]?.length
-          ? stored[row.id]
-          : await beneficiaryEntitlement(campaignId, row.farmer_id),
-      })),
-    );
+    // Only the beneficiaries with no materialised lines need deriving, and they
+    // are derived in one batch: per-beneficiary lookups here would put a
+    // campaign's worth of concurrent requests on the connection pool.
+    const pending = rows
+      .filter((row: any) => !stored[row.id]?.length)
+      .map((row: any) => row.farmer_id);
+    const provisional = pending.length
+      ? await provisionalEntitlements(campaignId, pending)
+      : {};
+    const results = rows.map((row: any) => ({
+      allocationId: row.id,
+      farmerId: row.farmer_id,
+      lines: stored[row.id]?.length
+        ? stored[row.id]
+        : (provisional[row.farmer_id] ?? []),
+    }));
     // Totals are what approval will try to reserve from the source warehouse.
     const totals: Record<number, { inputItemId: number; name: string | null; unit: string | null; quantity: number }> = {};
     for (const result of results)

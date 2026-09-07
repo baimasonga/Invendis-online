@@ -30,35 +30,28 @@ export async function ensureIntegerUserId(req: Request): Promise<number | null> 
     .maybeSingle();
   if (profile && (profile as any).is_active === false) return null;
 
-  // The sequence may lag behind manual inserts, so compute the next id explicitly
-  // (mirrors the mobile login provisioning path).
-  const { data: maxRow } = await supa
-    .from("users")
-    .select("id")
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextId = ((maxRow as { id: number } | null)?.id ?? 0) + 1;
+  // Provisioning goes through an RPC that takes the id from users_id_seq in one
+  // statement. Assigning max(id) + 1 here instead would leave the sequence
+  // behind the table, and the next POST /api/users — which inserts without an
+  // id, so takes nextval — would collide on the primary key.
   const placeholder = await hashPassword(`SUPABASE_${sb.id}_${Date.now()}`);
-
-  const { data: created, error } = await supa
-    .from("users")
-    .insert({
-      id: nextId,
-      username: sb.email,
-      password_hash: placeholder,
-      full_name: (profile as any)?.full_name ?? sb.email,
-      email: sb.email,
-      role: (profile as any)?.role ?? sb.role ?? "Viewer",
-      district_id: (profile as any)?.district_id ?? null,
-      is_active: true,
-    })
-    .select("id")
-    .single();
-  if (error || !created) {
+  const { data: provisioned, error } = await supa.rpc("provision_user_account", {
+    p_email: sb.email,
+    p_username: sb.email,
+    p_password_hash: placeholder,
+    p_full_name: (profile as any)?.full_name ?? sb.email,
+    p_role: (profile as any)?.role ?? sb.role ?? "Viewer",
+    p_district_id: (profile as any)?.district_id ?? null,
+  });
+  if (error || provisioned == null) {
     // A concurrent request may have provisioned the row first.
-    const { data: retry } = await supa.from("users").select("id").eq("email", sb.email).limit(1).maybeSingle();
+    const { data: retry } = await supa
+      .from("users")
+      .select("id")
+      .eq("email", sb.email)
+      .limit(1)
+      .maybeSingle();
     return (retry as any)?.id ?? null;
   }
-  return (created as any).id as number;
+  return Number(provisioned);
 }
