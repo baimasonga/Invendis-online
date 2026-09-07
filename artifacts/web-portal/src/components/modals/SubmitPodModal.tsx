@@ -19,6 +19,7 @@ import {
   CheckCircle, Loader2, MapPin, MessageSquare, ScanFace, ClipboardList, ChevronRight, ChevronLeft,
 } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
+import { buildWebPodProofPayload } from "@/lib/pod-proof-payload";
 
 interface Props {
   open: boolean;
@@ -80,6 +81,8 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
 
   const [gpsLat, setGpsLat]         = useState<number | null>(null);
   const [gpsLng, setGpsLng]         = useState<number | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsCapturedAt, setGpsCapturedAt] = useState<string | null>(null);
   const [gpsCapturing, setGpsCapturing] = useState(false);
   const [gpsError, setGpsError]     = useState("");
 
@@ -116,10 +119,10 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
     setSubmissionKey(generateSubmissionKey());
     setFarmerId(""); setQty(""); setNotes(""); setFarmerSearch("");
     if (!prefilledDispatchId) setDispatchId("");
-    setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpBypassed(false);
+    setOtpSent(false); setOtpCode(""); setOtpVerified(false); setOtpVerificationToken(null); setOtpBypassed(false);
     setOtpBypassReason(""); setOtpMaskedPhone(""); setOtpDevCode(null); setOtpResendSecs(0); setOtpError(""); setShowOtpBypass(false);
     setFaceResult(null); setFaceBypassed(false); setFacePhotoBlob(null);
-    setGpsLat(null); setGpsLng(null); setGpsError("");
+    setGpsLat(null); setGpsLng(null); setGpsAccuracy(null); setGpsCapturedAt(null); setGpsError("");
   }
 
   // Resend countdown ticker
@@ -205,6 +208,8 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
       pos => {
         setGpsLat(pos.coords.latitude);
         setGpsLng(pos.coords.longitude);
+        setGpsAccuracy(pos.coords.accuracy);
+        setGpsCapturedAt(new Date(pos.timestamp || Date.now()).toISOString());
         setGpsCapturing(false);
       },
       err => {
@@ -256,12 +261,14 @@ export function SubmitPodModal({ open, onClose, prefilledDispatchId }: Props) {
         campaignId: selectedDispatch?.campaignId ?? undefined,
         quantityDelivered: Number(qty),
         notes: bypassNotes || undefined,
-        ...(otpVerificationToken ? { otpVerificationToken } : {}),
+        ...buildWebPodProofPayload(otpVerificationToken),
         otpStatus,
         faceStatus,
         facePhotoKey,
         farmerLatitude: gpsLat ?? undefined,
         farmerLongitude: gpsLng ?? undefined,
+        farmerGpsAccuracy: gpsAccuracy ?? undefined,
+        farmerGpsCapturedAt: gpsCapturedAt ?? undefined,
         status: otpVerified && (faceResult?.status === "match" || faceResult?.status === "no_ref")
           ? "Verified" : "Pending",
       });

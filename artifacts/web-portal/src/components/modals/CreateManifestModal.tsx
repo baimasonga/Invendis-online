@@ -1,15 +1,31 @@
 import { useState } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { createDispatch, listCampaigns, listVehicles, listDrivers, listWarehouses, listFieldOfficers, KEYS } from "@/lib/db";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  createDispatch,
+  listCampaigns,
+  listVehicles,
+  listDrivers,
+  listWarehouses,
+  listFieldOfficers,
+  KEYS,
+} from "@/lib/db";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Truck, Car } from "lucide-react";
@@ -27,40 +43,64 @@ export function CreateManifestModal({ open, onClose }: Props) {
   const { toast } = useToast();
   const createMutation = useMutation({ mutationFn: createDispatch });
 
-  const [campaignId, setCampaignId]       = useState("");
-  const [warehouseId, setWarehouseId]     = useState("");
-  const [vehicleMode, setVehicleMode]     = useState<VehicleMode>("office");
+  const [campaignId, setCampaignId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
+  const [vehicleMode, setVehicleMode] = useState<VehicleMode>("office");
 
   // Office vehicle fields
-  const [vehicleId, setVehicleId]         = useState("");
-  const [driverId, setDriverId]           = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [driverId, setDriverId] = useState("");
 
   // Hired truck fields
-  const [hiredPlate, setHiredPlate]       = useState("");
-  const [hiredDriver, setHiredDriver]     = useState("");
-  const [hiredMake, setHiredMake]         = useState("");
-  const [hiredPhone, setHiredPhone]       = useState("");
+  const [hiredPlate, setHiredPlate] = useState("");
+  const [hiredDriver, setHiredDriver] = useState("");
+  const [hiredMake, setHiredMake] = useState("");
+  const [hiredPhone, setHiredPhone] = useState("");
 
-  const [notes, setNotes]                 = useState("");
+  const [notes, setNotes] = useState("");
   const [fieldOfficerId, setFieldOfficerId] = useState("");
 
-  const { data: campaignsData }  = useQuery({ queryKey: KEYS.campaigns(),     queryFn: () => listCampaigns(1, 100) });
-  const { data: vehiclesData }   = useQuery({ queryKey: KEYS.vehicles(),      queryFn: () => listVehicles(1, 200) });
-  const { data: driversData }    = useQuery({ queryKey: KEYS.drivers(),       queryFn: () => listDrivers(1, 200) });
-  const { data: warehouses }     = useQuery({ queryKey: KEYS.warehouses(),    queryFn: listWarehouses });
-  const { data: officersList }   = useQuery({ queryKey: KEYS.fieldOfficers(), queryFn: listFieldOfficers });
+  const { data: campaignsData } = useQuery({
+    queryKey: KEYS.campaigns(),
+    queryFn: () => listCampaigns(1, 100),
+  });
+  const { data: vehiclesData } = useQuery({
+    queryKey: KEYS.vehicles(),
+    queryFn: () => listVehicles(1, 200),
+  });
+  const { data: driversData } = useQuery({
+    queryKey: KEYS.drivers(),
+    queryFn: () => listDrivers(1, 200),
+  });
+  const { data: warehouses } = useQuery({
+    queryKey: KEYS.warehouses(),
+    queryFn: listWarehouses,
+  });
+  const { data: officersList } = useQuery({
+    queryKey: KEYS.fieldOfficers(),
+    queryFn: listFieldOfficers,
+  });
 
-  const campaigns:     any[] = (campaignsData as any)?.data ?? [];
-  const vehicleList:   any[] = (vehiclesData as any)?.data  ?? [];
-  const driverList:    any[] = (driversData as any)?.data   ?? [];
+  const campaigns: any[] = ((campaignsData as any)?.data ?? []).filter(
+    (c: any) => ["approved", "active"].includes(String(c.status).toLowerCase()),
+  );
+  const vehicleList: any[] = (vehiclesData as any)?.data ?? [];
+  const driverList: any[] = (driversData as any)?.data ?? [];
   const warehouseList: any[] = Array.isArray(warehouses) ? warehouses : [];
-  const officers:      any[] = Array.isArray(officersList) ? officersList : [];
+  const officers: any[] = Array.isArray(officersList) ? officersList : [];
 
   function resetForm() {
-    setCampaignId(""); setWarehouseId(""); setVehicleMode("office");
-    setVehicleId(""); setDriverId("");
-    setHiredPlate(""); setHiredDriver(""); setHiredMake(""); setHiredPhone("");
-    setNotes(""); setFieldOfficerId("");
+    setCampaignId("");
+    setWarehouseId("");
+    setVehicleMode("office");
+    setVehicleId("");
+    setDriverId("");
+    setHiredPlate("");
+    setHiredDriver("");
+    setHiredMake("");
+    setHiredPhone("");
+    setNotes("");
+    setFieldOfficerId("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -88,22 +128,35 @@ export function CreateManifestModal({ open, onClose }: Props) {
         hiredMake.trim() ? `Make/Model: ${hiredMake.trim()}` : "",
         hiredPhone.trim() ? `Phone: ${hiredPhone.trim()}` : "",
         notes.trim(),
-      ].filter(Boolean).join(" | ");
+      ]
+        .filter(Boolean)
+        .join(" | ");
       if (extras) payload.notes = extras;
     }
 
     try {
       await createMutation.mutateAsync(payload);
       await qc.invalidateQueries({ queryKey: KEYS.dispatches() });
-      toast({ title: "Manifest created", description: "Dispatch manifest created as Pending." });
+      toast({
+        title: "Manifest created",
+        description: "Dispatch manifest created as Pending.",
+      });
       resetForm();
       onClose();
     } catch (err: any) {
-      toast({ title: "Failed to create manifest", description: err.message, variant: "destructive" });
+      toast({
+        title: "Failed to create manifest",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   }
 
-  const modeTab = (mode: VehicleMode, label: string, Icon: React.ElementType) => (
+  const modeTab = (
+    mode: VehicleMode,
+    label: string,
+    Icon: React.ElementType,
+  ) => (
     <button
       type="button"
       onClick={() => setVehicleMode(mode)}
@@ -120,7 +173,15 @@ export function CreateManifestModal({ open, onClose }: Props) {
   );
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { resetForm(); onClose(); } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          resetForm();
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Create Dispatch Manifest</DialogTitle>
@@ -130,23 +191,35 @@ export function CreateManifestModal({ open, onClose }: Props) {
           {/* Campaign + Warehouse */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Campaign <span className="text-red-500">*</span></Label>
+              <Label>
+                Campaign <span className="text-red-500">*</span>
+              </Label>
               <Select value={campaignId} onValueChange={setCampaignId}>
-                <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select…" />
+                </SelectTrigger>
                 <SelectContent>
                   {campaigns.map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Source Warehouse <span className="text-red-500">*</span></Label>
+              <Label>
+                Source Warehouse <span className="text-red-500">*</span>
+              </Label>
               <Select value={warehouseId} onValueChange={setWarehouseId}>
-                <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select…" />
+                </SelectTrigger>
                 <SelectContent>
                   {warehouseList.map((w: any) => (
-                    <SelectItem key={w.id} value={String(w.id)}>{w.name}</SelectItem>
+                    <SelectItem key={w.id} value={String(w.id)}>
+                      {w.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -166,9 +239,13 @@ export function CreateManifestModal({ open, onClose }: Props) {
           {vehicleMode === "office" && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Vehicle <span className="text-red-500">*</span></Label>
+                <Label>
+                  Vehicle <span className="text-red-500">*</span>
+                </Label>
                 <Select value={vehicleId} onValueChange={setVehicleId}>
-                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select…" />
+                  </SelectTrigger>
                   <SelectContent>
                     {vehicleList.map((v: any) => (
                       <SelectItem key={v.id} value={String(v.id)}>
@@ -182,10 +259,14 @@ export function CreateManifestModal({ open, onClose }: Props) {
               <div className="space-y-1.5">
                 <Label>Driver</Label>
                 <Select value={driverId} onValueChange={setDriverId}>
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
                   <SelectContent>
                     {driverList.map((d: any) => (
-                      <SelectItem key={d.id} value={String(d.id)}>{d.fullName}</SelectItem>
+                      <SelectItem key={d.id} value={String(d.id)}>
+                        {d.fullName}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -202,10 +283,12 @@ export function CreateManifestModal({ open, onClose }: Props) {
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Plate Number <span className="text-red-500">*</span></Label>
+                  <Label>
+                    Plate Number <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     value={hiredPlate}
-                    onChange={e => setHiredPlate(e.target.value)}
+                    onChange={(e) => setHiredPlate(e.target.value)}
                     placeholder="e.g. AJW-238"
                     className="uppercase placeholder:normal-case"
                   />
@@ -214,7 +297,7 @@ export function CreateManifestModal({ open, onClose }: Props) {
                   <Label>Driver Name</Label>
                   <Input
                     value={hiredDriver}
-                    onChange={e => setHiredDriver(e.target.value)}
+                    onChange={(e) => setHiredDriver(e.target.value)}
                     placeholder="Full name…"
                   />
                 </div>
@@ -224,7 +307,7 @@ export function CreateManifestModal({ open, onClose }: Props) {
                   <Label>Make / Model</Label>
                   <Input
                     value={hiredMake}
-                    onChange={e => setHiredMake(e.target.value)}
+                    onChange={(e) => setHiredMake(e.target.value)}
                     placeholder="e.g. Isuzu Dmax"
                   />
                 </div>
@@ -232,7 +315,7 @@ export function CreateManifestModal({ open, onClose }: Props) {
                   <Label>Driver Phone</Label>
                   <Input
                     value={hiredPhone}
-                    onChange={e => setHiredPhone(e.target.value)}
+                    onChange={(e) => setHiredPhone(e.target.value)}
                     placeholder="+232 …"
                   />
                 </div>
@@ -244,10 +327,14 @@ export function CreateManifestModal({ open, onClose }: Props) {
           <div className="space-y-1.5">
             <Label>Field Officer</Label>
             <Select value={fieldOfficerId} onValueChange={setFieldOfficerId}>
-              <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
               <SelectContent>
                 {officers.map((o: any) => (
-                  <SelectItem key={o.id} value={String(o.id)}>{o.fullName}</SelectItem>
+                  <SelectItem key={o.id} value={String(o.id)}>
+                    {o.fullName}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -259,7 +346,7 @@ export function CreateManifestModal({ open, onClose }: Props) {
               <Label>Notes</Label>
               <Textarea
                 value={notes}
-                onChange={e => setNotes(e.target.value)}
+                onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes about this dispatch…"
                 rows={2}
                 className="resize-none"
@@ -268,7 +355,14 @@ export function CreateManifestModal({ open, onClose }: Props) {
           )}
 
           <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => { resetForm(); onClose(); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                resetForm();
+                onClose();
+              }}
+            >
               Cancel
             </Button>
             <Button

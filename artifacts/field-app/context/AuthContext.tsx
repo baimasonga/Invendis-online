@@ -24,6 +24,8 @@ const LoginResponseSchema = z.object({
   }),
 });
 
+const MeResponseSchema = LoginResponseSchema.shape.user.extend({ isActive: z.boolean().optional() });
+
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
@@ -56,6 +58,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const parsed = JSON.parse(stored);
           setUser(parsed.user);
           setToken(parsed.token);
+          const domain = process.env.EXPO_PUBLIC_DOMAIN;
+          if (domain && typeof parsed.token === "string") {
+            // Preserve offline launch, but refresh account state when reachable.
+            fetch(`https://${domain}/api/auth/me`, { headers: { Authorization: `Bearer ${parsed.token}` } }).then(async (res) => {
+              if (res.status === 401 || res.status === 403 || res.status === 404) { await logout(); return; }
+              if (!res.ok) return;
+              const result = MeResponseSchema.safeParse(await res.json());
+              if (!result.success || result.data.isActive === false) { await logout(); return; }
+              const { isActive: _isActive, ...freshUser } = result.data;
+              await AsyncStorage.setItem(AUTH_KEY, JSON.stringify({ user: freshUser, token: parsed.token }));
+              setUser(freshUser);
+            }).catch(() => {});
+          }
         }
       } catch {
         await AsyncStorage.removeItem(AUTH_KEY).catch(() => {});

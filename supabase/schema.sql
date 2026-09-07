@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   district_id          integer REFERENCES districts(id),
   value_chain_id       integer REFERENCES value_chains(id),
   distribution_site_id integer REFERENCES distribution_sites(id),
+  source_warehouse_id  integer REFERENCES warehouses(id),
   start_date           timestamptz,
   end_date             timestamptz,
   status               text NOT NULL DEFAULT 'Draft',
@@ -260,6 +261,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_by           uuid REFERENCES profiles(id),
   approved_by          uuid REFERENCES profiles(id),
   approved_at          timestamptz,
+  rejection_reason     text,
+  cancelled_at         timestamptz,
+  completed_at         timestamptz,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz
 );
@@ -274,7 +278,7 @@ CREATE TABLE IF NOT EXISTS campaign_items (
   id                  serial PRIMARY KEY,
   campaign_id         integer NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   input_item_id       integer NOT NULL REFERENCES input_items(id),
-  quantity_per_farmer integer NOT NULL DEFAULT 1,
+  quantity_per_farmer double precision NOT NULL DEFAULT 1 CHECK (quantity_per_farmer > 0),
   unit                text
 );
 
@@ -287,6 +291,22 @@ CREATE TABLE IF NOT EXISTS allocations (
   allocated_by uuid REFERENCES profiles(id),
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS allocations_campaign_farmer_unique
+  ON allocations (campaign_id, farmer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_items_campaign_input_unique
+  ON campaign_items (campaign_id, input_item_id);
+
+CREATE TABLE IF NOT EXISTS campaign_stock_reservations (
+  id                bigserial PRIMARY KEY,
+  campaign_id       integer NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  warehouse_id      integer NOT NULL REFERENCES warehouses(id),
+  input_item_id     integer NOT NULL REFERENCES input_items(id),
+  reserved_quantity double precision NOT NULL CHECK (reserved_quantity >= 0),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (campaign_id, input_item_id)
 );
 
 -- ── VEHICLES ─────────────────────────────────────────────────
@@ -518,7 +538,10 @@ INSERT INTO system_settings (key, value, description) VALUES
   ('sms_sender_name',        'AgriPoD', 'Sender name shown on OTP SMS messages (max 11 chars)'),
   ('otp_expiry_minutes',     '10',      'OTP code expiry time in minutes'),
   ('otp_max_attempts',       '5',       'Maximum OTP verification attempts before lockout'),
-  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer')
+  ('otp_rate_limit_seconds', '60',      'Minimum seconds between OTP send requests per farmer'),
+  ('pod_vehicle_gps_match_radius_m', '500', 'Maximum vehicle-to-mobile distance for a confirmed PoD GPS match'),
+  ('pod_vehicle_gps_near_radius_m', '2000', 'Maximum vehicle-to-mobile distance shown as a near match requiring review'),
+  ('pod_vehicle_gps_max_age_minutes', '30', 'Maximum age of the vehicle tracker position used for PoD matching')
 ON CONFLICT (key) DO NOTHING;
 
 -- ── PERFORMANCE INDEXES ───────────────────────────────────────
@@ -533,6 +556,7 @@ CREATE INDEX IF NOT EXISTS pod_campaign_id_idx ON pod (campaign_id);
 
 CREATE INDEX IF NOT EXISTS gps_track_vehicle_id_idx  ON gps_track (vehicle_id);
 CREATE INDEX IF NOT EXISTS gps_track_recorded_at_idx ON gps_track (recorded_at DESC);
+CREATE INDEX IF NOT EXISTS gps_track_vehicle_recorded_idx ON gps_track (vehicle_id, recorded_at DESC);
 
 CREATE INDEX IF NOT EXISTS allocations_campaign_id_idx ON allocations (campaign_id);
 CREATE INDEX IF NOT EXISTS allocations_farmer_id_idx   ON allocations (farmer_id);

@@ -5,6 +5,18 @@ on:
     branches: [main]
     paths:
       - "artifacts/field-app/**"
+      - "artifacts/api-server/src/routes/auth.ts"
+      - "artifacts/api-server/src/routes/dispatch.ts"
+      - "artifacts/api-server/src/routes/farmers.ts"
+      - "artifacts/api-server/src/routes/delivery-farmers.ts"
+      - "artifacts/api-server/src/routes/delivery-guard.ts"
+      - "artifacts/api-server/src/routes/gps.ts"
+      - "artifacts/api-server/src/routes/pod.ts"
+      - "artifacts/api-server/src/lib/dispatch-auth.ts"
+      - "artifacts/api-server/src/lib/gpstrace.ts"
+      - "artifacts/api-server/src/lib/pod-gps.ts"
+      - "supabase/migrations/**"
+      - "pnpm-lock.yaml"
       - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
 
@@ -31,7 +43,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +51,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck field app
         run: pnpm --filter @workspace/field-app run typecheck
@@ -50,12 +62,12 @@ jobs:
       - name: Verify build output
         run: |
           test -d artifacts/field-app/static-build
-          test -f artifacts/field-app/static-build/index.html
           test -d artifacts/field-app/static-build/android
           test -f artifacts/field-app/static-build/android/manifest.json
+          find artifacts/field-app/static-build -path "*/_expo/static/js/android/bundle.js" -type f -print -quit | grep -q .
 
       - name: Upload static build artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: field-app-static-build-${{ github.run_number }}

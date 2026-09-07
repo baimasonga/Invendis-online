@@ -258,9 +258,9 @@ export default function ScanScreen() {
 
   const handleIssueFarmer = () => {
     if (!farmer) return;
-    router.push(
-      `/confirm-pod?farmerId=${farmer.id}&farmerName=${encodeURIComponent(farmer.firstName + " " + farmer.lastName)}&farmerCode=${farmer.farmerCode}`
-    );
+    Alert.alert("Choose a Dispatch First", "Deliveries must be tied to an assigned dispatch so campaign eligibility and item balances can be verified.", [
+      { text: "View Dispatches", onPress: () => router.push("/(tabs)/distributions") },
+    ]);
   };
 
   const handleOpenDispatch = () => {

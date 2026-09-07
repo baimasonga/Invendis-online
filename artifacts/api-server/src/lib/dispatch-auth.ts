@@ -1,11 +1,10 @@
 import type { Request } from "express";
 import { supa } from "./supabase.js";
+import { isDispatchInScope, type DispatchReadScope } from "./dispatch-scope.js";
 
 const DISPATCH_MANAGEMENT_ROLES = new Set(["admin", "projectmanager", "warehousemanager"]);
 
-export type DispatchReadScope =
-  | { unrestricted: true }
-  | { unrestricted: false; fieldOfficerId?: number; campaignIds?: number[] };
+export type { DispatchReadScope } from "./dispatch-scope.js";
 
 async function requester(req: Request): Promise<{ role: string; userId: number | null; districtId: number | null }> {
   if (req.user) {
@@ -60,7 +59,5 @@ export async function getDispatchReadScope(req: Request): Promise<DispatchReadSc
 /** Check a loaded dispatch before any related or sensitive data is fetched. */
 export async function canReadDispatch(req: Request, dispatch: { field_officer_id?: number | null; campaign_id?: number | null }): Promise<boolean> {
   const scope = await getDispatchReadScope(req);
-  if (scope.unrestricted) return true;
-  if (scope.fieldOfficerId !== undefined) return dispatch.field_officer_id === scope.fieldOfficerId;
-  return !!dispatch.campaign_id && (scope.campaignIds ?? []).includes(dispatch.campaign_id);
+  return isDispatchInScope(scope, dispatch);
 }

@@ -27,6 +27,8 @@ export async function apiFetch<T>(
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Request failed" }));
+    const serverMessage = String((err as { message?: string }).message ?? "");
+    if (res.status === 403 && /inactive|not linked to an active operational user/i.test(serverMessage)) _unauthorizedHandler?.();
     throw new Error((err as { error?: string; message?: string }).error ?? (err as { message?: string }).message ?? "Request failed");
   }
   return res.json() as Promise<T>;
@@ -132,6 +134,16 @@ export interface PoD {
   otpStatus: string | null;
   faceStatus: string | null;
   gpsStatus: string | null;
+  vehicleGpsStatus?: string | null;
+  vehicleGpsSnapshot?: {
+    lat?: number | null;
+    lng?: number | null;
+    plateNumber?: string;
+    recordedAt?: string | null;
+    ageSeconds?: number | null;
+    distanceM?: number | null;
+    status?: string;
+  } | null;
   farmerLatitude: number | null;
   farmerLongitude: number | null;
   inputItemId: number | null;
@@ -185,6 +197,14 @@ export const searchFarmers = (
   if (search) params.set("search", search);
   if (filters?.beneficiaryType) params.set("beneficiaryType", filters.beneficiaryType);
   return apiFetch<{ data: Farmer[] }>(`/farmers?${params.toString()}`, token);
+};
+
+export const farmerByBarcodeForDispatch = (token: string, dispatchId: number, barcode: string) =>
+  apiFetch<Farmer>(`/dispatch/${dispatchId}/farmers/barcode/${encodeURIComponent(barcode)}`, token);
+
+export const searchFarmersForDispatch = (token: string, dispatchId: number, search: string) => {
+  const params = new URLSearchParams({ search, limit: "20" });
+  return apiFetch<{ data: Farmer[]; total: number }>(`/dispatch/${dispatchId}/farmers?${params.toString()}`, token);
 };
 
 export const submitPoD = (token: string, payload: Record<string, unknown>) =>

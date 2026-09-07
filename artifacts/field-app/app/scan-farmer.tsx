@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { farmerByBarcode, searchFarmers, type Farmer } from "@/lib/api";
+import { farmerByBarcodeForDispatch, searchFarmersForDispatch, type Farmer } from "@/lib/api";
 
 let CameraView: React.ComponentType<{
   style?: object;
@@ -51,20 +51,31 @@ export default function ScanFarmerScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const lookup = async (code: string) => {
+    const parsedDispatchId = Number(dispatchId);
     if (!token || loading) return;
+    if (!Number.isInteger(parsedDispatchId) || parsedDispatchId <= 0) {
+      Alert.alert("Choose a Dispatch", "Open an assigned In Transit or Arrived dispatch before scanning a farmer.", [
+        { text: "View Dispatches", onPress: () => router.replace("/(tabs)/distributions") },
+      ]);
+      return;
+    }
+    const urlMatch = code.trim().match(/\/card\/([^/?#]+)/);
+    const barcode = urlMatch ? decodeURIComponent(urlMatch[1]) : code.trim();
     setLoading(true);
     setFarmer(null);
     try {
-      const result = await farmerByBarcode(token, code);
+      const result = await farmerByBarcodeForDispatch(token, parsedDispatchId, barcode);
       setFarmer(result);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      const results = await searchFarmers(token, code).catch(() => ({ data: [] as Farmer[] }));
-      if (results.data.length > 0) {
+      const results = await searchFarmersForDispatch(token, parsedDispatchId, barcode).catch(() => ({ data: [] as Farmer[], total: 0 }));
+      if (results.data.length === 1) {
         setFarmer(results.data[0]);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (results.data.length > 1) {
+        Alert.alert("More Than One Match", "Enter the full farmer code or scan the farmer card to select the correct beneficiary.");
       } else {
-        Alert.alert("Not Found", "No farmer found with this code.");
+        Alert.alert("Not Eligible", "No approved farmer allocated to this dispatch campaign matches that code.");
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } finally {
@@ -80,7 +91,7 @@ export default function ScanFarmerScreen() {
   };
 
   const handleConfirm = () => {
-    if (!farmer) return;
+    if (!farmer || !dispatchId) return;
     const params = new URLSearchParams({
       farmerId: String(farmer.id),
       farmerName: `${farmer.firstName} ${farmer.lastName}`,

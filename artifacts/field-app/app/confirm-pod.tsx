@@ -40,6 +40,7 @@ import {
   type InputItem,
   type DispatchItem,
 } from "@/lib/api";
+import { buildVerificationProofPayload, saveFirstReferenceIfNeeded } from "@/lib/pod-proof";
 
 let CameraView: React.ComponentType<{
   style?: any;
@@ -55,6 +56,7 @@ interface GPSCoords {
   latitude: number;
   longitude: number;
   accuracy?: number;
+  capturedAt: string;
 }
 
 async function getLocation(): Promise<GPSCoords | null> {
@@ -62,7 +64,7 @@ async function getLocation(): Promise<GPSCoords | null> {
     return new Promise((resolve) => {
       if (!navigator.geolocation) { resolve(null); return; }
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, capturedAt: new Date(pos.timestamp || Date.now()).toISOString() }),
         () => resolve(null),
         { timeout: 8000 }
       );
@@ -73,7 +75,7 @@ async function getLocation(): Promise<GPSCoords | null> {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return null;
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, capturedAt: new Date(pos.timestamp || Date.now()).toISOString() };
   } catch {
     return null;
   }
@@ -467,13 +469,16 @@ export default function ConfirmPodScreen() {
 
       // When no reference photo exists, save this delivery photo as the reference
       // so all future deliveries compare against it.
-      if (result.faceStatus === "NoReference") {
-        try {
-          await saveFaceReference(token!, Number(farmerId), uploadInfo.key, Number(dispatchId));
-        } catch (refErr) {
-          // Non-fatal — log but don't block the flow
-          console.warn("Could not save reference photo:", refErr);
-        }
+      try {
+        await saveFirstReferenceIfNeeded({
+          faceStatus: result.faceStatus,
+          deliveryKey: uploadInfo.key,
+          dispatchId,
+          saveReference: () => saveFaceReference(token!, Number(farmerId), uploadInfo.key, Number(dispatchId)),
+        });
+      } catch (refErr) {
+        // Non-fatal — log but don't block the flow
+        console.warn("Could not save reference photo:", refErr);
       }
 
       setFaceResult(result);
@@ -590,12 +595,18 @@ export default function ConfirmPodScreen() {
             ...(scannedBarcode ? { inputBarcode: scannedBarcode } : {}),
           }
       ),
-      ...(otpVerificationToken ? { otpVerificationToken } : {}),
-      ...(faceVerificationToken ? { faceVerificationToken } : {}),
-      ...(gps ? { farmerLatitude: gps.latitude, farmerLongitude: gps.longitude } : {}),
+      ...buildVerificationProofPayload(otpVerificationToken, faceVerificationToken),
+      ...(gps ? {
+        farmerLatitude: gps.latitude,
+        farmerLongitude: gps.longitude,
+        farmerGpsAccuracy: gps.accuracy,
+        farmerGpsCapturedAt: gps.capturedAt,
+      } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       photoKeys: deliveryPhotos.filter(p => p.key).map(p => p.key),
-      photoGpsCoords: deliveryPhotos.map(p => p.gps ? { lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : null),
+      // Filter both arrays identically so optional empty slots never associate
+      // a later photo with the wrong coordinate in the portal.
+      photoGpsCoords: deliveryPhotos.filter(p => p.key).map(p => p.gps ? { label: p.label, lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : { label: p.label }),
       ...(facePhotoKey ? { facePhotoKey } : {}),
       ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
     };
@@ -677,11 +688,26 @@ export default function ConfirmPodScreen() {
     );
   };
 
+  if (!dispatchId || !Number.isInteger(Number(dispatchId)) || Number(dispatchId) <= 0) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 24 }]}>
+        <Feather name="alert-triangle" size={36} color={colors.warning} />
+        <Text style={[styles.farmerName, { color: colors.foreground, textAlign: "center", marginTop: 16 }]}>Choose an assigned dispatch first</Text>
+        <Text style={[styles.farmerCode, { color: colors.mutedForeground, textAlign: "center", marginTop: 8 }]}>PoD records require a dispatch so the campaign, farmer eligibility, items, and GPS vehicle can be verified.</Text>
+        <TouchableOpacity style={[styles.submitBtn, { backgroundColor: colors.primary, borderRadius: colors.radius, marginTop: 20 }]} onPress={() => router.replace("/(tabs)/distributions")}>
+          <Text style={styles.submitBtnText}>View Dispatches</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // STEP 4 — Result (GPS verification outcome)
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "result" && submittedPod) {
     const gpsStatus = submittedPod.gpsStatus;
+    const vehicleGpsStatus = submittedPod.vehicleGpsStatus ?? submittedPod.vehicleGpsSnapshot?.status ?? "Pending";
+    const vehicleDistanceM = submittedPod.vehicleGpsSnapshot?.distanceM;
     const gpsCfg: Record<string, { icon: "map-pin" | "alert-triangle" | "wifi-off" | "clock"; title: string; desc: string; colorKey: "success" | "warning" | "mutedForeground" }> = {
       Verified:   { icon: "map-pin",       title: "Location Verified",     desc: "Delivery confirmed within the expected distribution zone.",          colorKey: "success"          },
       Mismatch:   { icon: "alert-triangle", title: "Location Outside Zone", desc: "Delivery recorded outside the expected area — flagged for review.", colorKey: "warning"          },
@@ -739,6 +765,7 @@ export default function ConfirmPodScreen() {
             { icon: "image" as const,    label: "Photos",     val: `${((submittedPod as any).photoKeys?.length ?? 0)} captured`, ok: ((submittedPod as any).photoKeys?.length ?? 0) >= 5 },
             { icon: "camera" as const,   label: "Face ID",    val: submittedPod.faceStatus ?? "—", ok: faceOk },
             { icon: "map-pin" as const,  label: "GPS",        val: gpsStatus ?? "Pending",          ok: gpsStatus === "Verified" },
+            { icon: "truck" as const,    label: "Vehicle GPS", val: `${vehicleGpsStatus}${vehicleDistanceM != null ? ` · ${vehicleDistanceM} m` : ""}`, ok: vehicleGpsStatus === "Matched" },
           ].map(({ icon, label, val, ok }) => (
             <View key={label} style={resultStyles.summaryRow}>
               <Feather name={icon} size={14} color={ok ? colors.success : colors.mutedForeground} />
@@ -1035,15 +1062,6 @@ export default function ConfirmPodScreen() {
           )}
 
           <View style={[styles.actions, { flexWrap: "wrap" }]}>
-            <TouchableOpacity
-              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-              onPress={() => doSubmit("Bypassed", "Bypassed", true)}
-              disabled={sendingOtp || submitting || (!!dispatchId && (!dispatchItemsResolved || dispatchLoadError || dispatchItems.length === 0))}
-              activeOpacity={0.8}
-            >
-              <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
-            </TouchableOpacity>
             {!otpEnabled && (
               <TouchableOpacity
                 style={[styles.skipOtpBtn, { borderColor: colors.warning + "80", borderRadius: colors.radius }]}
@@ -1595,15 +1613,6 @@ export default function ConfirmPodScreen() {
           )}
 
           <View style={[styles.actions, { flexWrap: "wrap" }]}>
-            <TouchableOpacity
-              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-              onPress={() => doSubmit("Bypassed", "Bypassed", true)}
-              disabled={verifying || submitting}
-              activeOpacity={0.8}
-            >
-              <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
-            </TouchableOpacity>
             {(smsDeliveryFailed || !otpEnabled) && (
               <TouchableOpacity
                 style={[styles.skipOtpBtn, { borderColor: colors.warning + "80", borderRadius: colors.radius }]}
@@ -1834,15 +1843,6 @@ export default function ConfirmPodScreen() {
           {/* Actions */}
           <View style={styles.actions}>
             <TouchableOpacity
-              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", "Bypassed", true)}
-              disabled={anyUploading || submitting}
-              activeOpacity={0.8}
-            >
-              <Feather name="wifi-off" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Save Offline</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.submitBtn, {
                 backgroundColor: requiredUploaded ? colors.primary : colors.muted,
                 borderRadius: colors.radius,
@@ -2042,17 +2042,6 @@ export default function ConfirmPodScreen() {
             >
               <Feather name="alert-triangle" size={16} color={colors.destructive} />
               <Text style={[styles.offlineBtnText, { color: colors.destructive }]}>Override</Text>
-            </TouchableOpacity>
-          )}
-          {!facePhotoUri && !faceLoading && (
-            <TouchableOpacity
-              style={[styles.offlineBtn, { borderColor: colors.border, borderRadius: colors.radius }]}
-              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", "Bypassed")}
-              disabled={submitting}
-              activeOpacity={0.8}
-            >
-              <Feather name="skip-forward" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.offlineBtnText, { color: colors.mutedForeground }]}>Skip</Text>
             </TouchableOpacity>
           )}
           {(faceVerified || faceNoReference) && (

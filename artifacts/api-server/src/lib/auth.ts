@@ -6,12 +6,17 @@ import { supa } from "./supabase.js";
 
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === "production") {
-    throw new Error("SESSION_SECRET environment variable must be set in production");
+    throw new Error(
+      "SESSION_SECRET environment variable must be set in production",
+    );
   }
   // eslint-disable-next-line no-console
-  console.warn("[auth] SESSION_SECRET not set — using a temporary random development secret.");
+  console.warn(
+    "[auth] SESSION_SECRET not set — using a temporary random development secret.",
+  );
 }
-const JWT_SECRET = process.env.SESSION_SECRET ?? randomBytes(32).toString("hex");
+const JWT_SECRET =
+  process.env.SESSION_SECRET ?? randomBytes(32).toString("hex");
 
 export interface JwtPayload {
   userId: number;
@@ -39,7 +44,8 @@ export function generateProxyUploadUrl(key: string, req: Request): string {
 
   // Priority: x-forwarded-host (reverse proxy) → REPLIT_DOMAINS (deployment) → host header
   const fwdHost = req.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const fwdProto = req.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "https";
+  const fwdProto =
+    req.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "https";
 
   let host: string;
   let proto: string;
@@ -54,7 +60,7 @@ export function generateProxyUploadUrl(key: string, req: Request): string {
       proto = "https";
     } else {
       host = req.get("host") ?? "localhost";
-      proto = (req.protocol ?? "http");
+      proto = req.protocol ?? "http";
     }
   }
 
@@ -69,7 +75,10 @@ export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
-export function comparePassword(password: string, hash: string): Promise<boolean> {
+export function comparePassword(
+  password: string,
+  hash: string,
+): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
@@ -77,7 +86,13 @@ declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
-      supabaseUser?: { id: string; email: string; role: string; isActive: boolean };
+      supabaseUser?: {
+        id: string;
+        email: string;
+        role: string;
+        isActive: boolean;
+        districtId?: number | null;
+      };
     }
   }
 }
@@ -86,7 +101,9 @@ function isEnabled(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
-async function loadActiveLegacyUser(payload: JwtPayload): Promise<JwtPayload | null> {
+async function loadActiveLegacyUser(
+  payload: JwtPayload,
+): Promise<JwtPayload | null> {
   const { data, error } = await supa
     .from("users")
     .select("username,role,district_id,is_active")
@@ -102,15 +119,25 @@ async function loadActiveLegacyUser(payload: JwtPayload): Promise<JwtPayload | n
   };
 }
 
-async function loadActiveProfile(id: string): Promise<{ role: string; isActive: boolean } | null> {
+async function loadActiveProfile(
+  id: string,
+): Promise<{
+  role: string;
+  isActive: boolean;
+  districtId?: number | null;
+} | null> {
   const { data, error } = await supa
     .from("profiles")
-    .select("role,is_active")
+    .select("role,is_active,district_id")
     .eq("id", id)
     .maybeSingle();
 
   if (error || !data || !isEnabled((data as any).is_active)) return null;
-  return { role: (data as any).role ?? "Viewer", isActive: true };
+  return {
+    role: (data as any).role ?? "Viewer",
+    isActive: true,
+    districtId: (data as any).district_id ?? null,
+  };
 }
 
 async function attachSupabaseUser(
@@ -120,34 +147,53 @@ async function attachSupabaseUser(
 ): Promise<boolean> {
   const profile = await loadActiveProfile(user.id);
   if (!profile) {
-    res.status(403).json({ error: "Forbidden", message: "Account is inactive or has no application profile" });
+    res
+      .status(403)
+      .json({
+        error: "Forbidden",
+        message: "Account is inactive or has no application profile",
+      });
     return false;
   }
   req.supabaseUser = { id: user.id, email: user.email ?? "", ...profile };
   return true;
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Unauthorized", message: "Missing or invalid token" });
+    res
+      .status(401)
+      .json({ error: "Unauthorized", message: "Missing or invalid token" });
     return;
   }
   const token = authHeader.slice(7);
   try {
     const activeUser = await loadActiveLegacyUser(verifyToken(token));
     if (!activeUser) {
-      res.status(403).json({ error: "Forbidden", message: "Account is inactive" });
+      res
+        .status(403)
+        .json({ error: "Forbidden", message: "Account is inactive" });
       return;
     }
     req.user = activeUser;
     next();
   } catch {
-    res.status(401).json({ error: "Unauthorized", message: "Token expired or invalid" });
+    res
+      .status(401)
+      .json({ error: "Unauthorized", message: "Token expired or invalid" });
   }
 }
 
-export async function requireSupabaseAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireSupabaseAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Unauthorized" });
@@ -171,18 +217,26 @@ export async function requireSupabaseAuth(req: Request, res: Response, next: Nex
       },
     });
     if (!resp.ok) {
-      res.status(401).json({ error: "Unauthorized", message: "Invalid Supabase token" });
+      res
+        .status(401)
+        .json({ error: "Unauthorized", message: "Invalid Supabase token" });
       return;
     }
     const user = (await resp.json()) as { id: string; email?: string | null };
     if (!(await attachSupabaseUser(req, res, user))) return;
     next();
   } catch {
-    res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
+    res
+      .status(401)
+      .json({ error: "Unauthorized", message: "Token verification failed" });
   }
 }
 
-export async function requireAnyAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAnyAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Unauthorized", message: "Missing token" });
@@ -193,7 +247,9 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
   try {
     const activeUser = await loadActiveLegacyUser(verifyToken(token));
     if (!activeUser) {
-      res.status(403).json({ error: "Forbidden", message: "Account is inactive" });
+      res
+        .status(403)
+        .json({ error: "Forbidden", message: "Account is inactive" });
       return;
     }
     req.user = activeUser;
@@ -213,20 +269,28 @@ export async function requireAnyAuth(req: Request, res: Response, next: NextFunc
     const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
     });
-    if (!resp.ok) { res.status(401).json({ error: "Unauthorized" }); return; }
+    if (!resp.ok) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
     const user = (await resp.json()) as { id: string; email?: string | null };
     if (!(await attachSupabaseUser(req, res, user))) return;
     next();
   } catch {
-    res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
+    res
+      .status(401)
+      .json({ error: "Unauthorized", message: "Token verification failed" });
   }
 }
 
 export function requireRoles(...roles: string[]) {
-  const normalised = roles.map(r => r.toLowerCase());
+  const normalise = (role: string) => role.toLowerCase().replace(/[\s_-]/g, "");
+  const normalised = roles.map(normalise);
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || !normalised.includes(req.user.role.toLowerCase())) {
-      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
+    if (!req.user || !normalised.includes(normalise(req.user.role))) {
+      res
+        .status(403)
+        .json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }
     next();
@@ -234,11 +298,14 @@ export function requireRoles(...roles: string[]) {
 }
 
 export function requireRoleIfJwt(...roles: string[]) {
-  const normalised = roles.map(r => r.toLowerCase());
+  const normalise = (role: string) => role.toLowerCase().replace(/[\s_-]/g, "");
+  const normalised = roles.map(normalise);
   return (req: Request, res: Response, next: NextFunction): void => {
     const role = req.user?.role ?? req.supabaseUser?.role;
-    if (!role || !normalised.includes(role.toLowerCase())) {
-      res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
+    if (!role || !normalised.includes(normalise(role))) {
+      res
+        .status(403)
+        .json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }
     next();

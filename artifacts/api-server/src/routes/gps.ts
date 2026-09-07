@@ -172,7 +172,7 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
     return v == null || !Number.isFinite(n) ? null : n;
   };
 
-  const { error: trackErr } = await supa.from("gps_track").insert({
+  const trackRecord = {
     vehicle_id:  vehicleId,
     dispatch_id: Number.isFinite(dispatchId as number) ? dispatchId : null,
     latitude:    lat,
@@ -180,8 +180,14 @@ router.post("/api/gps/ping", requireAnyAuth, async (req, res) => {
     speed:       numOrNull(speed),
     heading:     numOrNull(heading),
     accuracy:    numOrNull(accuracy),
+    source:      "mobile",
     recorded_at: new Date().toISOString(),
-  });
+  };
+  let { error: trackErr } = await supa.from("gps_track").insert(trackRecord);
+  if (trackErr && /source/i.test(trackErr.message) && /column|schema cache/i.test(trackErr.message)) {
+    const { source: _source, ...legacyTrackRecord } = trackRecord;
+    ({ error: trackErr } = await supa.from("gps_track").insert(legacyTrackRecord));
+  }
   // Surface storage failures instead of reporting success on a dropped ping.
   if (trackErr) {
     console.error("GPS ping: failed to insert gps_track:", trackErr);
@@ -337,7 +343,7 @@ router.post("/api/gps/retranslator", async (req, res) => {
       return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
     })();
 
-    const { error: insErr } = await supa.from("gps_track").insert({
+    const trackRecord = {
       vehicle_id:  vehicleId,
       dispatch_id: (activeDispatch as any)?.id ?? null,
       latitude:    lat,
@@ -345,8 +351,14 @@ router.post("/api/gps/retranslator", async (req, res) => {
       speed:       numOrNull(e?.speed),
       heading:     numOrNull(e?.heading ?? e?.course),
       accuracy:    numOrNull(e?.accuracy),
+      source:      "hardware",
       recorded_at: recordedIso,
-    });
+    };
+    let { error: insErr } = await supa.from("gps_track").insert(trackRecord);
+    if (insErr && /source/i.test(insErr.message) && /column|schema cache/i.test(insErr.message)) {
+      const { source: _source, ...legacyTrackRecord } = trackRecord;
+      ({ error: insErr } = await supa.from("gps_track").insert(legacyTrackRecord));
+    }
     if (insErr) { console.error("GPS retranslator: insert failed:", insErr); skipped.push(`${deviceId}: store failed`); continue; }
 
     await supa.from("vehicles")

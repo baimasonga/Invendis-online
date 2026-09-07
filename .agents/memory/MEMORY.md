@@ -5,10 +5,10 @@
 - [Allocation counter](allocation-counter.md) — campaigns.allocated_farmers must be recounted after every allocation insert/bulk-insert.
 - [Beneficiary types](beneficiary-types.md) — farmers table supports individual/group via beneficiary_type + group_size; group name stored in farmer_group column.
 - [GIS Road Mapping exports](gis-road-mapping.md) — GeoJSON/KML/GPX export requires authenticated fetch + blob download (not direct <a href>) since /api/gis/export/* uses requireAnyAuth.
-- [Stuck PK sequences](stuck-pk-sequences.md) — Every table insert must compute MAX(id)+1 explicitly; never rely on the PG sequence (stuck after seed imports).
+- [PK sequence safety](stuck-pk-sequences.md) — use database-generated IDs; any explicit-ID import must repair its sequence in the same migration.
 - [PostgREST stale INSERT cache](pgrst-insert-cache.md) — If supa INSERT fails "column not found in schema cache" but SELECT works, omit the column (use DB default) then UPDATE immediately after.
 - [pool export location](pool-export.md) — `pool` (pg Pool) is exported from `artifacts/api-server/src/lib/supabase.ts`, NOT from `db.ts`. Import as `{ pool, supa } from "../lib/supabase.js"`.
-- [EAS build setup](eas-build-setup.md) — EXPO_TOKEN = amadu-bangura account; project invendis-app / 1aab4d73; package com.medbangz.fieldapp; git shim required.
+- [EAS build setup](eas-build-setup.md) — EAS CLI needs a temporary Git shim in Replit because its normal archive command is blocked.
 - [field-app native module crashes](field-app-native-crashes.md) — expo-secure-store v56 incompatible with SDK 54; AuthContext must use AsyncStorage not SecureStore; all unused native modules removed.
 - [fieldOfficerId is INTEGER](field-officer-id-type.md) — dispatches.field_officer_id is an INTEGER FK to users.id; NOT UUID. Always Number() when inserting, listFieldOfficers() queries users table.
 - [pool connects to wrong database](pool-wrong-db.md) — DATABASE_URL/pool = Replit local PostgreSQL (empty); NEVER use pool for app data; all data ops must use supa.
@@ -16,3 +16,5 @@
 - [EAS lockfile rule](eas-lockfile-rule.md) — After any package.json change, run pnpm install + push pnpm-lock.yaml BEFORE triggering EAS build, or it fails with ERR_PNPM_OUTDATED_LOCKFILE.
 - [AWS S3 bucket region](aws-s3-region.md) — invendimages is in us-east-1 (not eu-west-2); wrong region → 301 on PUT; 403 → missing AmazonS3FullAccess on invendis-edge-system.
 - [S3 presigned URL — React Native blob upload](s3-presigned-url-react-native.md) — Never sign ContentType in PutObjectCommand for RN clients; blob body overrides explicit header → SignatureDoesNotMatch. Also: bucket needs CORS configured for direct uploads.
+- [Supabase security-definer execution](supabase-security-definer-execute.md) — Server-only RPCs must revoke default PUBLIC execution before granting service_role.
+- [Applied migrations are immutable](applied-migrations-immutable.md) — Never fix an already-applied migration in place; ship a later forward migration and test the ordered chain.
