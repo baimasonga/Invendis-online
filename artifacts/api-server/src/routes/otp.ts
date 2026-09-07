@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { createHash, randomBytes } from "crypto";
 import { supa } from "../lib/supabase.js";
-import { beneficiaryEntitlement, entitlementText } from "../lib/entitlements.js";
+import {
+  DELIVERABLE_ALLOCATION_STATUSES,
+  beneficiaryEntitlement,
+  entitlementText,
+} from "../lib/entitlements.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
@@ -47,7 +51,7 @@ async function canUseFarmerOnDispatch(
     .select("id")
     .eq("campaign_id", (data as any).campaign_id)
     .eq("farmer_id", farmerId)
-    .in("status", ["Approved", "Pending"])
+    .in("status", DELIVERABLE_ALLOCATION_STATUSES)
     .limit(1)
     .maybeSingle();
   return !!allocation;

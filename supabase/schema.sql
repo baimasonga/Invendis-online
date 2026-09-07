@@ -456,12 +456,22 @@ CREATE TABLE IF NOT EXISTS pod (
   farmer_id           integer NOT NULL REFERENCES farmers(id),
   campaign_id         integer NOT NULL REFERENCES campaigns(id),
   dispatch_id         integer REFERENCES dispatches(id),
-  field_officer_id    uuid REFERENCES profiles(id),
+  -- submit_pod_atomic writes the integer operational user id, not a profile.
+  field_officer_id    integer REFERENCES users(id),
   -- Legacy single-item fields, still read by the atomic routines as a fallback
   -- when a PoD carries no pod_items rows.
   input_item_id       integer REFERENCES input_items(id),
+  input_barcode       text,
   quantity_delivered  double precision,
+  -- Verification evidence written by submit_pod_atomic.
+  otp_verified        boolean NOT NULL DEFAULT false,
+  otp_code            text,
+  face_photo_key      text,
+  face_similarity     double precision,
+  photo_keys          jsonb,
+  photo_gps_coords    jsonb,
   vehicle_gps_snapshot jsonb,
+  override_reason     text,
   otp_status          text DEFAULT 'Pending',
   face_status         text DEFAULT 'Pending',
   gps_status          text DEFAULT 'Pending',

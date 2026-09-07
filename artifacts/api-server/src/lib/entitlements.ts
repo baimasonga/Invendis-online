@@ -1,57 +1,9 @@
 import { supa } from "./supabase.js";
+import { computeEntitlement, type EntitlementLine } from "./entitlement-rules.js";
 
-export const ALLOCATION_BASES = [
-  "per_beneficiary",
-  "per_member",
-  "per_hectare",
-] as const;
-export type AllocationBasis = (typeof ALLOCATION_BASES)[number];
-
-export function normaliseBasis(raw: unknown): AllocationBasis | null {
-  if (raw === undefined || raw === null || raw === "") return "per_beneficiary";
-  const value = String(raw).trim().toLowerCase().replace(/[\s-]/g, "_");
-  return (ALLOCATION_BASES as readonly string[]).includes(value)
-    ? (value as AllocationBasis)
-    : null;
-}
-
-export interface EntitlementLine {
-  inputItemId: number;
-  name: string | null;
-  itemCode: string | null;
-  unit: string | null;
-  basis: string;
-  rate: number;
-  quantityEntitled: number;
-  quantityDelivered: number;
-  isOverridden: boolean;
-  /** True when derived on the fly because the campaign has no stored lines yet. */
-  provisional: boolean;
-}
-
-/**
- * Mirrors public.allocation_entitlement. Returns null when the beneficiary is
- * missing the figure the basis depends on, which is the same case the database
- * refuses to reserve stock for.
- */
-export function computeEntitlement(
-  basis: string,
-  rate: number,
-  beneficiaryType: string | null,
-  groupSize: number | null,
-  farmSize: number | null,
-): number | null {
-  if (!Number.isFinite(rate) || rate <= 0) return null;
-  if (basis === "per_beneficiary") return rate;
-  if (basis === "per_member") {
-    const members = beneficiaryType === "group" ? groupSize : 1;
-    return members && members > 0 ? rate * members : null;
-  }
-  if (basis === "per_hectare") {
-    return farmSize && farmSize > 0 ? rate * farmSize : null;
-  }
-  return null;
-}
+// The decision rules live next door, free of any database import, so they can
+// be unit tested; re-exported here so callers still need only one module.
+export * from "./entitlement-rules.js";
 
 async function inputItemMap(ids: number[]) {
   if (!ids.length) return {} as Record<number, any>;
@@ -166,13 +118,23 @@ export async function beneficiaryEntitlement(
   return lines.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
-/** "Hoe 20 piece, NPK Fertiliser 8 bag" — what the beneficiary is actually owed. */
-export function entitlementText(lines: EntitlementLine[]): string {
-  return lines
-    .filter((line) => line.name)
-    .map(
-      (line) =>
-        `${line.name} ${line.quantityEntitled}${line.unit ? ` ${line.unit}` : ""}`,
-    )
-    .join(", ");
+/** True when the beneficiary's allocation carries materialised entitlement lines. */
+export async function hasTrackedEntitlement(
+  campaignId: number,
+  farmerId: number,
+): Promise<boolean> {
+  const { data: allocation } = await supa
+    .from("allocations")
+    .select("id")
+    .eq("campaign_id", campaignId)
+    .eq("farmer_id", farmerId)
+    .neq("status", "Cancelled")
+    .limit(1)
+    .maybeSingle();
+  if (!allocation) return false;
+  const { count } = await supa
+    .from("allocation_items")
+    .select("id", { count: "exact", head: true })
+    .eq("allocation_id", (allocation as any).id);
+  return (count ?? 0) > 0;
 }

@@ -7,6 +7,11 @@ import {
   requireRoleIfJwt,
 } from "../lib/auth.js";
 import { ensureIntegerUserId } from "../lib/users.js";
+import {
+  DELIVERABLE_ALLOCATION_STATUSES,
+  classifyDuplicateDelivery,
+  hasTrackedEntitlement,
+} from "../lib/entitlements.js";
 import { logAudit } from "../lib/audit.js";
 import { createHash, randomBytes } from "crypto";
 import {
@@ -81,14 +86,6 @@ async function resolveUserId(
 }
 
 const router = Router();
-
-// A partially delivered allocation still has something owed, so it must stay
-// eligible for the follow-up delivery that closes it.
-const DELIVERABLE_ALLOCATION_STATUSES = [
-  "Approved",
-  "Pending",
-  "Partially Delivered",
-] as const;
 
 function haversineMeters(
   lat1: number,
@@ -896,17 +893,26 @@ router.post(
         vehicleGpsStatus,
     };
 
-    // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
+    // Classify duplicate deliveries. Where entitlements are tracked an earlier
+    // Verified PoD is the first half of a split delivery, not a duplicate, and
+    // flagging it would make the balance unapprovable.
     if (body.farmer_id && campaignId) {
-      const { data: dupCheck } = await supa
-        .from("pod")
-        .select("id")
-        .eq("farmer_id", body.farmer_id)
-        .eq("campaign_id", campaignId)
-        .in("status", ["Verified", "Pending"])
-        .neq("id", podRow.id as number)
-        .limit(1);
-      if (dupCheck && dupCheck.length > 0) {
+      const [{ data: dupCheck }, entitlementTracked] = await Promise.all([
+        supa
+          .from("pod")
+          .select("id")
+          .eq("farmer_id", body.farmer_id)
+          .eq("campaign_id", campaignId)
+          .in("status", ["Verified", "Pending"])
+          .neq("id", podRow.id as number)
+          .limit(1),
+        hasTrackedEntitlement(campaignId, Number(body.farmer_id)),
+      ]);
+      const isDuplicate = classifyDuplicateDelivery({
+        entitlementTracked,
+        hasOtherActivePod: (dupCheck ?? []).length > 0,
+      });
+      if (isDuplicate) {
         await supa
           .from("pod")
           .update({ duplicate_flag: true })
