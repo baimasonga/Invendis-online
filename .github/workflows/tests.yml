@@ -1,0 +1,75 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit and database regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Fail rather than skip if PostgreSQL is missing, so the build cannot pass
+      # having silently tested nothing. Three suites need a database:
+      # allocation-entitlements.pg, campaign-workflow-db and pod-security.
+      PG_REGRESSION_REQUIRED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # 22, not the 20 the other workflows pin: pnpm test runs the TypeScript
+      # tests through --experimental-strip-types, which needs Node 22.6+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The database suites each start their own throwaway cluster rather than
+      # sharing one, so they need the server binaries, not just a client — which
+      # rules out a service container. Debian puts initdb, pg_ctl and postgres
+      # under /usr/lib/postgresql/<version>/bin and only symlinks psql into
+      # /usr/bin, so that directory goes on PATH explicitly. Without it the
+      # suites detect no PostgreSQL and skip.
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql
+          PGBIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          echo "$PGBIN" >> "$GITHUB_PATH"
+          "$PGBIN/postgres" --version
+
+      - name: Verify the server binaries are reachable
+        run: |
+          for bin in initdb pg_ctl postgres psql; do
+            command -v "$bin" >/dev/null || { echo "$bin missing from PATH"; exit 1; }
+          done
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build composite libs
+        run: pnpm run typecheck:libs
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Tests" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "Node tests and the SQL regression suites passed against PostgreSQL." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Failed — see the log above." >> "$GITHUB_STEP_SUMMARY"
+          fi

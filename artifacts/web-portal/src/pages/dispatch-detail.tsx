@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listAllPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -144,7 +144,8 @@ export default function DispatchDetail() {
   });
   const { data: podData } = useQuery({
     queryKey: KEYS.pod(undefined, id),
-    queryFn: () => listPod(1, 100, id),
+    // Paged in full: the manifest report and totals must not stop at 100 rows.
+    queryFn: () => listAllPod(id),
     enabled: !!id,
   });
 
@@ -252,7 +253,7 @@ export default function DispatchDetail() {
     if (!dispatch) return;
     const d = dispatch as any;
     const items: any[] = d.items ?? [];
-    const podList: any[] = (podData as any)?.data ?? [];
+    const podList: any[] = (podData as any) ?? [];
 
     const verified  = podList.filter((p: any) => p.status === "Verified" || p.status === "Approved").length;
     const pending   = podList.filter((p: any) => p.status === "Pending").length;
@@ -571,7 +572,7 @@ export default function DispatchDetail() {
   const d = dispatch as any;
   const status = (d.status ?? "").toLowerCase().replace(/\s+/g, "");
   const items: any[] = d.items ?? [];
-  const pods: any[] = (podData as any)?.data ?? [];
+  const pods: any[] = (podData as any) ?? [];
   const canAddItems = status === "draft" || status === "pending" || status === "approved";
   const canRecordDelivery = status === "arrived" || status === "completed";
 

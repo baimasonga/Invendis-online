@@ -55,15 +55,25 @@ async function intUid(): Promise<number | null> {
   const email = await sessionEmail();
   if (!email) return null;
   if (_intUidCache?.email === email) return _intUidCache.id;
-  const { data, error } = await supabase
-    .from("users")
-    .select("id")
-    .eq("email", email)
-    .limit(1)
-    .single();
-  if (error || !data) return null;
-  _intUidCache = { email, id: (data as any).id as number };
-  return _intUidCache.id;
+  // A portal-only account has no integer users row until the server provisions
+  // one, so ask the API (which creates it on first use) before falling back to
+  // a direct lookup.
+  let id: number | null = null;
+  try {
+    const me = await apiGet("/api/users/me/integer-id");
+    id = Number(me?.id) || null;
+  } catch {
+    const { data } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+    id = (data as any)?.id ?? null;
+  }
+  if (id == null) return null;
+  _intUidCache = { email, id };
+  return id;
 }
 
 export function logAudit(
@@ -73,22 +83,18 @@ export function logAudit(
   entityType?: string,
   entityId?: number,
 ): void {
-  // Fire-and-forget — never block the caller or throw
-  Promise.all([intUid(), sessionEmail()])
-    .then(([userId, email]) =>
-      supabase.from("audit_logs").insert({
-        user_id: userId,
-        username: email,
-        action,
-        module,
-        description,
-        entity_type: entityType ?? null,
-        entity_id: entityId ?? null,
-      }),
-    )
-    .catch(() => {
-      /* audit failures are non-fatal */
-    });
+  // Fire-and-forget — never block the caller or throw. Browser sessions cannot
+  // insert into audit_logs directly (INSERT is revoked for the authenticated
+  // role), so the entry is recorded through the API.
+  apiPost("/api/audit", {
+    action,
+    module,
+    description,
+    entityType,
+    entityId,
+  }).catch(() => {
+    /* audit failures are non-fatal */
+  });
 }
 
 async function throwOnError<T>(
@@ -111,6 +117,16 @@ async function lookupMap(
 }
 
 // ── QUERY KEYS ──────────────────────────────────────────────────────────────
+// Trailing undefined parameters are dropped so a bare factory call such as
+// KEYS.farmers() yields ["farmers"] and partially matches every farmers query.
+// TanStack treats an explicit undefined element as a value, so a padded key
+// like ["farmers", undefined, ...] would never match ["farmers", 1, "pending"].
+function k(...parts: unknown[]): unknown[] {
+  let end = parts.length;
+  while (end > 1 && parts[end - 1] === undefined) end--;
+  return parts.slice(0, end);
+}
+
 export const KEYS = {
   dashboard: () => ["dashboard"],
   alertCounts: () => ["alert-counts"],
@@ -120,12 +136,14 @@ export const KEYS = {
     status?: string,
     districtId?: number,
     beneficiaryType?: string,
-  ) => ["farmers", page, search, status, districtId, beneficiaryType],
+  ) => k("farmers", page, search, status, districtId, beneficiaryType),
   farmer: (id: number) => ["farmer", id],
-  campaigns: (page?: number) => ["campaigns", page],
+  campaigns: (page?: number) => k("campaigns", page),
   campaign: (id: number) => ["campaign", id],
-  allocations: (page?: number, cId?: number) => ["allocations", page, cId],
-  inventory: () => ["inventory"],
+  allocations: (page?: number, cId?: number) => k("allocations", page, cId),
+  // The input-item catalogue is shared by the inventory, settings, campaign and
+  // manifest screens; they must all read and invalidate the same cache entry.
+  inventory: () => ["input-items"],
   stockBalance: () => ["stock-balance"],
   procurement: () => ["procurement"],
   vehicles: () => ["vehicles"],
@@ -137,29 +155,18 @@ export const KEYS = {
     status?: string,
     manifestCode?: string,
     showArchived?: boolean,
-  ) => ["dispatches", page, fieldOfficerId, status, manifestCode, showArchived],
+  ) => k("dispatches", page, fieldOfficerId, status, manifestCode, showArchived),
   dispatch: (id: number) => ["dispatch", id],
-  pod: (page?: number, dId?: number, status?: string) => [
-    "pod",
-    page,
-    dId,
-    status,
-  ],
+  pod: (page?: number, dId?: number, status?: string) =>
+    k("pod", page, dId, status),
   podStats: () => ["pod-stats"],
   reconciliations: () => ["reconciliations"],
-  reports: (type: string, from?: string, to?: string) => [
-    "reports",
-    type,
-    from,
-    to,
-  ],
-  incidents: (page?: number, status?: string) => ["incidents", page, status],
-  auditLogs: (page?: number, filters?: Record<string, any>) => [
-    "audit-logs",
-    page,
-    filters,
-  ],
-  auditStats: (days?: number) => ["audit-stats", days],
+  reports: (type: string, from?: string, to?: string) =>
+    k("reports", type, from, to),
+  incidents: (page?: number, status?: string) => k("incidents", page, status),
+  auditLogs: (page?: number, filters?: Record<string, any>) =>
+    k("audit-logs", page, filters),
+  auditStats: (days?: number) => k("audit-stats", days),
   auditSiem: () => ["audit-siem-events"],
   consolidation: (opts?: Record<string, any>) => ["consolidation-report", opts],
   meReport: () => ["me-report"],
@@ -167,10 +174,12 @@ export const KEYS = {
   users: () => ["users"],
   fieldOfficers: () => ["field-officers"],
   districts: () => ["districts"],
-  chiefdoms: (districtId?: number) => ["chiefdoms", districtId],
+  chiefdoms: (districtId?: number) => k("chiefdoms", districtId),
   valueChains: () => ["value-chains"],
   warehouses: () => ["warehouses"],
   distributionSites: () => ["distribution-sites"],
+  itemTemplates: () => ["item-templates"],
+  campaignEntitlements: (campaignId?: number) => k("campaign-entitlements", campaignId),
   inputItems: () => ["input-items"],
   systemSettings: () => ["system-settings"],
   farmerTypeCounts: () => ["farmer-type-counts"],
@@ -554,9 +563,15 @@ export async function listFarmers(
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
-  if (search)
+  // Commas, parentheses and quotes are PostgREST filter delimiters; a raw term
+  // containing them makes the whole request fail with a 400.
+  const term = (search ?? "")
+    .replace(/[,()"'\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (term)
     q = q.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,farmer_code.ilike.%${search}%,farmer_group.ilike.%${search}%`,
+      `first_name.ilike.%${term}%,last_name.ilike.%${term}%,farmer_code.ilike.%${term}%,farmer_group.ilike.%${term}%`,
     );
   if (status) q = q.eq("status", status);
   if (districtId) q = q.eq("district_id", districtId);
@@ -835,14 +850,30 @@ export async function updateCampaign(id: number, payload: any) {
   });
 }
 
+/** How a package line's rate is read against the beneficiary. */
+export type AllocationBasis = "per_beneficiary" | "per_member" | "per_hectare";
+
+export const ALLOCATION_BASIS_LABELS: Record<AllocationBasis, string> = {
+  per_beneficiary: "Per beneficiary",
+  per_member: "Per group member",
+  per_hectare: "Per hectare",
+};
+
+export interface ItemTemplateLineInput {
+  inputItemId: number;
+  quantity: number;
+  basis: AllocationBasis;
+}
+
 export async function addCampaignItem(
   campaignId: number,
   inputItemId: number,
   quantityPerFarmer: number,
+  basis: AllocationBasis = "per_beneficiary",
 ) {
   return campaignApi(`/api/campaigns/${campaignId}/items`, {
     method: "POST",
-    body: JSON.stringify({ inputItemId, quantityPerFarmer }),
+    body: JSON.stringify({ inputItemId, quantityPerFarmer, basis }),
   });
 }
 
@@ -850,10 +881,58 @@ export async function updateCampaignItem(
   campaignId: number,
   itemId: number,
   quantityPerFarmer: number,
+  basis: AllocationBasis = "per_beneficiary",
 ) {
   return campaignApi(`/api/campaigns/${campaignId}/items/${itemId}`, {
     method: "PUT",
-    body: JSON.stringify({ quantityPerFarmer }),
+    body: JSON.stringify({ quantityPerFarmer, basis }),
+  });
+}
+
+export async function applyItemTemplate(campaignId: number, templateId: number) {
+  return campaignApi(`/api/campaigns/${campaignId}/items/apply-template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId }),
+  });
+}
+
+export async function getCampaignEntitlements(campaignId: number) {
+  return apiGet(`/api/campaigns/${campaignId}/entitlements`);
+}
+
+// ── Input package templates ──────────────────────────────────────────────────
+export async function listItemTemplates() {
+  return apiGet("/api/master-data/item-templates");
+}
+
+export async function createItemTemplate(payload: {
+  name: string;
+  description?: string | null;
+  valueChainId?: number | null;
+  lines: ItemTemplateLineInput[];
+}) {
+  return apiPost("/api/master-data/item-templates", payload);
+}
+
+export async function updateItemTemplate(
+  id: number,
+  payload: {
+    name: string;
+    description?: string | null;
+    valueChainId?: number | null;
+    lines: ItemTemplateLineInput[];
+  },
+) {
+  return campaignApi(`/api/master-data/item-templates/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function toggleItemTemplate(id: number, isActive: boolean) {
+  return campaignApi(`/api/master-data/item-templates/${id}/toggle`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
   });
 }
 
@@ -1670,6 +1749,42 @@ export async function listPod(
     })),
     total: count ?? 0,
   };
+}
+
+// Supabase caps a single request at 1000 rows, so exports and full-dispatch
+// views must page through the data rather than request one oversized page.
+const EXPORT_PAGE_SIZE = 1000;
+async function fetchAllPages<T>(
+  fetchPage: (
+    page: number,
+    limit: number,
+  ) => Promise<{ data: T[]; total: number }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page++) {
+    const { data, total } = await fetchPage(page, EXPORT_PAGE_SIZE);
+    rows.push(...data);
+    if (data.length < EXPORT_PAGE_SIZE || rows.length >= total) break;
+  }
+  return rows;
+}
+
+export function listAllPod(
+  dispatchId?: number,
+  status?: string,
+  faceStatus?: string,
+) {
+  return fetchAllPages((page, limit) =>
+    listPod(page, limit, dispatchId, status, faceStatus),
+  );
+}
+
+export function listAllIncidents(status?: string) {
+  return fetchAllPages((page, limit) => listIncidents(page, limit, status));
+}
+
+export function listAllAuditLogs(filters: AuditFilters = {}) {
+  return fetchAllPages((page, limit) => listAuditLogs(page, limit, filters));
 }
 
 export async function getPodItems(podId: number) {
@@ -2749,7 +2864,6 @@ export async function deleteUser(profileId: string): Promise<void> {
     const err = await resp.json().catch(() => ({}));
     throw new Error((err as any).error ?? "Failed to delete user");
   }
-  logAudit("DELETE", "Users", `Deleted user ${profileId}`, "user");
 }
 
 export async function resetUserPassword(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -63,15 +63,18 @@ function EditAllocationModal({
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [notes, setNotes] = useState(allocation?.notes ?? "");
+  const [notes, setNotes] = useState("");
   const updateMut = useMutation({
     mutationFn: (payload: { notes?: string }) =>
       updateAllocation(allocation?.id, payload),
   });
 
-  function handleOpen() {
+  // The dialog stays mounted between edits, so state must follow the selected
+  // allocation instead of being seeded once on first mount.
+  useEffect(() => {
+    if (!open) return;
     setNotes(allocation?.notes ?? "");
-  }
+  }, [allocation, open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,7 +99,7 @@ function EditAllocationModal({
         if (!v) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-sm" onAnimationStart={handleOpen}>
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Edit Allocation</DialogTitle>
         </DialogHeader>
@@ -266,35 +269,79 @@ export default function Allocations() {
                       </Link>
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
-                      {(a.campaignItems ?? []).length === 0 ? (
-                        <span className="text-xs text-muted-foreground italic">
-                          None configured
-                        </span>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          {(
-                            a.campaignItems as {
-                              name: string;
-                              itemCode: string;
-                              unit: string;
-                            }[]
-                          ).map((it, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center gap-1.5"
-                            >
-                              <span className="text-sm font-medium leading-tight">
-                                {it.name}
-                              </span>
-                              {it.itemCode && (
-                                <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
-                                  {it.itemCode}
-                                </span>
-                              )}
+                      {(() => {
+                        // Entitlements are this beneficiary's own quantities;
+                        // the campaign package is only a fallback for campaigns
+                        // that have not been submitted yet.
+                        const lines = (a.entitlements ?? []) as {
+                          inputItemId: number;
+                          name: string | null;
+                          unit: string | null;
+                          quantityEntitled: number;
+                          quantityDelivered: number;
+                        }[];
+                        if (lines.length > 0)
+                          return (
+                            <div className="flex flex-col gap-1">
+                              {lines.map((line) => {
+                                const short =
+                                  line.quantityDelivered <
+                                  line.quantityEntitled - 1e-9;
+                                return (
+                                  <div
+                                    key={line.inputItemId}
+                                    className="flex items-center gap-1.5"
+                                  >
+                                    <span className="text-sm font-medium leading-tight">
+                                      {line.name ?? "Item"}
+                                    </span>
+                                    <span className="text-xs tabular-nums text-muted-foreground shrink-0">
+                                      {line.quantityDelivered > 0
+                                        ? `${line.quantityDelivered} / ${line.quantityEntitled}`
+                                        : line.quantityEntitled}
+                                      {line.unit ? ` ${line.unit}` : ""}
+                                    </span>
+                                    {line.quantityDelivered > 0 && short && (
+                                      <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded shrink-0">
+                                        short
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          );
+                        const items = (a.campaignItems ?? []) as {
+                          name: string;
+                          itemCode: string;
+                          unit: string;
+                        }[];
+                        if (items.length === 0)
+                          return (
+                            <span className="text-xs text-muted-foreground italic">
+                              None configured
+                            </span>
+                          );
+                        return (
+                          <div className="flex flex-col gap-1">
+                            {items.map((it, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-1.5"
+                              >
+                                <span className="text-sm font-medium leading-tight">
+                                  {it.name}
+                                </span>
+                                {it.itemCode && (
+                                  <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+                                    {it.itemCode}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                       {a.notes ?? "—"}

@@ -14,6 +14,11 @@ import {
   updateCampaignItem,
   removeCampaignItem,
   listInputItems,
+  listItemTemplates,
+  applyItemTemplate,
+  getCampaignEntitlements,
+  ALLOCATION_BASIS_LABELS,
+  type AllocationBasis,
   KEYS,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,6 +103,19 @@ function DeliveryProgress({
   );
 }
 
+// An undated campaign (common for imported ones) must not render as 1970.
+function formatDate(value?: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+}
+
 function Field({
   label,
   value,
@@ -129,6 +147,8 @@ export default function CampaignDetail() {
   const [selectedInputItemId, setSelectedInputItemId] =
     useState<string>("none");
   const [quantityPerFarmer, setQuantityPerFarmer] = useState("1");
+  const [itemBasis, setItemBasis] = useState<AllocationBasis>("per_beneficiary");
+  const [templateId, setTemplateId] = useState<string>("none");
   const [removeItemTarget, setRemoveItemTarget] = useState<any>(null);
 
   const removeMutation = useMutation({
@@ -174,13 +194,37 @@ export default function CampaignDetail() {
     queryFn: listInputItems,
   });
 
+  const { data: templates } = useQuery({
+    queryKey: KEYS.itemTemplates(),
+    queryFn: listItemTemplates,
+  });
+  const templateList = Array.isArray(templates)
+    ? templates.filter((t: any) => Number(t.isActive) === 1)
+    : [];
+
+  // What approval will actually try to reserve, given each beneficiary's own
+  // group size and farm size.
+  const { data: entitlements } = useQuery({
+    queryKey: KEYS.campaignEntitlements(id),
+    queryFn: () => getCampaignEntitlements(id),
+    enabled: !!id,
+  });
+
+  const entitlementTotals = Array.isArray((entitlements as any)?.totals)
+    ? (entitlements as any).totals
+    : [];
+  const beneficiaryCount = Array.isArray((entitlements as any)?.beneficiaries)
+    ? (entitlements as any).beneficiaries.length
+    : 0;
+
   const addItemMutation = useMutation({
     mutationFn: (inputItemId: number) =>
-      addCampaignItem(id, inputItemId, Number(quantityPerFarmer)),
+      addCampaignItem(id, inputItemId, Number(quantityPerFarmer), itemBasis),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: KEYS.campaign(id) });
+      await refreshItems();
       setSelectedInputItemId("none");
       setQuantityPerFarmer("1");
+      setItemBasis("per_beneficiary");
       toast({ title: "Item added to campaign" });
     },
     onError: (err: any) =>
@@ -194,7 +238,7 @@ export default function CampaignDetail() {
   const removeItemMutation = useMutation({
     mutationFn: (itemId: number) => removeCampaignItem(itemId, id),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: KEYS.campaign(id) });
+      await refreshItems();
       toast({ title: "Item removed" });
       setRemoveItemTarget(null);
     },
@@ -207,11 +251,18 @@ export default function CampaignDetail() {
   });
 
   const updateItemMutation = useMutation({
-    mutationFn: ({ itemId, quantity }: { itemId: number; quantity: number }) =>
-      updateCampaignItem(id, itemId, quantity),
+    mutationFn: ({
+      itemId,
+      quantity,
+      basis,
+    }: {
+      itemId: number;
+      quantity: number;
+      basis: AllocationBasis;
+    }) => updateCampaignItem(id, itemId, quantity, basis),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: KEYS.campaign(id) });
-      toast({ title: "Quantity updated" });
+      await refreshItems();
+      toast({ title: "Package line updated" });
     },
     onError: (err: any) =>
       toast({
@@ -221,9 +272,36 @@ export default function CampaignDetail() {
       }),
   });
 
+  // Changing the package changes every beneficiary's entitlement, so the
+  // campaign and the reservation preview refresh together.
+  async function refreshItems() {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: KEYS.campaign(id) }),
+      qc.invalidateQueries({ queryKey: KEYS.campaignEntitlements(id) }),
+    ]);
+  }
+
+  const applyTemplateMutation = useMutation({
+    mutationFn: (template: number) => applyItemTemplate(id, template),
+    onSuccess: async (result: any) => {
+      await refreshItems();
+      setTemplateId("none");
+      toast({
+        title: "Template applied",
+        description: `${result?.applied ?? 0} item${result?.applied === 1 ? "" : "s"} now make up this campaign's package.`,
+      });
+    },
+    onError: (err: any) =>
+      toast({
+        title: "Failed to apply template",
+        description: err.message,
+        variant: "destructive",
+      }),
+  });
+
   function editItemQuantity(item: any) {
     const entered = window.prompt(
-      "Quantity per farmer:",
+      `Rate for ${item.inputItemName ?? "this item"} (${ALLOCATION_BASIS_LABELS[(item.basis ?? "per_beneficiary") as AllocationBasis]}):`,
       String(item.quantityPerFarmer ?? 1),
     );
     if (entered == null) return;
@@ -236,7 +314,11 @@ export default function CampaignDetail() {
       });
       return;
     }
-    updateItemMutation.mutate({ itemId: item.id, quantity });
+    updateItemMutation.mutate({
+      itemId: item.id,
+      quantity,
+      basis: (item.basis ?? "per_beneficiary") as AllocationBasis,
+    });
   }
 
   async function handleAction(
@@ -452,21 +534,10 @@ export default function CampaignDetail() {
                   />
                   <Field
                     label="Start Date"
-                    value={new Date(c.startDate).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
+                    value={formatDate(c.startDate)}
                     icon={CalendarDays}
                   />
-                  <Field
-                    label="End Date"
-                    value={new Date(c.endDate).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  />
+                  <Field label="End Date" value={formatDate(c.endDate)} />
                   {(c.description ?? c.notes) && (
                     <div className="col-span-2 space-y-1">
                       <p className="text-xs text-muted-foreground">
@@ -610,11 +681,50 @@ export default function CampaignDetail() {
                 Items
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Items configured here appear on every allocation in this
-                campaign.
+                Each line is a rule, not a flat quantity: the rate is multiplied
+                by the beneficiary&rsquo;s group size or farm size, so a group of
+                twenty receives twenty hoes but a single tractor.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Apply a saved package */}
+              {canManageItems && templateList.length > 0 && (
+                <div className="flex gap-2 items-center">
+                  <Select value={templateId} onValueChange={setTemplateId}>
+                    <SelectTrigger className="h-8 text-xs flex-1">
+                      <SelectValue placeholder="Apply a saved package…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" disabled>
+                        Apply a saved package…
+                      </SelectItem>
+                      {templateList.map((template: any) => (
+                        <SelectItem key={template.id} value={String(template.id)}>
+                          {template.name}
+                          {template.valueChainName
+                            ? ` — ${template.valueChainName}`
+                            : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs shrink-0"
+                    disabled={
+                      templateId === "none" || applyTemplateMutation.isPending
+                    }
+                    onClick={() =>
+                      applyTemplateMutation.mutate(Number(templateId))
+                    }
+                    title="Replaces the current items with the template's"
+                  >
+                    Apply
+                  </Button>
+                </div>
+              )}
+
               {/* Add item row */}
               {canManageItems && (
                 <div className="flex gap-2 items-center">
@@ -638,14 +748,36 @@ export default function CampaignDetail() {
                     </SelectContent>
                   </Select>
                   <Input
-                    className="h-8 w-24"
+                    className="h-8 w-20"
                     type="number"
                     min="0.01"
                     step="any"
-                    aria-label="Quantity per farmer"
+                    aria-label="Rate"
                     value={quantityPerFarmer}
                     onChange={(e) => setQuantityPerFarmer(e.target.value)}
                   />
+                  <Select
+                    value={itemBasis}
+                    onValueChange={(value) =>
+                      setItemBasis(value as AllocationBasis)
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-8 text-xs w-40 shrink-0"
+                      aria-label="Basis"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(
+                        Object.keys(ALLOCATION_BASIS_LABELS) as AllocationBasis[]
+                      ).map((basis) => (
+                        <SelectItem key={basis} value={basis}>
+                          {ALLOCATION_BASIS_LABELS[basis]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button
                     size="sm"
                     className="h-8 text-xs bg-green-700 hover:bg-green-800 text-white shrink-0"
@@ -676,7 +808,8 @@ export default function CampaignDetail() {
                     <TableRow className="hover:bg-transparent">
                       <TableHead className="pl-4">Item Name</TableHead>
                       <TableHead>Unit</TableHead>
-                      <TableHead>Per Farmer</TableHead>
+                      <TableHead>Rate</TableHead>
+                      <TableHead>Basis</TableHead>
                       {canManageItems && (
                         <TableHead className="w-[110px] pr-3" />
                       )}
@@ -693,6 +826,11 @@ export default function CampaignDetail() {
                         </TableCell>
                         <TableCell className="text-sm tabular-nums">
                           {ci.quantityPerFarmer ?? 1}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {ALLOCATION_BASIS_LABELS[
+                            (ci.basis ?? "per_beneficiary") as AllocationBasis
+                          ] ?? ci.basis}
                         </TableCell>
                         {canManageItems && (
                           <TableCell className="pr-3 text-right whitespace-nowrap">
@@ -722,6 +860,38 @@ export default function CampaignDetail() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+
+              {/* What approval will try to reserve from the source warehouse. */}
+              {entitlementTotals.length > 0 && (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold">
+                      Total to reserve across {beneficiaryCount} beneficiar
+                      {beneficiaryCount === 1 ? "y" : "ies"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {entitlementTotals.map((total: any) => (
+                      <span
+                        key={total.inputItemId}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {total.name ?? "Item"}{" "}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {Number(total.quantity).toLocaleString()}
+                        </span>
+                        {total.unit ? ` ${total.unit}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    Approval fails if the source warehouse cannot cover these
+                    quantities, or if a beneficiary is missing the group size or
+                    farm size a line depends on.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>

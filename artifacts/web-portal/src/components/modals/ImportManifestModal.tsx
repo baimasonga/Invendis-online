@@ -137,7 +137,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
     queryFn: listFieldOfficers,
   });
   const { data: existingItems } = useQuery({
-    queryKey: ["inputItems"],
+    queryKey: KEYS.inventory(),
     queryFn: listInputItems,
   });
 

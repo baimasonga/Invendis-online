@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { createHash, randomBytes } from "crypto";
 import { supa } from "../lib/supabase.js";
+import {
+  DELIVERABLE_ALLOCATION_STATUSES,
+  beneficiaryEntitlement,
+  entitlementText,
+} from "../lib/entitlements.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
@@ -46,7 +51,7 @@ async function canUseFarmerOnDispatch(
     .select("id")
     .eq("campaign_id", (data as any).campaign_id)
     .eq("farmer_id", farmerId)
-    .in("status", ["Approved", "Pending"])
+    .in("status", DELIVERABLE_ALLOCATION_STATUSES)
     .limit(1)
     .maybeSingle();
   return !!allocation;
@@ -194,11 +199,13 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
     .single();
   const campaignId: number | null = (disp as any)?.campaign_id ?? null;
 
-  // Build item list for SMS:
-  //   If we have a dispatchId → use dispatch_items (actual loaded quantities)
-  //   Fall back to campaign_items (planned quantities per farmer)
-  let itemsText = "";
-  if (rawDispatchId) {
+  // What this beneficiary is owed. The dispatch is only a fallback: its
+  // dispatch_items are the whole truck's load, so quoting them tells one
+  // beneficiary they are receiving everything on board.
+  let itemsText = campaignId
+    ? entitlementText(await beneficiaryEntitlement(campaignId, Number(farmerId)))
+    : "";
+  if (!itemsText && rawDispatchId) {
     const { data: dItems } = await supa
       .from("dispatch_items")
       .select("quantity_loaded, input_item_id")
@@ -214,27 +221,6 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
           const ii = inputMap[i.input_item_id];
           if (!ii) return null;
           const qty = i.quantity_loaded ?? 0;
-          return `${ii.name} ${qty}${ii.unit ? " " + ii.unit : ""}`;
-        })
-        .filter(Boolean)
-        .join(", ");
-    }
-  } else if (campaignId) {
-    const { data: cItems } = await supa
-      .from("campaign_items")
-      .select("quantity_per_farmer, input_item_id")
-      .eq("campaign_id", campaignId);
-    if (cItems?.length) {
-      const itemIds = (cItems as any[]).map(i => i.input_item_id).filter(Boolean);
-      const { data: inputItems } = itemIds.length
-        ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
-        : { data: [] };
-      const inputMap = Object.fromEntries((inputItems ?? []).map((ii: any) => [ii.id, ii]));
-      itemsText = (cItems as any[])
-        .map(i => {
-          const ii = inputMap[i.input_item_id];
-          if (!ii) return null;
-          const qty = i.quantity_per_farmer ?? 1;
           return `${ii.name} ${qty}${ii.unit ? " " + ii.unit : ""}`;
         })
         .filter(Boolean)

@@ -9,6 +9,13 @@ import {
   positiveInteger,
   validateCampaignInput,
 } from "../lib/campaign-rules.js";
+import {
+  ALLOCATION_BASES,
+  beneficiaryEntitlement,
+  entitlementText,
+  entitlementsByAllocation,
+  normaliseBasis,
+} from "../lib/entitlements.js";
 
 const router = Router();
 const CAMPAIGN_MANAGERS = ["Admin", "ProjectManager"] as const;
@@ -213,23 +220,11 @@ async function sendAllocationNotification(
         .maybeSingle();
       communityName = (community as any)?.name ?? "";
     }
-    const itemIds = (cItems ?? []).map((item: any) => item.input_item_id);
-    const { data: inputItems } = itemIds.length
-      ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
-      : { data: [] as any[] };
-    const inputMap = Object.fromEntries(
-      (inputItems ?? []).map((item: any) => [item.id, item]),
-    );
+    // Quantities are per beneficiary, so a group of twenty is told it will
+    // receive twenty hoes rather than the package rate of one.
     const itemsText =
-      (cItems ?? [])
-        .map((item: any) => {
-          const input = inputMap[item.input_item_id];
-          return input
-            ? `${input.name} x${item.quantity_per_farmer}${input.unit ? ` ${input.unit}` : ""}`
-            : null;
-        })
-        .filter(Boolean)
-        .join(", ") || "inputs";
+      entitlementText(await beneficiaryEntitlement(campaignId, farmerId)) ||
+      "inputs";
     const communityPart = communityName ? ` in ${communityName}` : "";
     await sendSms(
       f.phone,
@@ -707,6 +702,7 @@ router.post(
     const campaignId = parseId(req.params.id),
       inputItemId = parseId(req.body?.inputItemId);
     const quantity = Number(req.body?.quantityPerFarmer);
+    const basis = normaliseBasis(req.body?.basis);
     if (
       !campaignId ||
       !inputItemId ||
@@ -714,6 +710,10 @@ router.post(
       quantity <= 0
     ) {
       fail(res, 422, "Item and a positive quantity per farmer are required.");
+      return;
+    }
+    if (!basis) {
+      fail(res, 422, `Basis must be one of ${ALLOCATION_BASES.join(", ")}.`);
       return;
     }
     const [{ data: campaign }, { data: input }] = await Promise.all([
@@ -746,6 +746,7 @@ router.post(
         campaign_id: campaignId,
         input_item_id: inputItemId,
         quantity_per_farmer: quantity,
+        basis,
         unit: (input as any).unit ?? null,
       })
       .select()
@@ -774,8 +775,13 @@ router.put(
     const campaignId = parseId(req.params.id),
       itemId = parseId(req.params.itemId);
     const quantity = Number(req.body?.quantityPerFarmer);
+    const basis = normaliseBasis(req.body?.basis);
     if (!campaignId || !itemId || !Number.isFinite(quantity) || quantity <= 0) {
       fail(res, 422, "A positive quantity per farmer is required.");
+      return;
+    }
+    if (!basis) {
+      fail(res, 422, `Basis must be one of ${ALLOCATION_BASES.join(", ")}.`);
       return;
     }
     const { data: campaign } = await supa
@@ -793,7 +799,7 @@ router.put(
     }
     const { data, error } = await supa
       .from("campaign_items")
-      .update({ quantity_per_farmer: quantity })
+      .update({ quantity_per_farmer: quantity, basis })
       .eq("id", itemId)
       .eq("campaign_id", campaignId)
       .select()
@@ -980,7 +986,7 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
       cIds.length
         ? supa
             .from("campaign_items")
-            .select("campaign_id,input_item_id,quantity_per_farmer")
+            .select("campaign_id,input_item_id,quantity_per_farmer,basis")
             .in("campaign_id", cIds)
         : Promise.resolve({ data: [] }),
     ]);
@@ -1015,9 +1021,15 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
       name: input.name,
       itemCode: input.item_code,
       unit: input.unit,
+      basis: (row as any).basis ?? "per_beneficiary",
       quantityPerFarmer: (row as any).quantity_per_farmer,
     });
   }
+  // The package line carries a rate; what this beneficiary is owed depends on
+  // their own group size or farm size, so send the materialised lines too.
+  const entitlements = await entitlementsByAllocation(
+    rows.map((row: any) => row.id),
+  );
   res.json({
     data: rows.map((row: any) => {
       const farmer = farmerMap[row.farmer_id],
@@ -1036,6 +1048,7 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
         campaign_code: campaign?.campaign_code ?? null,
         campaign_status: campaign?.status ?? null,
         campaign_items: itemsByCampaign[row.campaign_id] ?? [],
+        entitlements: entitlements[row.id] ?? [],
       });
     }),
     total: count ?? 0,
@@ -1043,6 +1056,112 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
     limit,
   });
 });
+
+// Copy a saved package onto a campaign in one action. Replaces the current
+// lines outright rather than merging, so what the campaign holds afterwards is
+// exactly the template a reviewer can look up.
+router.post(
+  "/api/campaigns/:id/items/apply-template",
+  requireAnyAuth,
+  requireRoleIfJwt(...CAMPAIGN_MANAGERS),
+  async (req, res) => {
+    const campaignId = parseId(req.params.id),
+      templateId = parseId(req.body?.templateId);
+    if (!campaignId || !templateId) {
+      fail(res, 422, "Campaign and template are required.");
+      return;
+    }
+    // The RPC checks the campaign is editable, the template active, its value
+    // chain compatible and its items available, then swaps the package in one
+    // transaction so a failure cannot leave the campaign with no items.
+    const { data: applied, error } = await supa.rpc(
+      "apply_campaign_item_template",
+      { p_campaign_id: campaignId, p_template_id: templateId },
+    );
+    if (error) {
+      const notFound = /not found/i.test(error.message);
+      fail(res, notFound ? 404 : 409, error.message);
+      return;
+    }
+    await logAudit(
+      req,
+      "UPDATE",
+      "CampaignItems",
+      `Applied package template ${templateId} to campaign ${campaignId}`,
+      "campaign",
+      campaignId,
+    );
+    res.status(200).json({ applied: Number(applied) ?? 0 });
+  },
+);
+
+// What each beneficiary on the campaign is owed. Computed live so a Draft
+// campaign can be checked before it is submitted for approval.
+router.get(
+  "/api/campaigns/:id/entitlements",
+  requireAnyAuth,
+  async (req, res) => {
+    const campaignId = parseId(req.params.id);
+    if (!campaignId) {
+      fail(res, 422, "A campaign is required.");
+      return;
+    }
+    // Entitlements name beneficiaries and what they are owed, so this endpoint
+    // is scoped exactly like reading the campaign itself.
+    const { data: campaign } = await supa
+      .from("campaigns")
+      .select("district_id")
+      .eq("id", campaignId)
+      .maybeSingle();
+    if (!campaign) {
+      fail(res, 404, "Campaign not found.");
+      return;
+    }
+    if (
+      roleKey(req) === "districtcoordinator" &&
+      Number((campaign as any).district_id) !==
+        Number(req.user?.districtId ?? req.supabaseUser?.districtId)
+    ) {
+      fail(res, 403, "You may only view campaigns in your district.");
+      return;
+    }
+    const { data: allocations, error } = await supa
+      .from("allocations")
+      .select("id,farmer_id")
+      .eq("campaign_id", campaignId)
+      .neq("status", "Cancelled");
+    if (error) {
+      fail(res, 500, error.message);
+      return;
+    }
+    const rows = allocations ?? [];
+    const stored = await entitlementsByAllocation(
+      rows.map((row: any) => row.id),
+    );
+    const results = await Promise.all(
+      rows.map(async (row: any) => ({
+        allocationId: row.id,
+        farmerId: row.farmer_id,
+        lines: stored[row.id]?.length
+          ? stored[row.id]
+          : await beneficiaryEntitlement(campaignId, row.farmer_id),
+      })),
+    );
+    // Totals are what approval will try to reserve from the source warehouse.
+    const totals: Record<number, { inputItemId: number; name: string | null; unit: string | null; quantity: number }> = {};
+    for (const result of results)
+      for (const line of result.lines) {
+        const total = (totals[line.inputItemId] ??= {
+          inputItemId: line.inputItemId,
+          name: line.name,
+          unit: line.unit,
+          quantity: 0,
+        });
+        total.quantity += line.quantityEntitled;
+      }
+    res.json({ beneficiaries: results, totals: Object.values(totals) });
+  },
+);
 
 router.post(
   "/api/allocations",

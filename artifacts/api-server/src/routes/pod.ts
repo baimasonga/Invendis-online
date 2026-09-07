@@ -6,6 +6,12 @@ import {
   requireRoles,
   requireRoleIfJwt,
 } from "../lib/auth.js";
+import { ensureIntegerUserId } from "../lib/users.js";
+import {
+  DELIVERABLE_ALLOCATION_STATUSES,
+  classifyDuplicateDelivery,
+  hasTrackedEntitlement,
+} from "../lib/entitlements.js";
 import { logAudit } from "../lib/audit.js";
 import { createHash, randomBytes } from "crypto";
 import {
@@ -74,17 +80,9 @@ async function loadAuthorizedPod(
 async function resolveUserId(
   req: import("express").Request,
 ): Promise<number | null> {
-  if (req.user?.userId) return req.user.userId;
-  if (req.supabaseUser?.email) {
-    const { data: u } = await supa
-      .from("users")
-      .select("id")
-      .eq("email", req.supabaseUser.email)
-      .limit(1)
-      .single();
-    return (u as any)?.id ?? null;
-  }
-  return null;
+  // A portal-only account has no integer users row until provisioned; create it
+  // on demand so web submissions are attributed instead of rejected with 403.
+  return ensureIntegerUserId(req);
 }
 
 const router = Router();
@@ -416,7 +414,7 @@ router.post(
         .select("id")
         .eq("campaign_id", body.campaign_id)
         .eq("farmer_id", body.farmer_id)
-        .in("status", ["Approved", "Pending"])
+        .in("status", DELIVERABLE_ALLOCATION_STATUSES)
         .limit(1)
         .maybeSingle(),
       supa
@@ -895,17 +893,26 @@ router.post(
         vehicleGpsStatus,
     };
 
-    // Check for duplicate delivery (same farmer already has a Verified or Pending PoD in this campaign)
+    // Classify duplicate deliveries. Where entitlements are tracked an earlier
+    // Verified PoD is the first half of a split delivery, not a duplicate, and
+    // flagging it would make the balance unapprovable.
     if (body.farmer_id && campaignId) {
-      const { data: dupCheck } = await supa
-        .from("pod")
-        .select("id")
-        .eq("farmer_id", body.farmer_id)
-        .eq("campaign_id", campaignId)
-        .in("status", ["Verified", "Pending"])
-        .neq("id", podRow.id as number)
-        .limit(1);
-      if (dupCheck && dupCheck.length > 0) {
+      const [{ data: dupCheck }, entitlementTracked] = await Promise.all([
+        supa
+          .from("pod")
+          .select("id")
+          .eq("farmer_id", body.farmer_id)
+          .eq("campaign_id", campaignId)
+          .in("status", ["Verified", "Pending"])
+          .neq("id", podRow.id as number)
+          .limit(1),
+        hasTrackedEntitlement(campaignId, Number(body.farmer_id)),
+      ]);
+      const isDuplicate = classifyDuplicateDelivery({
+        entitlementTracked,
+        hasOtherActivePod: (dupCheck ?? []).length > 0,
+      });
+      if (isDuplicate) {
         await supa
           .from("pod")
           .update({ duplicate_flag: true })
@@ -1492,7 +1499,7 @@ router.post("/api/pod/photo-upload-url", requireAnyAuth, async (req, res) => {
         .select("id")
         .eq("campaign_id", (dispatch as any).campaign_id)
         .eq("farmer_id", Number(farmerId))
-        .in("status", ["Approved", "Pending"])
+        .in("status", DELIVERABLE_ALLOCATION_STATUSES)
         .limit(1)
         .maybeSingle()
     : { data: null };

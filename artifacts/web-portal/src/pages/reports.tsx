@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   getFarmerBeneficiaryReport, getStockMovementReport, getDistributionReport,
   getConsolidatedDistributionReport, listAllCampaigns, getMEReport,
-  listIncidents, type ConsolidatedDispatch, KEYS,
+  listIncidents, listAllIncidents, type ConsolidatedDispatch, KEYS,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -372,8 +372,7 @@ export default function Reports() {
   async function exportIncidents() {
     setIncExporting(true);
     try {
-      const result = await listIncidents(1, 9999, incStatus || undefined);
-      downloadCSV(result.data ?? [], incidentsCols, `incidents-${today}.csv`);
+      downloadCSV(await listAllIncidents(incStatus || undefined), incidentsCols, `incidents-${today}.csv`);
     } finally {
       setIncExporting(false);
     }
@@ -382,8 +381,7 @@ export default function Reports() {
   async function exportIncidentsXLSX() {
     setIncExporting(true);
     try {
-      const result = await listIncidents(1, 9999, incStatus || undefined);
-      downloadXLSX(result.data ?? [], incidentsCols, `incidents-${today}.xlsx`);
+      downloadXLSX(await listAllIncidents(incStatus || undefined), incidentsCols, `incidents-${today}.xlsx`);
     } finally {
       setIncExporting(false);
     }

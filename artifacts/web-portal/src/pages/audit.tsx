@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  listAuditLogs, getAuditStats, type AuditFilters, type AuditStats, KEYS,
+  listAuditLogs, listAllAuditLogs, getAuditStats, type AuditFilters, type AuditStats, KEYS,
 } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTip,
+  BarChart, Bar, Cell, XAxis, YAxis, Tooltip as RechartsTip,
   ResponsiveContainer, AreaChart, Area, CartesianGrid,
 } from "recharts";
 import {
@@ -204,6 +204,21 @@ function detectAnomalies(logs: any[]): SiemAlert[] {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+// Entries the server wrote as a side effect of doing the work are observed
+// facts; entries the portal reported through POST /api/audit are only claims
+// about a mutation made directly against Supabase. The reader has to be able to
+// tell them apart, so a reported row is labelled.
+function isClientAsserted(log: any): boolean {
+  const raw = log?.metadata;
+  if (!raw) return false;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed?.assertion === "client";
+  } catch {
+    return false;
+  }
+}
+
 function ActionBadge({ action }: { action: string }) {
   const cls = ACTION_STYLES[action?.toUpperCase()] ?? "bg-slate-100 text-slate-600";
   return (
@@ -359,7 +374,7 @@ function StatsPanel({ stats, loading }: { stats: AuditStats | undefined; loading
                   />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
                     {stats.byAction.map(entry => (
-                      <rect
+                      <Cell
                         key={entry.action}
                         fill={ACTION_CHART_COLORS[entry.action] ?? "#94a3b8"}
                       />
@@ -632,8 +647,8 @@ export default function AuditLogs() {
   const to         = Math.min(page * limit, total);
 
   async function handleExport() {
-    const all = await listAuditLogs(1, 5000, filters);
-    exportCsv(all.data);
+    // Supabase caps one request at 1000 rows, so the export pages through.
+    exportCsv(await listAllAuditLogs(filters));
   }
 
   const ROW_ALERT_CLASS: Record<SiemAlert["severity"], string> = {
@@ -786,6 +801,14 @@ export default function AuditLogs() {
                         <TableCell className="py-2.5">
                           <div className="flex items-center gap-1.5">
                             <ActionBadge action={log.action} />
+                            {isClientAsserted(log) && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                title="Reported by the portal after a direct database change, not observed by the server"
+                              >
+                                Reported
+                              </span>
+                            )}
                             {sev && (
                               <span title={`${sev} severity anomaly`}>
                                 <AlertTriangle className={`h-3 w-3 ${sev === "HIGH" ? "text-red-500" : sev === "MEDIUM" ? "text-amber-500" : "text-yellow-500"}`} />
