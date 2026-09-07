@@ -1071,58 +1071,16 @@ router.post(
       fail(res, 422, "Campaign and template are required.");
       return;
     }
-    const { data: campaign } = await supa
-      .from("campaigns")
-      .select("status")
-      .eq("id", campaignId)
-      .maybeSingle();
-    if (!campaign) {
-      fail(res, 404, "Campaign not found.");
-      return;
-    }
-    if (!canEditCampaign((campaign as any).status)) {
-      fail(res, 409, "Campaign items can only change while Draft or Rejected.");
-      return;
-    }
-    const { data: lines } = await supa
-      .from("campaign_item_template_lines")
-      .select("input_item_id,quantity,basis")
-      .eq("template_id", templateId);
-    if (!lines?.length) {
-      fail(res, 404, "Template not found, or it has no items.");
-      return;
-    }
-    const itemIds = lines.map((line: any) => line.input_item_id);
-    const { data: inputs } = await supa
-      .from("input_items")
-      .select("id,unit,is_active")
-      .in("id", itemIds);
-    const inputMap = Object.fromEntries(
-      (inputs ?? []).map((row: any) => [row.id, row]),
-    );
-    const unavailable = itemIds.filter(
-      (itemId: number) => Number(inputMap[itemId]?.is_active) !== 1,
-    );
-    if (unavailable.length) {
-      fail(
-        res,
-        422,
-        "The template refers to input items that are no longer available.",
-      );
-      return;
-    }
-    await supa.from("campaign_items").delete().eq("campaign_id", campaignId);
-    const { error } = await supa.from("campaign_items").insert(
-      lines.map((line: any) => ({
-        campaign_id: campaignId,
-        input_item_id: line.input_item_id,
-        quantity_per_farmer: line.quantity,
-        basis: line.basis,
-        unit: inputMap[line.input_item_id]?.unit ?? null,
-      })),
+    // The RPC checks the campaign is editable, the template active, its value
+    // chain compatible and its items available, then swaps the package in one
+    // transaction so a failure cannot leave the campaign with no items.
+    const { data: applied, error } = await supa.rpc(
+      "apply_campaign_item_template",
+      { p_campaign_id: campaignId, p_template_id: templateId },
     );
     if (error) {
-      fail(res, 500, error.message);
+      const notFound = /not found/i.test(error.message);
+      fail(res, notFound ? 404 : 409, error.message);
       return;
     }
     await logAudit(
@@ -1133,7 +1091,7 @@ router.post(
       "campaign",
       campaignId,
     );
-    res.status(200).json({ applied: lines.length });
+    res.status(200).json({ applied: Number(applied) ?? 0 });
   },
 );
 
@@ -1146,6 +1104,25 @@ router.get(
     const campaignId = parseId(req.params.id);
     if (!campaignId) {
       fail(res, 422, "A campaign is required.");
+      return;
+    }
+    // Entitlements name beneficiaries and what they are owed, so this endpoint
+    // is scoped exactly like reading the campaign itself.
+    const { data: campaign } = await supa
+      .from("campaigns")
+      .select("district_id")
+      .eq("id", campaignId)
+      .maybeSingle();
+    if (!campaign) {
+      fail(res, 404, "Campaign not found.");
+      return;
+    }
+    if (
+      roleKey(req) === "districtcoordinator" &&
+      Number((campaign as any).district_id) !==
+        Number(req.user?.districtId ?? req.supabaseUser?.districtId)
+    ) {
+      fail(res, 403, "You may only view campaigns in your district.");
       return;
     }
     const { data: allocations, error } = await supa

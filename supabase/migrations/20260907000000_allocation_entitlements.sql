@@ -330,7 +330,12 @@ GRANT EXECUTE ON FUNCTION public.transition_campaign_atomic(integer,text,uuid,te
 -- Redeployed from 20260905003100. Previously the first approved PoD marked the
 -- whole allocation Delivered even when only one item of the package had been
 -- handed over, which let a campaign auto-complete on partial distribution.
-CREATE OR REPLACE FUNCTION public.approve_pods_atomic(
+--
+-- 20260905004200 renamed that accounting body to approve_pods_atomic_unchecked
+-- and put a wrapper of the same name in front of it that rejects an inactive or
+-- unprivileged approver and duplicate-flagged PoDs. The accounting body is what
+-- changes here; replacing the wrapper instead would silently drop those checks.
+CREATE OR REPLACE FUNCTION public.approve_pods_atomic_unchecked(
   p_pod_ids jsonb,
   p_approved_by integer
 )
@@ -349,6 +354,8 @@ DECLARE
   v_dispatch_id integer;
   v_dispatch_status text;
   v_credit record;
+  v_entitled double precision;
+  v_already double precision;
 BEGIN
   IF jsonb_typeof(p_pod_ids) <> 'array' OR jsonb_array_length(p_pod_ids) = 0 THEN
     RAISE EXCEPTION 'pod IDs must be a non-empty array' USING ERRCODE = '22023';
@@ -493,6 +500,23 @@ BEGIN
     GROUP BY a.id, delivered.input_item_id
     ORDER BY a.id, delivered.input_item_id
   LOOP
+    -- Refuse to credit more than the beneficiary is owed. Dispatch accounting
+    -- only caps a delivery at what the truck carried, which says nothing about
+    -- how much of it belonged to this beneficiary. The epsilon tolerates float
+    -- error on fractional quantities without tolerating a real overage.
+    SELECT quantity_entitled, COALESCE(quantity_delivered, 0)
+      INTO v_entitled, v_already
+      FROM allocation_items
+     WHERE allocation_id = v_credit.allocation_id
+       AND input_item_id = v_credit.input_item_id
+     FOR UPDATE;
+    IF FOUND AND v_already + v_credit.quantity > v_entitled + 1e-9 THEN
+      RAISE EXCEPTION
+        'Delivery of % for item % exceeds the beneficiary entitlement of % (already delivered %)',
+        v_credit.quantity, v_credit.input_item_id, v_entitled, v_already
+        USING ERRCODE = '22023';
+    END IF;
+
     UPDATE allocation_items
     SET quantity_delivered = COALESCE(quantity_delivered, 0) + v_credit.quantity,
         updated_at = now()
@@ -554,8 +578,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.approve_pods_atomic(jsonb, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.approve_pods_atomic(jsonb, integer) TO service_role;
+-- The implementation stays reachable only through the guarded wrapper.
+REVOKE ALL ON FUNCTION public.approve_pods_atomic_unchecked(jsonb, integer)
+  FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── Follow-up deliveries ─────────────────────────────────────────────────────
 -- pod_one_active_delivery_per_farmer_campaign counted 'Verified' rows, so a
@@ -622,3 +647,73 @@ DROP TRIGGER IF EXISTS pod_rejects_delivery_when_entitlement_met ON public.pod;
 CREATE TRIGGER pod_rejects_delivery_when_entitlement_met
 BEFORE INSERT ON public.pod
 FOR EACH ROW EXECUTE FUNCTION public.reject_delivery_when_entitlement_met();
+
+-- ── Applying a package template ──────────────────────────────────────────────
+-- Replacing a campaign's package is a delete followed by an insert. Done from
+-- the API that is two round trips, and a failure between them leaves the
+-- campaign with no items at all — which reads as "no package configured"
+-- rather than as an error. Doing it here makes it one transaction, and puts
+-- the eligibility rules next to the data they protect.
+CREATE OR REPLACE FUNCTION public.apply_campaign_item_template(
+  p_campaign_id integer,
+  p_template_id integer
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  c public.campaigns%ROWTYPE;
+  t public.campaign_item_templates%ROWTYPE;
+  v_lines integer;
+  v_bad text;
+BEGIN
+  SELECT * INTO c FROM public.campaigns WHERE id = p_campaign_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Campaign not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF c.status NOT IN ('Draft', 'Rejected') THEN
+    RAISE EXCEPTION 'Campaign items can only change while Draft or Rejected'
+      USING ERRCODE = '55000';
+  END IF;
+
+  SELECT * INTO t FROM public.campaign_item_templates WHERE id = p_template_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Template not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF t.is_active <> 1 THEN
+    RAISE EXCEPTION 'Template % is inactive', t.name USING ERRCODE = '55000';
+  END IF;
+  -- A template with no value chain is general purpose; one that names a value
+  -- chain must not be applied to a campaign running a different intervention.
+  IF t.value_chain_id IS NOT NULL
+     AND c.value_chain_id IS DISTINCT FROM t.value_chain_id THEN
+    RAISE EXCEPTION 'Template % belongs to a different value chain', t.name
+      USING ERRCODE = '55000';
+  END IF;
+
+  SELECT string_agg(i.name, ', ') INTO v_bad
+    FROM public.campaign_item_template_lines l
+    JOIN public.input_items i ON i.id = l.input_item_id
+   WHERE l.template_id = p_template_id AND i.is_active <> 1;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'Template refers to input items that are no longer available: %', v_bad
+      USING ERRCODE = '55000';
+  END IF;
+
+  SELECT count(*) INTO v_lines
+    FROM public.campaign_item_template_lines WHERE template_id = p_template_id;
+  IF v_lines = 0 THEN
+    RAISE EXCEPTION 'Template % has no items', t.name USING ERRCODE = '55000';
+  END IF;
+
+  DELETE FROM public.campaign_items WHERE campaign_id = p_campaign_id;
+  INSERT INTO public.campaign_items (campaign_id, input_item_id, quantity_per_farmer, basis, unit)
+  SELECT p_campaign_id, l.input_item_id, l.quantity, l.basis, i.unit
+    FROM public.campaign_item_template_lines l
+    JOIN public.input_items i ON i.id = l.input_item_id
+   WHERE l.template_id = p_template_id;
+
+  RETURN v_lines;
+END $$;
+
+REVOKE ALL ON FUNCTION public.apply_campaign_item_template(integer, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.apply_campaign_item_template(integer, integer) TO service_role;

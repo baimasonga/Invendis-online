@@ -82,6 +82,14 @@ async function resolveUserId(
 
 const router = Router();
 
+// A partially delivered allocation still has something owed, so it must stay
+// eligible for the follow-up delivery that closes it.
+const DELIVERABLE_ALLOCATION_STATUSES = [
+  "Approved",
+  "Pending",
+  "Partially Delivered",
+] as const;
+
 function haversineMeters(
   lat1: number,
   lon1: number,
@@ -409,7 +417,7 @@ router.post(
         .select("id")
         .eq("campaign_id", body.campaign_id)
         .eq("farmer_id", body.farmer_id)
-        .in("status", ["Approved", "Pending"])
+        .in("status", DELIVERABLE_ALLOCATION_STATUSES)
         .limit(1)
         .maybeSingle(),
       supa
@@ -1485,7 +1493,7 @@ router.post("/api/pod/photo-upload-url", requireAnyAuth, async (req, res) => {
         .select("id")
         .eq("campaign_id", (dispatch as any).campaign_id)
         .eq("farmer_id", Number(farmerId))
-        .in("status", ["Approved", "Pending"])
+        .in("status", DELIVERABLE_ALLOCATION_STATUSES)
         .limit(1)
         .maybeSingle()
     : { data: null };

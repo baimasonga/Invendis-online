@@ -195,11 +195,13 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
     .single();
   const campaignId: number | null = (disp as any)?.campaign_id ?? null;
 
-  // Build item list for SMS:
-  //   If we have a dispatchId → use dispatch_items (actual loaded quantities)
-  //   Fall back to campaign_items (planned quantities per farmer)
-  let itemsText = "";
-  if (rawDispatchId) {
+  // What this beneficiary is owed. The dispatch is only a fallback: its
+  // dispatch_items are the whole truck's load, so quoting them tells one
+  // beneficiary they are receiving everything on board.
+  let itemsText = campaignId
+    ? entitlementText(await beneficiaryEntitlement(campaignId, Number(farmerId)))
+    : "";
+  if (!itemsText && rawDispatchId) {
     const { data: dItems } = await supa
       .from("dispatch_items")
       .select("quantity_loaded, input_item_id")
@@ -220,12 +222,6 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
         .filter(Boolean)
         .join(", ");
     }
-  } else if (campaignId) {
-    // quantity_per_farmer is a rate against a basis, not a quantity, so read
-    // the entitlement computed for this beneficiary instead.
-    itemsText = entitlementText(
-      await beneficiaryEntitlement(campaignId, Number(farmerId)),
-    );
   }
 
   const code  = Math.floor(100000 + Math.random() * 900000).toString();
