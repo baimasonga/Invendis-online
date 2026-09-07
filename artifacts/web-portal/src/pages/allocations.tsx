@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -63,15 +63,18 @@ function EditAllocationModal({
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [notes, setNotes] = useState(allocation?.notes ?? "");
+  const [notes, setNotes] = useState("");
   const updateMut = useMutation({
     mutationFn: (payload: { notes?: string }) =>
       updateAllocation(allocation?.id, payload),
   });
 
-  function handleOpen() {
+  // The dialog stays mounted between edits, so state must follow the selected
+  // allocation instead of being seeded once on first mount.
+  useEffect(() => {
+    if (!open) return;
     setNotes(allocation?.notes ?? "");
-  }
+  }, [allocation, open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,7 +99,7 @@ function EditAllocationModal({
         if (!v) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-sm" onAnimationStart={handleOpen}>
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Edit Allocation</DialogTitle>
         </DialogHeader>

@@ -98,6 +98,19 @@ function DeliveryProgress({
   );
 }
 
+// An undated campaign (common for imported ones) must not render as 1970.
+function formatDate(value?: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+}
+
 function Field({
   label,
   value,
@@ -452,21 +465,10 @@ export default function CampaignDetail() {
                   />
                   <Field
                     label="Start Date"
-                    value={new Date(c.startDate).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
+                    value={formatDate(c.startDate)}
                     icon={CalendarDays}
                   />
-                  <Field
-                    label="End Date"
-                    value={new Date(c.endDate).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  />
+                  <Field label="End Date" value={formatDate(c.endDate)} />
                   {(c.description ?? c.notes) && (
                     <div className="col-span-2 space-y-1">
                       <p className="text-xs text-muted-foreground">
