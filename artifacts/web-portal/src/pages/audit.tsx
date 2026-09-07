@@ -204,6 +204,21 @@ function detectAnomalies(logs: any[]): SiemAlert[] {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+// Entries the server wrote as a side effect of doing the work are observed
+// facts; entries the portal reported through POST /api/audit are only claims
+// about a mutation made directly against Supabase. The reader has to be able to
+// tell them apart, so a reported row is labelled.
+function isClientAsserted(log: any): boolean {
+  const raw = log?.metadata;
+  if (!raw) return false;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed?.assertion === "client";
+  } catch {
+    return false;
+  }
+}
+
 function ActionBadge({ action }: { action: string }) {
   const cls = ACTION_STYLES[action?.toUpperCase()] ?? "bg-slate-100 text-slate-600";
   return (
@@ -786,6 +801,14 @@ export default function AuditLogs() {
                         <TableCell className="py-2.5">
                           <div className="flex items-center gap-1.5">
                             <ActionBadge action={log.action} />
+                            {isClientAsserted(log) && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                title="Reported by the portal after a direct database change, not observed by the server"
+                              >
+                                Reported
+                              </span>
+                            )}
                             {sev && (
                               <span title={`${sev} severity anomaly`}>
                                 <AlertTriangle className={`h-3 w-3 ${sev === "HIGH" ? "text-red-500" : sev === "MEDIUM" ? "text-amber-500" : "text-yellow-500"}`} />
