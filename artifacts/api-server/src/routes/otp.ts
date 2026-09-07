@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createHash, randomBytes } from "crypto";
 import { supa } from "../lib/supabase.js";
+import { beneficiaryEntitlement, entitlementText } from "../lib/entitlements.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { validateBody, OtpSendSchema, OtpVerifySchema } from "../lib/validate.js";
@@ -220,26 +221,11 @@ router.post("/api/pod/otp/send", requireAnyAuth, validateBody(OtpSendSchema), as
         .join(", ");
     }
   } else if (campaignId) {
-    const { data: cItems } = await supa
-      .from("campaign_items")
-      .select("quantity_per_farmer, input_item_id")
-      .eq("campaign_id", campaignId);
-    if (cItems?.length) {
-      const itemIds = (cItems as any[]).map(i => i.input_item_id).filter(Boolean);
-      const { data: inputItems } = itemIds.length
-        ? await supa.from("input_items").select("id,name,unit").in("id", itemIds)
-        : { data: [] };
-      const inputMap = Object.fromEntries((inputItems ?? []).map((ii: any) => [ii.id, ii]));
-      itemsText = (cItems as any[])
-        .map(i => {
-          const ii = inputMap[i.input_item_id];
-          if (!ii) return null;
-          const qty = i.quantity_per_farmer ?? 1;
-          return `${ii.name} ${qty}${ii.unit ? " " + ii.unit : ""}`;
-        })
-        .filter(Boolean)
-        .join(", ");
-    }
+    // quantity_per_farmer is a rate against a basis, not a quantity, so read
+    // the entitlement computed for this beneficiary instead.
+    itemsText = entitlementText(
+      await beneficiaryEntitlement(campaignId, Number(farmerId)),
+    );
   }
 
   const code  = Math.floor(100000 + Math.random() * 900000).toString();

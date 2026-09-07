@@ -178,6 +178,8 @@ export const KEYS = {
   valueChains: () => ["value-chains"],
   warehouses: () => ["warehouses"],
   distributionSites: () => ["distribution-sites"],
+  itemTemplates: () => ["item-templates"],
+  campaignEntitlements: (campaignId?: number) => k("campaign-entitlements", campaignId),
   inputItems: () => ["input-items"],
   systemSettings: () => ["system-settings"],
   farmerTypeCounts: () => ["farmer-type-counts"],
@@ -848,14 +850,30 @@ export async function updateCampaign(id: number, payload: any) {
   });
 }
 
+/** How a package line's rate is read against the beneficiary. */
+export type AllocationBasis = "per_beneficiary" | "per_member" | "per_hectare";
+
+export const ALLOCATION_BASIS_LABELS: Record<AllocationBasis, string> = {
+  per_beneficiary: "Per beneficiary",
+  per_member: "Per group member",
+  per_hectare: "Per hectare",
+};
+
+export interface ItemTemplateLineInput {
+  inputItemId: number;
+  quantity: number;
+  basis: AllocationBasis;
+}
+
 export async function addCampaignItem(
   campaignId: number,
   inputItemId: number,
   quantityPerFarmer: number,
+  basis: AllocationBasis = "per_beneficiary",
 ) {
   return campaignApi(`/api/campaigns/${campaignId}/items`, {
     method: "POST",
-    body: JSON.stringify({ inputItemId, quantityPerFarmer }),
+    body: JSON.stringify({ inputItemId, quantityPerFarmer, basis }),
   });
 }
 
@@ -863,10 +881,58 @@ export async function updateCampaignItem(
   campaignId: number,
   itemId: number,
   quantityPerFarmer: number,
+  basis: AllocationBasis = "per_beneficiary",
 ) {
   return campaignApi(`/api/campaigns/${campaignId}/items/${itemId}`, {
     method: "PUT",
-    body: JSON.stringify({ quantityPerFarmer }),
+    body: JSON.stringify({ quantityPerFarmer, basis }),
+  });
+}
+
+export async function applyItemTemplate(campaignId: number, templateId: number) {
+  return campaignApi(`/api/campaigns/${campaignId}/items/apply-template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId }),
+  });
+}
+
+export async function getCampaignEntitlements(campaignId: number) {
+  return apiGet(`/api/campaigns/${campaignId}/entitlements`);
+}
+
+// ── Input package templates ──────────────────────────────────────────────────
+export async function listItemTemplates() {
+  return apiGet("/api/master-data/item-templates");
+}
+
+export async function createItemTemplate(payload: {
+  name: string;
+  description?: string | null;
+  valueChainId?: number | null;
+  lines: ItemTemplateLineInput[];
+}) {
+  return apiPost("/api/master-data/item-templates", payload);
+}
+
+export async function updateItemTemplate(
+  id: number,
+  payload: {
+    name: string;
+    description?: string | null;
+    valueChainId?: number | null;
+    lines: ItemTemplateLineInput[];
+  },
+) {
+  return campaignApi(`/api/master-data/item-templates/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function toggleItemTemplate(id: number, isActive: boolean) {
+  return campaignApi(`/api/master-data/item-templates/${id}/toggle`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
   });
 }
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { ALLOCATION_BASES, normaliseBasis } from "../lib/entitlements.js";
 
 const router = Router();
 
@@ -322,6 +323,169 @@ router.put("/api/master-data/system-settings", requireAnyAuth, requireRoleIfJwt(
   await logAudit(req, "UPDATE", "SystemSettings", `Updated ${Object.keys(updates).length} system setting(s)`);
   const { data } = await supa.from("system_settings").select("key, value, description, updated_at").order("key");
   res.json(data ?? []);
+});
+
+// ── Input package templates ───────────────────────────────────────────────────
+// The same package recurs season after season for a value chain or
+// intervention, so it is defined once here and applied to a campaign rather
+// than retyped line by line each time.
+const PACKAGE_MANAGERS = ["Admin", "ProjectManager"] as const;
+
+async function templateWithLines(id: number) {
+  const [{ data: template }, { data: lines }] = await Promise.all([
+    supa.from("campaign_item_templates").select("*").eq("id", id).maybeSingle(),
+    supa.from("campaign_item_template_lines").select("*").eq("template_id", id).order("id"),
+  ]);
+  if (!template) return null;
+  const itemIds = (lines ?? []).map((line: any) => line.input_item_id);
+  const { data: inputs } = itemIds.length
+    ? await supa.from("input_items").select("id,name,unit,item_code").in("id", itemIds)
+    : { data: [] as any[] };
+  const inputMap = Object.fromEntries((inputs ?? []).map((row: any) => [row.id, row]));
+  return snakeToCamel({
+    ...(template as any),
+    lines: (lines ?? []).map((line: any) => ({
+      ...line,
+      input_item_name: inputMap[line.input_item_id]?.name ?? null,
+      unit: inputMap[line.input_item_id]?.unit ?? null,
+      item_code: inputMap[line.input_item_id]?.item_code ?? null,
+    })),
+  });
+}
+
+/** Rejects a payload rather than silently coercing a bad basis to the default. */
+function readTemplateLines(raw: unknown): { lines: any[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0)
+    return { error: "A template needs at least one item." };
+  const lines: any[] = [];
+  const seen = new Set<number>();
+  for (const entry of raw as any[]) {
+    const inputItemId = Number(entry?.inputItemId);
+    const quantity = Number(entry?.quantity);
+    const basis = normaliseBasis(entry?.basis);
+    if (!Number.isInteger(inputItemId) || inputItemId <= 0)
+      return { error: "Every template line needs an input item." };
+    if (!Number.isFinite(quantity) || quantity <= 0)
+      return { error: "Every template line needs a quantity greater than zero." };
+    if (!basis) return { error: `Basis must be one of ${ALLOCATION_BASES.join(", ")}.` };
+    if (seen.has(inputItemId))
+      return { error: "The same input item appears twice in the template." };
+    seen.add(inputItemId);
+    lines.push({ input_item_id: inputItemId, quantity, basis });
+  }
+  return { lines };
+}
+
+router.get("/api/master-data/item-templates", requireAnyAuth, async (_req, res) => {
+  const { data, error } = await supa.from("campaign_item_templates").select("*").order("name");
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const ids = (data ?? []).map((row: any) => row.id);
+  const { data: lines } = ids.length
+    ? await supa.from("campaign_item_template_lines").select("*").in("template_id", ids)
+    : { data: [] as any[] };
+  const itemIds = [...new Set((lines ?? []).map((line: any) => line.input_item_id))];
+  const { data: inputs } = itemIds.length
+    ? await supa.from("input_items").select("id,name,unit,item_code").in("id", itemIds)
+    : { data: [] as any[] };
+  const inputMap = Object.fromEntries((inputs ?? []).map((row: any) => [row.id, row]));
+  const byTemplate: Record<number, any[]> = {};
+  for (const line of lines ?? []) {
+    (byTemplate[(line as any).template_id] ??= []).push({
+      ...(line as any),
+      input_item_name: inputMap[(line as any).input_item_id]?.name ?? null,
+      unit: inputMap[(line as any).input_item_id]?.unit ?? null,
+      item_code: inputMap[(line as any).input_item_id]?.item_code ?? null,
+    });
+  }
+  const chainIds = [...new Set((data ?? []).map((row: any) => row.value_chain_id).filter(Boolean))];
+  const { data: chains } = chainIds.length
+    ? await supa.from("value_chains").select("id,name").in("id", chainIds)
+    : { data: [] as any[] };
+  const chainMap = Object.fromEntries((chains ?? []).map((row: any) => [row.id, row.name]));
+  res.json(snakeToCamel((data ?? []).map((row: any) => ({
+    ...row,
+    value_chain_name: chainMap[row.value_chain_id] ?? null,
+    lines: byTemplate[row.id] ?? [],
+  }))));
+});
+
+router.post("/api/master-data/item-templates", requireAnyAuth, requireRoleIfJwt(...PACKAGE_MANAGERS), async (req, res) => {
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) { res.status(422).json({ error: "A template name is required." }); return; }
+  const parsed = readTemplateLines(req.body?.lines);
+  if ("error" in parsed) { res.status(422).json({ error: parsed.error }); return; }
+  const { data, error } = await supa
+    .from("campaign_item_templates")
+    .insert({
+      name,
+      description: req.body?.description ?? null,
+      value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
+      created_by: req.supabaseUser?.id ?? null,
+    })
+    .select()
+    .single();
+  if (error) {
+    res.status(/duplicate/i.test(error.message) ? 409 : 500).json({ error: error.message });
+    return;
+  }
+  const templateId = (data as any).id;
+  const { error: lineError } = await supa
+    .from("campaign_item_template_lines")
+    .insert(parsed.lines.map((line) => ({ ...line, template_id: templateId })));
+  if (lineError) {
+    // Without the lines the template is unusable, so do not leave a husk behind.
+    await supa.from("campaign_item_templates").delete().eq("id", templateId);
+    res.status(500).json({ error: lineError.message });
+    return;
+  }
+  await logAudit(req, "CREATE", "MasterData", `Created input package template: ${name}`, "item-template", templateId);
+  res.status(201).json(await templateWithLines(templateId));
+});
+
+router.put("/api/master-data/item-templates/:id", requireAnyAuth, requireRoleIfJwt(...PACKAGE_MANAGERS), async (req, res) => {
+  const id = Number(req.params.id);
+  const name = String(req.body?.name ?? "").trim();
+  if (!id || !name) { res.status(422).json({ error: "A template name is required." }); return; }
+  const parsed = readTemplateLines(req.body?.lines);
+  if ("error" in parsed) { res.status(422).json({ error: parsed.error }); return; }
+  const { data, error } = await supa
+    .from("campaign_item_templates")
+    .update({
+      name,
+      description: req.body?.description ?? null,
+      value_chain_id: req.body?.valueChainId ? Number(req.body.valueChainId) : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) {
+    res.status(/duplicate/i.test(error.message) ? 409 : 500).json({ error: error.message });
+    return;
+  }
+  if (!data) { res.status(404).json({ error: "Template not found." }); return; }
+  await supa.from("campaign_item_template_lines").delete().eq("template_id", id);
+  const { error: lineError } = await supa
+    .from("campaign_item_template_lines")
+    .insert(parsed.lines.map((line) => ({ ...line, template_id: id })));
+  if (lineError) { res.status(500).json({ error: lineError.message }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `Updated input package template: ${name}`, "item-template", id);
+  res.json(await templateWithLines(id));
+});
+
+router.patch("/api/master-data/item-templates/:id/toggle", requireAnyAuth, requireRoleIfJwt(...PACKAGE_MANAGERS), async (req, res) => {
+  const id = Number(req.params.id);
+  const isActive = req.body?.isActive ? 1 : 0;
+  const { data, error } = await supa
+    .from("campaign_item_templates")
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (!data) { res.status(404).json({ error: "Template not found." }); return; }
+  await logAudit(req, "UPDATE", "MasterData", `${isActive ? "Activated" : "Deactivated"} template ID ${id}`, "item-template", id);
+  res.json(snakeToCamel(data));
 });
 
 export default router;

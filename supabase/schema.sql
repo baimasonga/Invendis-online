@@ -146,6 +146,8 @@ CREATE TABLE IF NOT EXISTS farmers (
   barcode_token    text,
   age_group        text,
   farmer_group     text,
+  beneficiary_type text NOT NULL DEFAULT 'individual',
+  group_size       integer,
   rejection_reason text,
   registered_by    uuid REFERENCES profiles(id),
   approved_by      uuid REFERENCES profiles(id),
@@ -278,7 +280,10 @@ CREATE TABLE IF NOT EXISTS campaign_items (
   id                  serial PRIMARY KEY,
   campaign_id         integer NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   input_item_id       integer NOT NULL REFERENCES input_items(id),
+  -- Rate applied against basis, not a flat per-beneficiary quantity.
   quantity_per_farmer double precision NOT NULL DEFAULT 1 CHECK (quantity_per_farmer > 0),
+  basis               text NOT NULL DEFAULT 'per_beneficiary'
+                        CHECK (basis IN ('per_beneficiary','per_member','per_hectare')),
   unit                text
 );
 
@@ -297,6 +302,50 @@ CREATE UNIQUE INDEX IF NOT EXISTS allocations_campaign_farmer_unique
   ON allocations (campaign_id, farmer_id);
 CREATE UNIQUE INDEX IF NOT EXISTS campaign_items_campaign_input_unique
   ON campaign_items (campaign_id, input_item_id);
+
+-- Reusable input packages, defined once per value chain or intervention and
+-- applied to a campaign rather than retyped each season.
+CREATE TABLE IF NOT EXISTS campaign_item_templates (
+  id             serial PRIMARY KEY,
+  name           text NOT NULL,
+  description    text,
+  value_chain_id integer REFERENCES value_chains(id),
+  is_active      integer NOT NULL DEFAULT 1,
+  created_by     uuid REFERENCES profiles(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_item_templates_name_unique
+  ON campaign_item_templates (lower(btrim(name)));
+
+CREATE TABLE IF NOT EXISTS campaign_item_template_lines (
+  id            serial PRIMARY KEY,
+  template_id   integer NOT NULL REFERENCES campaign_item_templates(id) ON DELETE CASCADE,
+  input_item_id integer NOT NULL REFERENCES input_items(id),
+  quantity      double precision NOT NULL CHECK (quantity > 0),
+  basis         text NOT NULL DEFAULT 'per_beneficiary'
+                  CHECK (basis IN ('per_beneficiary','per_member','per_hectare')),
+  UNIQUE (template_id, input_item_id)
+);
+
+-- What one beneficiary is actually owed, derived from the campaign package and
+-- the beneficiary's own shape (group size, farm size). Stock is reserved
+-- against the sum of these rows and delivery is credited to them.
+CREATE TABLE IF NOT EXISTS allocation_items (
+  id                 bigserial PRIMARY KEY,
+  allocation_id      integer NOT NULL REFERENCES allocations(id) ON DELETE CASCADE,
+  input_item_id      integer NOT NULL REFERENCES input_items(id),
+  basis              text NOT NULL DEFAULT 'per_beneficiary'
+                       CHECK (basis IN ('per_beneficiary','per_member','per_hectare')),
+  rate               double precision NOT NULL CHECK (rate > 0),
+  quantity_entitled  double precision NOT NULL CHECK (quantity_entitled > 0),
+  quantity_delivered double precision NOT NULL DEFAULT 0 CHECK (quantity_delivered >= 0),
+  is_overridden      boolean NOT NULL DEFAULT false,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (allocation_id, input_item_id)
+);
+CREATE INDEX IF NOT EXISTS allocation_items_item_idx ON allocation_items (input_item_id);
 
 CREATE TABLE IF NOT EXISTS campaign_stock_reservations (
   id                bigserial PRIMARY KEY,
@@ -408,7 +457,11 @@ CREATE TABLE IF NOT EXISTS pod (
   campaign_id         integer NOT NULL REFERENCES campaigns(id),
   dispatch_id         integer REFERENCES dispatches(id),
   field_officer_id    uuid REFERENCES profiles(id),
+  -- Legacy single-item fields, still read by the atomic routines as a fallback
+  -- when a PoD carries no pod_items rows.
+  input_item_id       integer REFERENCES input_items(id),
   quantity_delivered  double precision,
+  vehicle_gps_snapshot jsonb,
   otp_status          text DEFAULT 'Pending',
   face_status         text DEFAULT 'Pending',
   gps_status          text DEFAULT 'Pending',
@@ -422,7 +475,8 @@ CREATE TABLE IF NOT EXISTS pod (
   signature_url       text,
   notes               text,
   exception_reason    text,
-  approved_by         uuid REFERENCES profiles(id),
+  -- approve_pods_atomic writes the integer operational user id, not a profile.
+  approved_by         integer REFERENCES users(id),
   approved_at         timestamptz,
   submitted_at        timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now()
