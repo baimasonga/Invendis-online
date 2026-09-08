@@ -385,10 +385,12 @@ export function BarcodeLabelModal({ open, onClose, item }: Props) {
 </head>
 <body>
 ${Array.from({ length: count }, () => makeLabelHtml(sz)).join("\n")}
-<script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
 </body>
 </html>`);
-    win.document.close();
+    // writePrintDocument strips <script> for XSS safety, so the print dialog has
+    // to be opened from here. The delay lets the barcode images decode first,
+    // otherwise the preview prints blank.
+    setTimeout(() => win.print(), 300);
   }
 
   if (!item) return null;

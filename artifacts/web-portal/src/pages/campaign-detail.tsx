@@ -64,11 +64,13 @@ import {
   TrendingUp,
   Trash2,
   Package,
+  Printer,
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { AddAllocationModal } from "@/components/modals/AddAllocationModal";
+import { DistributionLabelModal } from "@/components/modals/DistributionLabelModal";
 
 function DeliveryProgress({
   delivered,
@@ -149,6 +151,7 @@ export default function CampaignDetail() {
   const [quantityPerFarmer, setQuantityPerFarmer] = useState("1");
   const [itemBasis, setItemBasis] = useState<AllocationBasis>("per_beneficiary");
   const [templateId, setTemplateId] = useState<string>("none");
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const [removeItemTarget, setRemoveItemTarget] = useState<any>(null);
 
   const removeMutation = useMutation({
@@ -903,15 +906,27 @@ export default function CampaignDetail() {
               <CardTitle className="text-sm font-semibold">
                 Allocated Farmers
               </CardTitle>
-              {canRemoveFarmer && (
-                <Button
-                  size="sm"
-                  className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white"
-                  onClick={() => setAllocationOpen(true)}
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Farmer
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {allocationList.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setLabelsOpen(true)}
+                  >
+                    <Printer className="h-3.5 w-3.5 mr-1" /> Print Labels
+                  </Button>
+                )}
+                {canRemoveFarmer && (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs bg-green-700 hover:bg-green-800 text-white"
+                    onClick={() => setAllocationOpen(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Farmer
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {allocationList.length === 0 ? (
@@ -997,6 +1012,13 @@ export default function CampaignDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <DistributionLabelModal
+        open={labelsOpen}
+        onClose={() => setLabelsOpen(false)}
+        allocations={allocationList}
+        contextLabel={`${c.name} · ${c.campaignCode ?? ""}`}
+      />
 
       {canRemoveFarmer && (
         <AddAllocationModal

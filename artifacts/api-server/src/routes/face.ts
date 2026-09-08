@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAnyAuth, generateProxyUploadUrl, requireRoleIfJwt } from "../lib/auth.js";
 import { supa } from "../lib/supabase.js";
+import { DELIVERABLE_ALLOCATION_STATUSES } from "../lib/entitlements.js";
 import { getPresignedViewUrl, compareFaces, detectLabels, detectFaces, bucket } from "../lib/aws.js";
 import { logAudit } from "../lib/audit.js";
 import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
@@ -120,7 +121,7 @@ router.post("/api/face/compare", requireAnyAuth, async (req, res) => {
     .select("id")
     .eq("campaign_id", (dispatch as any).campaign_id)
     .eq("farmer_id", Number(farmerId))
-    .in("status", ["Approved", "Pending"])
+    .in("status", DELIVERABLE_ALLOCATION_STATUSES)
     .limit(1)
     .maybeSingle();
   if (!allocation) {
@@ -260,7 +261,7 @@ router.post("/api/face/save-reference", requireAnyAuth, requireRoleIfJwt("FieldO
       .select("id")
       .eq("campaign_id", (dispatch as any).campaign_id)
       .eq("farmer_id", Number(farmerId))
-      .in("status", ["Approved", "Pending"])
+      .in("status", DELIVERABLE_ALLOCATION_STATUSES)
       .limit(1)
       .maybeSingle() : { data: null };
     if (!dispatch || !(await canReadDispatch(req, dispatch as any)) || !allocation) {

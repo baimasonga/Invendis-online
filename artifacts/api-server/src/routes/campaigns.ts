@@ -978,14 +978,14 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
         ? supa
             .from("farmers")
             .select(
-              "id,first_name,last_name,farmer_group,farmer_code,beneficiary_type,group_size,district_id",
+              "id,first_name,last_name,farmer_group,farmer_code,beneficiary_type,group_size,district_id,barcode_token",
             )
             .in("id", farmerIds)
         : Promise.resolve({ data: [] }),
       cIds.length
         ? supa
             .from("campaigns")
-            .select("id,name,campaign_code,status")
+            .select("id,name,campaign_code,status,value_chain_id")
             .in("id", cIds)
         : Promise.resolve({ data: [] }),
       cIds.length
@@ -1009,6 +1009,19 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
   const farmerMap = map(farmers),
     campaignMap = map(campaigns),
     inputMap = map(inputs);
+  // Distribution labels carry the value chain, so resolve its name here rather
+  // than making the client fetch the campaign separately for every allocation.
+  const chainIds = [
+    ...new Set(
+      (campaigns ?? []).map((row: any) => row.value_chain_id).filter(Boolean),
+    ),
+  ];
+  const { data: chains } = chainIds.length
+    ? await supa.from("value_chains").select("id,name").in("id", chainIds)
+    : { data: [] };
+  const chainMap = Object.fromEntries(
+    (chains ?? []).map((row: any) => [row.id, row.name]),
+  );
   const districtIds = [
     ...new Set(
       (farmers ?? []).map((farmer: any) => farmer.district_id).filter(Boolean),
@@ -1047,11 +1060,14 @@ router.get("/api/allocations", requireAnyAuth, async (req, res) => {
           null,
         farmer_code: farmer?.farmer_code ?? null,
         beneficiary_type: farmer?.beneficiary_type ?? null,
+        // Distribution labels carry the beneficiary's scannable code.
+        barcode_token: farmer?.barcode_token ?? null,
         group_size: farmer?.group_size ?? null,
         district_name: districtMap[farmer?.district_id]?.name ?? null,
         campaign_name: campaign?.name ?? null,
         campaign_code: campaign?.campaign_code ?? null,
         campaign_status: campaign?.status ?? null,
+        value_chain_name: chainMap[campaign?.value_chain_id] ?? null,
         campaign_items: itemsByCampaign[row.campaign_id] ?? [],
         entitlements: entitlements[row.id] ?? [],
       });

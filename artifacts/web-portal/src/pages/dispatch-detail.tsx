@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listAllPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listAllPod, sendOtp, listDispatchFarmers, listAllocations, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
   CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
-  MessageSquare, Send, Phone, AlertCircle, Bell, Archive, ArchiveRestore,
+  MessageSquare, Send, Phone, AlertCircle, Bell, Archive, ArchiveRestore, Tag,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SubmitPodModal } from "@/components/modals/SubmitPodModal";
 import { AddManifestItemModal } from "@/components/modals/AddManifestItemModal";
 import { StatusBadge } from "@/components/StatusBadge";
+import { DistributionLabelModal } from "@/components/modals/DistributionLabelModal";
 import { writePrintDocument } from "@/lib/utils";
 import { countBucket, trackEvent } from "@/lib/analytics";
 
@@ -148,6 +149,17 @@ export default function DispatchDetail() {
     queryFn: () => listAllPod(id),
     enabled: !!id,
   });
+
+  const [labelsOpen, setLabelsOpen] = useState(false);
+
+  // Labels need each beneficiary's entitlement lines, which the allocations
+  // endpoint carries; the dispatch itself only knows totals.
+  const { data: campaignAllocations } = useQuery({
+    queryKey: KEYS.allocations(undefined, (dispatch as any)?.campaignId),
+    queryFn: () => listAllocations(1, 500, (dispatch as any)?.campaignId),
+    enabled: !!(dispatch as any)?.campaignId,
+  });
+  const labelAllocations = (campaignAllocations as any)?.data ?? [];
 
   const { data: dispatchFarmers = [], isLoading: loadingFarmers } = useQuery({
     queryKey: ["dispatch-farmers", id],
@@ -595,6 +607,11 @@ export default function DispatchDetail() {
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintReport}>
             <Printer className="h-3.5 w-3.5 mr-1" /> Print Report
           </Button>
+          {labelAllocations.length > 0 && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setLabelsOpen(true)}>
+              <Tag className="h-3.5 w-3.5 mr-1" /> Print Labels
+            </Button>
+          )}
           <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
             {d.status}
           </span>
@@ -1043,6 +1060,14 @@ export default function DispatchDetail() {
 
       <SubmitPodModal open={podOpen} onClose={() => setPodOpen(false)} prefilledDispatchId={id} />
       <AddManifestItemModal open={addItemOpen} onClose={() => setAddItemOpen(false)} dispatchId={id} />
+    <DistributionLabelModal
+        open={labelsOpen}
+        onClose={() => setLabelsOpen(false)}
+        allocations={labelAllocations}
+        manifestCode={d.manifestCode}
+        contextLabel={`${d.campaignName ?? "Campaign"} · manifest ${d.manifestCode}`}
+      />
+
     </div>
   );
 }

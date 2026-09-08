@@ -121,7 +121,6 @@ export function FarmerIdCard({ farmer, photoUrl }: FarmerIdCardProps) {
             <p>Present this card at distribution points for identification</p>
           </div>
         </div>
-        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }<\/script>
       </body>
       </html>
     `);

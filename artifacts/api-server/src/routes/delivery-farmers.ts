@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAnyAuth } from "../lib/auth.js";
 import { canReadDispatch } from "../lib/dispatch-auth.js";
 import { snakeToCamel, supa } from "../lib/supabase.js";
+import { DELIVERABLE_ALLOCATION_STATUSES } from "../lib/entitlements.js";
 
 const router = Router();
 
@@ -17,7 +18,7 @@ router.get("/api/dispatch/:dispatchId/farmers", requireAnyAuth, async (req, res)
   if (!dispatch) { res.status(404).json({ error: "Active assigned dispatch not found" }); return; }
   const search = String(req.query.search ?? "").trim().toLowerCase();
   const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20)));
-  const { data: allocations, error: allocationError } = await supa.from("allocations").select("farmer_id").eq("campaign_id", (dispatch as any).campaign_id).in("status", ["Approved", "Pending"]);
+  const { data: allocations, error: allocationError } = await supa.from("allocations").select("farmer_id").eq("campaign_id", (dispatch as any).campaign_id).in("status", DELIVERABLE_ALLOCATION_STATUSES);
   if (allocationError) { res.status(500).json({ error: "Unable to load campaign beneficiaries" }); return; }
   const farmerIds = [...new Set((allocations ?? []).map((row: any) => Number(row.farmer_id)).filter(Number.isInteger))];
   if (!farmerIds.length) { res.json({ data: [], total: 0 }); return; }
@@ -32,7 +33,7 @@ router.get("/api/dispatch/:dispatchId/farmers/barcode/:token", requireAnyAuth, a
   if (!dispatch) { res.status(404).json({ error: "Active assigned dispatch not found" }); return; }
   const { data: farmer } = await supa.from("farmers").select("*").eq("barcode_token", req.params.token).eq("status", "approved").maybeSingle();
   if (!farmer) { res.status(404).json({ error: "Farmer not found for this barcode" }); return; }
-  const { data: allocation } = await supa.from("allocations").select("id").eq("campaign_id", (dispatch as any).campaign_id).eq("farmer_id", (farmer as any).id).in("status", ["Approved", "Pending"]).maybeSingle();
+  const { data: allocation } = await supa.from("allocations").select("id").eq("campaign_id", (dispatch as any).campaign_id).eq("farmer_id", (farmer as any).id).in("status", DELIVERABLE_ALLOCATION_STATUSES).maybeSingle();
   if (!allocation) { res.status(404).json({ error: "Farmer is not allocated to this dispatch campaign" }); return; }
   res.json(snakeToCamel(farmer));
 });

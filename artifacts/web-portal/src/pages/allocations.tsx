@@ -46,10 +46,12 @@ import {
   Pencil,
   Trash2,
   UsersRound,
+  Tag,
 } from "lucide-react";
 import { NewAllocationModal } from "@/components/modals/NewAllocationModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
+import { DistributionLabelModal } from "@/components/modals/DistributionLabelModal";
 import { useToast } from "@/hooks/use-toast";
 
 function EditAllocationModal({
@@ -140,6 +142,7 @@ export default function Allocations() {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<any>(null);
+  const [labelTarget, setLabelTarget] = useState<any>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const limit = 20;
 
@@ -358,6 +361,17 @@ export default function Allocations() {
                     </TableCell>
                     {can.manageAllocations && (
                       <TableCell className="pr-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                            title="Print this beneficiary's labels"
+                            onClick={() => setLabelTarget(a)}
+                          >
+                            <Tag className="h-3 w-3 mr-1" /> Label
+                          </Button>
+                        </div>
                         {["draft", "rejected"].includes(
                           String(a.campaignStatus).toLowerCase(),
                         ) && (
@@ -479,6 +493,15 @@ export default function Allocations() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    {labelTarget && (
+        <DistributionLabelModal
+          open={!!labelTarget}
+          onClose={() => setLabelTarget(null)}
+          allocations={[labelTarget]}
+          contextLabel={`${labelTarget.farmerName ?? "Beneficiary"} · ${labelTarget.campaignName ?? ""}`}
+        />
+      )}
+
     </div>
   );
 }
