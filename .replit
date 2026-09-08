@@ -59,4 +59,4 @@ EASYSENDSMS_SENDER = "AVDP"
 # script still overrides this with $REPLIT_DEV_DOMAIN for local Replit dev, and
 # the GitHub Actions APK build uses vars.EXPO_PUBLIC_DOMAIN, so this is the
 # production default only.
-EXPO_PUBLIC_DOMAIN = "www.invendisapp.com"
+EXPO_PUBLIC_DOMAIN = "invendisapp.com"

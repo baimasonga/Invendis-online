@@ -34,8 +34,8 @@ jobs:
     timeout-minutes: 35
     env:
       CI: "true"
-      EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
-      REPLIT_DEV_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+      EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}
+      REPLIT_DEV_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}
       EXPO_PUBLIC_REPL_ID: ci
 
     steps:

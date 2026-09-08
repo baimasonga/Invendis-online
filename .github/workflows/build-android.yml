@@ -104,7 +104,7 @@ jobs:
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}
+          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
@@ -205,7 +205,7 @@ jobs:
             | Field | Value |
             |-------|-------|
             | Commit | `${{ github.sha }}` |
-            | API domain | `${{ vars.EXPO_PUBLIC_DOMAIN || 'www.invendisapp.com' }}` |
+            | API domain | `${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}` |
             | Signing | `${{ steps.signing.outputs.signed }}` |
 
             Download the `.apk` below and install on Android.
