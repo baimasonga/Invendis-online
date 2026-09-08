@@ -28,8 +28,16 @@ function StatCard({ label, value, color, icon }: { label: string; value: string 
       <View style={[styles.statIcon, { backgroundColor: color + "18" }]}>
         <Feather name={icon} size={20} color={color} />
       </View>
-      <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{label}</Text>
+      <Text maxFontSizeMultiplier={1.2} style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
+      <Text
+        maxFontSizeMultiplier={1.15}
+        numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        style={[styles.statLabel, { color: colors.mutedForeground }]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -153,9 +161,9 @@ export default function DashboardScreen() {
       {/* Header */}
       <ProfileModal visible={profileOpen} onClose={() => setProfileOpen(false)} />
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{greeting()}</Text>
-          <Text style={[styles.name, { color: colors.foreground }]}>{user?.fullName ?? user?.username ?? "Officer"}</Text>
+        <View style={styles.headerCopy}>
+          <Text numberOfLines={1} maxFontSizeMultiplier={1.25} style={[styles.greeting, { color: colors.mutedForeground }]}>{greeting()}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={1.2} style={[styles.name, { color: colors.foreground }]}>{user?.fullName ?? user?.username ?? "Officer"}</Text>
         </View>
         <TouchableOpacity
           style={[styles.profileBtn, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
@@ -170,7 +178,7 @@ export default function DashboardScreen() {
       </View>
 
       {/* Stats */}
-      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Today's Summary</Text>
+      <Text maxFontSizeMultiplier={1.2} style={[styles.sectionTitle, { color: colors.foreground }]}>Today's Summary</Text>
       {podStatsQ.isLoading ? (
         <ActivityIndicator color={colors.primary} style={{ marginVertical: 24 }} />
       ) : (
@@ -206,24 +214,24 @@ export default function DashboardScreen() {
         activeOpacity={0.87}
       >
         <View style={styles.recordDeliveryLeft}>
-          <Text style={styles.recordDeliveryTitle}>Record Delivery</Text>
-          <Text style={styles.recordDeliverySub}>Choose assigned dispatch · Scan farmer · Capture proof</Text>
+          <Text maxFontSizeMultiplier={1.15} style={styles.recordDeliveryTitle}>Record Delivery</Text>
+          <Text maxFontSizeMultiplier={1.15} style={styles.recordDeliverySub}>Choose assigned dispatch · Scan farmer · Capture proof</Text>
           <View style={styles.recordDeliveryIcons}>
             <View style={styles.recordDeliveryIconChip}>
               <Feather name="user" size={12} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.recordDeliveryIconText}>Scan</Text>
+              <Text maxFontSizeMultiplier={1.1} style={styles.recordDeliveryIconText}>Scan</Text>
             </View>
             <View style={styles.recordDeliveryIconChip}>
               <Feather name="map-pin" size={12} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.recordDeliveryIconText}>GPS</Text>
+              <Text maxFontSizeMultiplier={1.1} style={styles.recordDeliveryIconText}>GPS</Text>
             </View>
             <View style={styles.recordDeliveryIconChip}>
               <Feather name="camera" size={12} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.recordDeliveryIconText}>Photos</Text>
+              <Text maxFontSizeMultiplier={1.1} style={styles.recordDeliveryIconText}>Photos</Text>
             </View>
             <View style={styles.recordDeliveryIconChip}>
               <Feather name="shield" size={12} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.recordDeliveryIconText}>OTP</Text>
+              <Text maxFontSizeMultiplier={1.1} style={styles.recordDeliveryIconText}>OTP</Text>
             </View>
           </View>
         </View>
@@ -235,9 +243,9 @@ export default function DashboardScreen() {
       {/* Active dispatches */}
       <View style={styles.section}>
         <View style={styles.sectionRow}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Active Dispatches</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2} style={[styles.sectionTitle, styles.sectionTitleFlexible, { color: colors.foreground }]}>Active Dispatches</Text>
           <TouchableOpacity onPress={() => router.push("/(tabs)/distributions")}>
-            <Text style={[styles.seeAll, { color: colors.primary }]}>See all</Text>
+            <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={[styles.seeAll, { color: colors.primary }]}>See all</Text>
           </TouchableOpacity>
         </View>
         {(inTransitQ.isLoading || arrivedQ.isLoading) ? (
@@ -285,7 +293,7 @@ export default function DashboardScreen() {
       </View>
 
       {/* Quick actions */}
-      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Quick Actions</Text>
+      <Text maxFontSizeMultiplier={1.2} style={[styles.sectionTitle, { color: colors.foreground }]}>Quick Actions</Text>
       <View style={styles.actionsRow}>
         <TouchableOpacity
           style={[styles.actionBtn, { backgroundColor: colors.card, borderRadius: colors.radius, borderWidth: 1, borderColor: colors.border }]}
@@ -312,17 +320,19 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 20, gap: 16 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  headerCopy: { flex: 1, minWidth: 0, marginRight: 12 },
   profileBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   greeting: { fontSize: 13, fontFamily: "Inter_400Regular" },
   name: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },
   sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  sectionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  sectionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 },
+  sectionTitleFlexible: { flex: 1, minWidth: 0 },
   seeAll: { fontSize: 13, fontFamily: "Inter_500Medium" },
   statsRow: { flexDirection: "row", gap: 10 },
-  statCard: { flex: 1, padding: 14, gap: 6, borderWidth: 1, alignItems: "center" },
+  statCard: { flex: 1, minWidth: 0, paddingHorizontal: 8, paddingVertical: 14, gap: 6, borderWidth: 1, alignItems: "center" },
   statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   statValue: { fontSize: 24, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center" },
+  statLabel: { width: "100%", minHeight: 30, fontSize: 11, lineHeight: 15, fontFamily: "Inter_400Regular", textAlign: "center" },
   syncBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1 },
   syncText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   section: { gap: 0 },
@@ -346,8 +356,8 @@ const styles = StyleSheet.create({
   recordDeliveryLeft: { flex: 1, gap: 6 },
   recordDeliveryTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#fff" },
   recordDeliverySub: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.8)", lineHeight: 17 },
-  recordDeliveryIcons: { flexDirection: "row", gap: 6, marginTop: 2 },
-  recordDeliveryIconChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.18)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  recordDeliveryIcons: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 2 },
+  recordDeliveryIconChip: { flexDirection: "row", flexShrink: 0, alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.18)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
   recordDeliveryIconText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.95)" },
   recordDeliveryArrow: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
 });

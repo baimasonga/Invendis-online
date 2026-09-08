@@ -58,8 +58,9 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          height: isWeb ? 84 : 50 + insets.bottom,
-          paddingBottom: isWeb ? 34 : insets.bottom,
+          height: isWeb ? 84 : 56 + insets.bottom,
+          paddingTop: isWeb ? 0 : 4,
+          paddingBottom: isWeb ? 34 : Math.max(insets.bottom, 4),
         },
         tabBarBackground: () =>
           isIOS ? (
@@ -73,9 +74,10 @@ export default function TabLayout() {
           ),
         tabBarLabelStyle: {
           fontFamily: "Inter_500Medium",
-          fontSize: 10,
-          marginTop: -2,
+          fontSize: 9,
+          marginTop: 0,
         },
+        tabBarAllowFontScaling: false,
       }}
     >
       <Tabs.Screen
