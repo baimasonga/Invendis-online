@@ -963,6 +963,26 @@ router.post(
       return;
     }
 
+    const [{ count: campaignItemCount }, { count: reservationCount }] =
+      await Promise.all([
+        supa
+          .from("campaign_items")
+          .select("id", { count: "exact", head: true })
+          .eq("campaign_id", campaignId),
+        supa
+          .from("campaign_stock_reservations")
+          .select("id", { count: "exact", head: true })
+          .eq("campaign_id", campaignId),
+      ]);
+    if ((campaignItemCount ?? 0) === 0 || (reservationCount ?? 0) === 0) {
+      res.status(409).json({
+        error:
+          "This campaign is not ready for manifest import. Configure its item package and allocations, then submit and approve it to reserve stock.",
+        code: "campaign_setup_incomplete",
+      });
+      return;
+    }
+
     let createdBy: number | null = req.user?.userId ?? null;
     if (!createdBy && req.supabaseUser?.email) {
       const { data: u } = await supa
