@@ -260,8 +260,10 @@ CREATE TABLE IF NOT EXISTS campaigns (
   allocated_farmers    integer DEFAULT 0,
   delivered_count      integer DEFAULT 0,
   notes                text,
-  created_by           uuid REFERENCES profiles(id),
-  approved_by          uuid REFERENCES profiles(id),
+  -- Actor columns hold the integer users.id, not a profiles uuid; the portal
+  -- and the API both resolve it before writing.
+  created_by           integer REFERENCES users(id),
+  approved_by          integer REFERENCES users(id),
   approved_at          timestamptz,
   rejection_reason     text,
   cancelled_at         timestamptz,
@@ -293,7 +295,7 @@ CREATE TABLE IF NOT EXISTS allocations (
   farmer_id    integer NOT NULL REFERENCES farmers(id),
   status       text NOT NULL DEFAULT 'Pending',
   notes        text,
-  allocated_by uuid REFERENCES profiles(id),
+  allocated_by integer REFERENCES users(id),
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz
 );

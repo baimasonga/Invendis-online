@@ -8,7 +8,12 @@ DO $$ BEGIN CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS; EXCEPTION WHEN
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE SCHEMA IF NOT EXISTS private;
 CREATE SCHEMA IF NOT EXISTS extensions;
-CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text);
+-- Mirrors the columns the public.handle_new_user trigger reads.
+CREATE TABLE IF NOT EXISTS auth.users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text,
+  raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
 CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT NULL::text $$;
 CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT '{}'::jsonb $$;

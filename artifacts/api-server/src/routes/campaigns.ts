@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { ensureIntegerUserId } from "../lib/users.js";
 import { sendSms } from "../lib/sms.js";
 import {
   canEditCampaign,
@@ -15,6 +16,7 @@ import {
   entitlementText,
   entitlementsByAllocation,
   normaliseBasis,
+  provisionalEntitlements,
 } from "../lib/entitlements.js";
 
 const router = Router();
@@ -29,7 +31,10 @@ const roleKey = (req: Request) =>
   (req.user?.role ?? req.supabaseUser?.role ?? "")
     .toLowerCase()
     .replace(/[\s_-]/g, "");
-const profileActorId = (req: Request) => req.supabaseUser?.id ?? null;
+// Actor columns hold the integer users.id. req.supabaseUser.id is the Supabase
+// auth uuid, which the database rejects outright — the portal has always
+// resolved the integer id for the same columns.
+const actorUserId = (req: Request) => ensureIntegerUserId(req);
 const parseId = (raw: unknown) => positiveInteger(raw);
 const fail = (res: Response, status: number, message: string) =>
   res.status(status).json({ error: message });
@@ -442,7 +447,7 @@ router.post(
       fail(res, 422, referenceError);
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const insert = {
       name: String(req.body.name).trim(),
       season: String(req.body.season).trim(),
@@ -578,7 +583,7 @@ async function transition(
   const { data, error } = await supa.rpc("transition_campaign_atomic", {
     p_campaign_id: id,
     p_target_status: targetStatus,
-    p_actor: profileActorId(req),
+    p_actor: await actorUserId(req),
     p_reason:
       typeof req.body?.reason === "string"
         ? req.body.reason.trim() || null
@@ -1138,15 +1143,22 @@ router.get(
     const stored = await entitlementsByAllocation(
       rows.map((row: any) => row.id),
     );
-    const results = await Promise.all(
-      rows.map(async (row: any) => ({
-        allocationId: row.id,
-        farmerId: row.farmer_id,
-        lines: stored[row.id]?.length
-          ? stored[row.id]
-          : await beneficiaryEntitlement(campaignId, row.farmer_id),
-      })),
-    );
+    // Only the beneficiaries with no materialised lines need deriving, and they
+    // are derived in one batch: per-beneficiary lookups here would put a
+    // campaign's worth of concurrent requests on the connection pool.
+    const pending = rows
+      .filter((row: any) => !stored[row.id]?.length)
+      .map((row: any) => row.farmer_id);
+    const provisional = pending.length
+      ? await provisionalEntitlements(campaignId, pending)
+      : {};
+    const results = rows.map((row: any) => ({
+      allocationId: row.id,
+      farmerId: row.farmer_id,
+      lines: stored[row.id]?.length
+        ? stored[row.id]
+        : (provisional[row.farmer_id] ?? []),
+    }));
     // Totals are what approval will try to reserve from the source warehouse.
     const totals: Record<number, { inputItemId: number; name: string | null; unit: string | null; quantity: number }> = {};
     for (const result of results)
@@ -1183,7 +1195,7 @@ router.post(
       fail(res, 422, eligible);
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const { data, error } = await supa
       .from("allocations")
       .insert({
@@ -1279,7 +1291,7 @@ router.post(
       );
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const { data, error } = await supa
       .from("allocations")
       .upsert(
