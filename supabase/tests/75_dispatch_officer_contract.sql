@@ -37,6 +37,7 @@ INSERT INTO profiles(id, full_name, email, role)
 VALUES ('937d43ae-0f37-4f6d-a53f-9dc957fadad0', 'Field Officer', 'field@example.test', 'FieldOfficer')
 ON CONFLICT (id) DO UPDATE SET email=excluded.email;
 UPDATE users SET email='field@example.test' WHERE id=903;
+UPDATE campaigns SET status='Approved' WHERE id=901;
 
 ALTER TABLE dispatches DROP CONSTRAINT IF EXISTS dispatches_field_officer_id_fkey;
 DROP TRIGGER IF EXISTS dispatch_requires_field_officer ON dispatches;
