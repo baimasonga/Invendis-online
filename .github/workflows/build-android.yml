@@ -69,6 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: typecheck
+    # Expo substitutes EXPO_PUBLIC_* variables while Gradle bundles JavaScript.
+    # Keep this at job scope so both prebuild and assemble/bundle receive it.
+    env:
+      EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}
 
     steps:
       - name: Checkout repository
@@ -104,7 +108,6 @@ jobs:
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_DOMAIN: ${{ vars.EXPO_PUBLIC_DOMAIN || 'invendisapp.com' }}
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
