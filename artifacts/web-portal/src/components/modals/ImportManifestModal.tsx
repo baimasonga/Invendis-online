@@ -60,6 +60,13 @@ import {
 } from "lucide-react";
 import { cn, writePrintDocument } from "@/lib/utils";
 import { countBucket, trackEvent } from "@/lib/analytics";
+import {
+  findManifestHeaderRow,
+  inferManifestSingleItem,
+  isCommunityManifestHeader,
+  isNonItemManifestHeader,
+  normalizeManifestHeader,
+} from "@/lib/manifest-parser";
 
 interface Props {
   open: boolean;
@@ -162,27 +169,16 @@ export function ImportManifestModal({ open, onClose }: Props) {
           defval: null,
         });
 
-        // Scan the first 10 rows (or fewer) to find the header row containing "Community"
-        const scanLimit = Math.min(raw.length, 10);
-        let headerRowIdx = -1;
-        for (let r = 0; r < scanLimit; r++) {
-          const row = raw[r] as any[];
-          if (
-            row?.some(
-              (cell: any) =>
-                typeof cell === "string" &&
-                cell.toString().toLowerCase().trim() === "community",
-            )
-          ) {
-            headerRowIdx = r;
-            break;
-          }
-        }
+        // AVDP plans commonly use "LOCATION / COMMUNITY" and may have several
+        // title/blank rows before the actual header. Match controlled aliases
+        // instead of any cell merely containing the word "community", which
+        // prevents a report title from being mistaken for the header row.
+        const headerRowIdx = findManifestHeaderRow(raw);
         if (headerRowIdx < 0) {
           toast({
             title: "Parse error",
             description:
-              "Could not find a header row with a 'Community' column. Check that the file contains a Community header.",
+              "Could not find a Community column. Accepted headers include 'Community' and 'Location / Community'.",
             variant: "destructive",
           });
           return;
@@ -192,9 +188,11 @@ export function ImportManifestModal({ open, onClose }: Props) {
         let extractedTitle = "";
         for (let r = 0; r < headerRowIdx; r++) {
           const row = raw[r] as any[];
-          const firstCell = row?.[0]?.toString().trim();
-          if (firstCell && firstCell.length > 3) {
-            extractedTitle = firstCell;
+          const titleCell = row?.find(
+            (cell) => typeof cell === "string" && cell.trim().length > 3,
+          );
+          if (titleCell) {
+            extractedTitle = titleCell.trim();
             break;
           }
         }
@@ -202,25 +200,24 @@ export function ImportManifestModal({ open, onClose }: Props) {
         const headerRow = raw[headerRowIdx] as any[];
 
         const districtIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "district",
+          (h: any) => normalizeManifestHeader(h) === "district",
         );
         const chiefdomIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "chiefdom",
+          (h: any) => normalizeManifestHeader(h) === "chiefdom",
         );
-        const communityIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "community",
+        const communityIdx = headerRow.findIndex(isCommunityManifestHeader);
+        const sectionIdx = headerRow.findIndex(
+          (h: any) => normalizeManifestHeader(h) === "section",
         );
         const distributionIdx = headerRow.findIndex((h: any) => {
-          const v = h?.toString().toLowerCase().trim();
+          const v = normalizeManifestHeader(h);
           return v === "distribution" || v === "distribution site";
         });
-        const contactNameIdx = headerRow.findIndex(
-          (h: any) =>
-            typeof h === "string" && h.toLowerCase().includes("contact person"),
+        const contactNameIdx = headerRow.findIndex((h: any) =>
+          normalizeManifestHeader(h).includes("contact person"),
         );
         const contactPhoneIdx = headerRow.findIndex((h: any) => {
-          if (typeof h !== "string") return false;
-          const v = h.toLowerCase().trim();
+          const v = normalizeManifestHeader(h);
           return (
             v === "contact #" ||
             v === "contact number" ||
@@ -254,6 +251,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
           [
             districtIdx,
             chiefdomIdx,
+            sectionIdx,
             communityIdx,
             distributionIdx,
             contactNameIdx,
@@ -262,10 +260,19 @@ export function ImportManifestModal({ open, onClose }: Props) {
         );
         // Also exclude a leading "No" / "#" column if present
         const noIdx = headerRow.findIndex((h: any) => {
-          const v = h?.toString().toLowerCase().trim();
-          return v === "no" || v === "no." || v === "#" || v === "s/n";
+          const v = normalizeManifestHeader(h);
+          return (
+            v === "no" ||
+            v === "#" ||
+            v === "s n" ||
+            v === "serial no" ||
+            v === "index"
+          );
         });
         if (noIdx >= 0) fixedIndices.add(noIdx);
+        headerRow.forEach((header, index) => {
+          if (isNonItemManifestHeader(header)) fixedIndices.add(index);
+        });
 
         const toolHeaders: string[] = [];
         const toolColIndices: number[] = [];
@@ -287,6 +294,18 @@ export function ImportManifestModal({ open, onClose }: Props) {
           seenHeaders.add(key);
           dedupedHeaders.push(toolHeaders[i]);
           dedupedColIndices.push(toolColIndices[i]);
+        }
+
+        // Power Tiller distribution plans list one recipient per row without a
+        // separate quantity column. Treat each recipient row as one Power Tiller;
+        // the next step still requires mapping it to an approved campaign item.
+        const inferredSingleItem = inferManifestSingleItem(
+          extractedTitle,
+          headerRow,
+        );
+        if (dedupedHeaders.length === 0 && inferredSingleItem) {
+          dedupedHeaders.push(inferredSingleItem);
+          dedupedColIndices.push(-1);
         }
         if (dedupedHeaders.length === 0) {
           toast({
@@ -334,7 +353,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
 
           const quantities: number[] = [];
           for (const colIdx of dedupedColIndices) {
-            quantities.push(Number(row[colIdx] ?? 0));
+            quantities.push(colIdx === -1 ? 1 : Number(row[colIdx] ?? 0));
           }
           rows.push({
             community: row[communityIdx]?.toString() ?? "",
@@ -639,9 +658,10 @@ export function ImportManifestModal({ open, onClose }: Props) {
             {step === 1 && (
               <div className="space-y-4 py-4">
                 <p className="text-sm text-muted-foreground">
-                  Upload your filled Excel or CSV distribution plan. Communities
-                  are auto-registered as group beneficiaries with barcodes, and
-                  new tool types are added to Inventory automatically.
+                  Upload your filled Excel or CSV distribution plan. Each
+                  community must already be an approved group in the selected
+                  campaign, and every tool must be linked to an existing
+                  campaign item.
                 </p>
 
                 <Button
@@ -694,8 +714,8 @@ export function ImportManifestModal({ open, onClose }: Props) {
                     Expected column order:
                   </p>
                   <p>
-                    No · District · Chiefdom · Community · [Tool columns] ·
-                    Contact Person · Contact #
+                    No · District · Chiefdom · Community (or Location /
+                    Community) · [Tool columns] · Contact Person · Contact #
                   </p>
                   <p>
                     An optional title row above the headers is detected
