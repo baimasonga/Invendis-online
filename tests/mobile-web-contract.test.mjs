@@ -10,7 +10,10 @@ const [
   mobileLookup,
   gpsRoute,
   migration,
+  officerMigration,
   androidWorkflow,
+  apiApp,
+  replitConfig,
 ] = await Promise.all([
   read("artifacts/api-server/src/routes/delivery-guard.ts"),
   read("artifacts/api-server/src/routes/delivery-farmers.ts"),
@@ -20,7 +23,12 @@ const [
   read(
     "supabase/migrations/20260905005300_harden_mobile_delivery_contract.sql",
   ),
+  read(
+    "supabase/migrations/20260908090000_fix_dispatch_field_officer_contract.sql",
+  ),
   read(".github/workflows/build-android.yml"),
+  read("artifacts/api-server/src/app.ts"),
+  read(".replit"),
 ]);
 
 test("field delivery lookup is scoped to an authorized dispatch campaign", () => {
@@ -57,4 +65,26 @@ test("vehicle corroboration uses hardware GPS from the same dispatch", () => {
 test("API contract changes trigger the Android build", () => {
   assert.match(androidWorkflow, /artifacts\/api-server\/src\/routes\/pod\.ts/);
   assert.match(androidWorkflow, /supabase\/migrations\/\*\*/);
+});
+
+test("dispatch ownership remains an integer mobile user contract", () => {
+  assert.match(
+    officerMigration,
+    /ALTER COLUMN field_officer_id TYPE integer/i,
+  );
+  assert.match(
+    officerMigration,
+    /FOREIGN KEY \(field_officer_id\) REFERENCES public\.users\(id\)/i,
+  );
+  assert.match(
+    officerMigration,
+    /DROP TRIGGER IF EXISTS dispatch_requires_field_officer[\s\S]*CREATE TRIGGER dispatch_requires_field_officer/i,
+  );
+});
+
+test("Replit serves the portal and API from one production process", () => {
+  assert.match(replitConfig, /build = \["pnpm", "run", "build:replit"\]/);
+  assert.match(replitConfig, /run = \["pnpm", "run", "start:replit"\]/);
+  assert.match(apiApp, /express\.static\(webDistDir\)/);
+  assert.match(apiApp, /req\.path\.startsWith\("\/api\/"\)/);
 });
