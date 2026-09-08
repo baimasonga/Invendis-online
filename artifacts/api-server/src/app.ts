@@ -1,6 +1,9 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { startGpsPoller } from "./lib/gpstrace.js";
@@ -43,6 +46,33 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(router);
+
+// Replit publishes a single autoscaled process. Serve the compiled portal from
+// the API process so the browser and field app share one durable origin and
+// relative /api requests cannot be routed to a frontend-only process.
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const webDistDir = path.resolve(moduleDir, "../../web-portal/dist/public");
+const webIndex = path.join(webDistDir, "index.html");
+
+if (existsSync(webIndex)) {
+  app.use(express.static(webDistDir));
+  app.use((req, res, next) => {
+    if (
+      req.method !== "GET" ||
+      req.path === "/api" ||
+      req.path.startsWith("/api/") ||
+      !req.accepts("html")
+    ) {
+      next();
+      return;
+    }
+    res.sendFile(webIndex);
+  });
+}
+
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 // Start GPS poller if any GPS-Trace token is configured
 const _hasGpsToken =

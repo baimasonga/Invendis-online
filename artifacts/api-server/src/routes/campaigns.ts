@@ -249,6 +249,8 @@ async function enrichCampaigns(rows: any[]): Promise<any[]> {
     { data: chains },
     { data: sites },
     { data: warehouses },
+    { data: campaignItems },
+    { data: reservations },
   ] = await Promise.all([
     ids("district_id").length
       ? supa.from("districts").select("id,name").in("id", ids("district_id"))
@@ -271,6 +273,18 @@ async function enrichCampaigns(rows: any[]): Promise<any[]> {
           .select("id,name,code")
           .in("id", ids("source_warehouse_id"))
       : Promise.resolve({ data: [] }),
+    ids("id").length
+      ? supa
+          .from("campaign_items")
+          .select("campaign_id")
+          .in("campaign_id", ids("id"))
+      : Promise.resolve({ data: [] }),
+    ids("id").length
+      ? supa
+          .from("campaign_stock_reservations")
+          .select("campaign_id")
+          .in("campaign_id", ids("id"))
+      : Promise.resolve({ data: [] }),
   ]);
   const map = (values: any[] | null) =>
     Object.fromEntries((values ?? []).map((value) => [value.id, value]));
@@ -278,6 +292,14 @@ async function enrichCampaigns(rows: any[]): Promise<any[]> {
     chainMap = map(chains),
     siteMap = map(sites),
     warehouseMap = map(warehouses);
+  const campaignsWithItems = new Set(
+    (campaignItems ?? []).map((item: any) => Number(item.campaign_id)),
+  );
+  const campaignsWithReservations = new Set(
+    (reservations ?? []).map((reservation: any) =>
+      Number(reservation.campaign_id),
+    ),
+  );
   return rows.map((row) =>
     snakeToCamel({
       ...row,
@@ -288,6 +310,9 @@ async function enrichCampaigns(rows: any[]): Promise<any[]> {
         warehouseMap[row.source_warehouse_id]?.name ?? null,
       source_warehouse_code:
         warehouseMap[row.source_warehouse_id]?.code ?? null,
+      manifest_ready:
+        campaignsWithItems.has(Number(row.id)) &&
+        campaignsWithReservations.has(Number(row.id)),
     }),
   );
 }

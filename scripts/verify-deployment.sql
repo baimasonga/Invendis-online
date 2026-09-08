@@ -29,6 +29,17 @@ UNION ALL SELECT 'campaigns.approved_by type',
 UNION ALL SELECT 'allocations.allocated_by type',
        (SELECT data_type FROM information_schema.columns
          WHERE table_schema='public' AND table_name='allocations' AND column_name='allocated_by'), 'integer'
+UNION ALL SELECT 'dispatches.field_officer_id type',
+       (SELECT data_type FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='dispatches' AND column_name='field_officer_id'), 'integer'
+UNION ALL SELECT 'dispatch field officer FK',
+       (SELECT ccu.table_name FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON kcu.constraint_schema=tc.constraint_schema AND kcu.constraint_name=tc.constraint_name
+         JOIN information_schema.constraint_column_usage ccu
+           ON ccu.constraint_schema=tc.constraint_schema AND ccu.constraint_name=tc.constraint_name
+        WHERE tc.table_schema='public' AND tc.table_name='dispatches'
+          AND tc.constraint_type='FOREIGN KEY' AND kcu.column_name='field_officer_id'), 'users'
 UNION ALL SELECT 'transition_campaign_atomic actor',
        (SELECT pg_get_function_arguments(oid) FROM pg_proc
          WHERE proname='transition_campaign_atomic'), 'p_actor integer'

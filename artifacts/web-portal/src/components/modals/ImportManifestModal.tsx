@@ -149,7 +149,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
   });
 
   const campaigns: any[] = ((campaignsData as any)?.data ?? []).filter(
-    (c: any) => ["approved", "active"].includes(String(c.status).toLowerCase()),
+    (c: any) =>
+      ["approved", "active"].includes(String(c.status).toLowerCase()) &&
+      c.manifestReady === true,
   );
   const vehicleList: any[] = (vehiclesData as any)?.data ?? [];
   const driverList: any[] = (driversData as any)?.data ?? [];
@@ -945,8 +947,9 @@ export function ImportManifestModal({ open, onClose }: Props) {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Beneficiaries and items must already belong to this
-                      campaign.
+                      {campaigns.length
+                        ? "Only approved campaigns with configured items and active stock reservations are shown."
+                        : "No campaign is ready for import. Configure its items and allocations, then submit and approve it first."}
                     </p>
                   </div>
                   <div className="space-y-1.5">

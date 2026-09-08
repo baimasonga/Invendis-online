@@ -3,6 +3,8 @@ modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+build = ["pnpm", "run", "build:replit"]
+run = ["pnpm", "run", "start:replit"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
