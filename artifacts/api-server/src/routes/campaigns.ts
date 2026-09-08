@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { supa, snakeToCamel } from "../lib/supabase.js";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { ensureIntegerUserId } from "../lib/users.js";
 import { sendSms } from "../lib/sms.js";
 import {
   canEditCampaign,
@@ -30,7 +31,10 @@ const roleKey = (req: Request) =>
   (req.user?.role ?? req.supabaseUser?.role ?? "")
     .toLowerCase()
     .replace(/[\s_-]/g, "");
-const profileActorId = (req: Request) => req.supabaseUser?.id ?? null;
+// Actor columns hold the integer users.id. req.supabaseUser.id is the Supabase
+// auth uuid, which the database rejects outright — the portal has always
+// resolved the integer id for the same columns.
+const actorUserId = (req: Request) => ensureIntegerUserId(req);
 const parseId = (raw: unknown) => positiveInteger(raw);
 const fail = (res: Response, status: number, message: string) =>
   res.status(status).json({ error: message });
@@ -443,7 +447,7 @@ router.post(
       fail(res, 422, referenceError);
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const insert = {
       name: String(req.body.name).trim(),
       season: String(req.body.season).trim(),
@@ -579,7 +583,7 @@ async function transition(
   const { data, error } = await supa.rpc("transition_campaign_atomic", {
     p_campaign_id: id,
     p_target_status: targetStatus,
-    p_actor: profileActorId(req),
+    p_actor: await actorUserId(req),
     p_reason:
       typeof req.body?.reason === "string"
         ? req.body.reason.trim() || null
@@ -1191,7 +1195,7 @@ router.post(
       fail(res, 422, eligible);
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const { data, error } = await supa
       .from("allocations")
       .insert({
@@ -1287,7 +1291,7 @@ router.post(
       );
       return;
     }
-    const actorId = profileActorId(req);
+    const actorId = await actorUserId(req);
     const { data, error } = await supa
       .from("allocations")
       .upsert(
