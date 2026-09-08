@@ -12,6 +12,13 @@ import {
   KEYS,
 } from "@/lib/db";
 import {
+  HEADER_ALIASES,
+  describeScannedHeaders,
+  findHeaderRow,
+  headerIndex,
+  headerIndexContaining,
+} from "@/lib/manifest-headers";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -162,27 +169,14 @@ export function ImportManifestModal({ open, onClose }: Props) {
           defval: null,
         });
 
-        // Scan the first 10 rows (or fewer) to find the header row containing "Community"
-        const scanLimit = Math.min(raw.length, 10);
-        let headerRowIdx = -1;
-        for (let r = 0; r < scanLimit; r++) {
-          const row = raw[r] as any[];
-          if (
-            row?.some(
-              (cell: any) =>
-                typeof cell === "string" &&
-                cell.toString().toLowerCase().trim() === "community",
-            )
-          ) {
-            headerRowIdx = r;
-            break;
-          }
-        }
+        const headerRowIdx = findHeaderRow(raw as unknown[][]);
         if (headerRowIdx < 0) {
+          const seen = describeScannedHeaders(raw as unknown[][]);
           toast({
             title: "Parse error",
-            description:
-              "Could not find a header row with a 'Community' column. Check that the file contains a Community header.",
+            description: seen
+              ? `No Community column found. Headers read from the file: ${seen}. Rename the beneficiary column to "Community" (or Village, Town, Settlement, Farmer Group).`
+              : "The first sheet appears to be empty. Check that the distribution plan is on the first tab of the workbook.",
             variant: "destructive",
           });
           return;
@@ -201,33 +195,14 @@ export function ImportManifestModal({ open, onClose }: Props) {
 
         const headerRow = raw[headerRowIdx] as any[];
 
-        const districtIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "district",
-        );
-        const chiefdomIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "chiefdom",
-        );
-        const communityIdx = headerRow.findIndex(
-          (h: any) => h?.toString().toLowerCase() === "community",
-        );
-        const distributionIdx = headerRow.findIndex((h: any) => {
-          const v = h?.toString().toLowerCase().trim();
-          return v === "distribution" || v === "distribution site";
-        });
-        const contactNameIdx = headerRow.findIndex(
-          (h: any) =>
-            typeof h === "string" && h.toLowerCase().includes("contact person"),
-        );
-        const contactPhoneIdx = headerRow.findIndex((h: any) => {
-          if (typeof h !== "string") return false;
-          const v = h.toLowerCase().trim();
-          return (
-            v === "contact #" ||
-            v === "contact number" ||
-            v === "contact phone" ||
-            v === "phone"
-          );
-        });
+        // Every column goes through the same normaliser, so a header that passes
+        // the row scan cannot then fail the column lookup over a stray space.
+        const districtIdx = headerIndex(headerRow, HEADER_ALIASES.district);
+        const chiefdomIdx = headerIndex(headerRow, HEADER_ALIASES.chiefdom);
+        const communityIdx = headerIndex(headerRow, HEADER_ALIASES.community);
+        const distributionIdx = headerIndex(headerRow, HEADER_ALIASES.distribution);
+        const contactNameIdx = headerIndexContaining(headerRow, "contact person");
+        const contactPhoneIdx = headerIndex(headerRow, HEADER_ALIASES.contactPhone);
 
         if (communityIdx < 0) {
           toast({
@@ -261,10 +236,7 @@ export function ImportManifestModal({ open, onClose }: Props) {
           ].filter((idx) => idx >= 0),
         );
         // Also exclude a leading "No" / "#" column if present
-        const noIdx = headerRow.findIndex((h: any) => {
-          const v = h?.toString().toLowerCase().trim();
-          return v === "no" || v === "no." || v === "#" || v === "s/n";
-        });
+        const noIdx = headerIndex(headerRow, HEADER_ALIASES.rowNumber);
         if (noIdx >= 0) fixedIndices.add(noIdx);
 
         const toolHeaders: string[] = [];
