@@ -47,8 +47,8 @@ ALTER TABLE dispatches ADD CONSTRAINT dispatches_field_officer_id_fkey
 CREATE TRIGGER dispatch_requires_field_officer
   BEFORE INSERT OR UPDATE OF status, field_officer_id ON dispatches
   FOR EACH ROW EXECUTE FUNCTION require_dispatch_field_officer_on_start();
-INSERT INTO dispatches(id,campaign_id,warehouse_id,field_officer_id,status)
-VALUES (975,901,901,'937d43ae-0f37-4f6d-a53f-9dc957fadad0','Draft');
+INSERT INTO dispatches(id,campaign_id,warehouse_id,vehicle_id,driver_id,field_officer_id,status)
+VALUES (975,901,901,901,901,'937d43ae-0f37-4f6d-a53f-9dc957fadad0','Draft');
 
 \i supabase/migrations/20260908090000_fix_dispatch_field_officer_contract.sql
 
