@@ -1560,6 +1560,57 @@ async function gisToken(): Promise<string> {
   return session.access_token;
 }
 
+async function gisRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await gisToken();
+  const resp = await fetch(apiUrl(path), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error((err as any).error ?? "GIS request failed");
+  }
+  return resp.json();
+}
+
+export function listRoads(): Promise<any[]> {
+  return gisRequest("/api/gis/roads");
+}
+
+export function createRoad(payload: Record<string, unknown>): Promise<any> {
+  return gisRequest("/api/gis/roads", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function listRoadSurveys(params?: { roadId?: number; status?: string }): Promise<any[]> {
+  const qs = new URLSearchParams();
+  if (params?.roadId) qs.set("roadId", String(params.roadId));
+  if (params?.status) qs.set("status", params.status);
+  return gisRequest(`/api/gis/surveys?${qs}`);
+}
+
+export function createRoadSurvey(payload: Record<string, unknown>): Promise<any> {
+  return gisRequest("/api/gis/surveys", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getRoadSurveyGeometry(id: number): Promise<any> {
+  return gisRequest(`/api/gis/surveys/${id}/geometry`);
+}
+
+export function submitRoadSurvey(id: number): Promise<any> {
+  return gisRequest(`/api/gis/surveys/${id}/submit`, { method: "POST", body: "{}" });
+}
+
+export function reviewRoadSurvey(id: number, decision: "Approved" | "Rejected", reason?: string): Promise<any> {
+  return gisRequest(`/api/gis/surveys/${id}/review`, {
+    method: "POST",
+    body: JSON.stringify({ decision, reason }),
+  });
+}
+
 export async function listGpsRoutes(params?: {
   vehicleId?: number;
   dispatchId?: number;

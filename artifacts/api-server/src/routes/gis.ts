@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { requireAnyAuth, requireRoleIfJwt } from "../lib/auth.js";
-import { supa } from "../lib/supabase.js";
+import { supa, snakeToCamel } from "../lib/supabase.js";
+import { logAudit } from "../lib/audit.js";
+import { processSurveyTrack, type SurveyPoint } from "../lib/road-survey.js";
 import { haversineMeters } from "./gps.js";
+import { randomBytes } from "crypto";
 
 const router = Router();
 router.use(
@@ -175,21 +178,26 @@ async function buildRoutes(opts: {
   vehicleId?: number; dispatchId?: number;
   from?: string; to?: string; limit?: number;
 }): Promise<RouteRecord[]> {
-  const { vehicleId, dispatchId, from, to, limit = 10000 } = opts;
-
-  let q = supa
-    .from("gps_track")
-    .select("id, vehicle_id, dispatch_id, latitude, longitude, speed, heading, recorded_at")
-    .order("recorded_at", { ascending: true })
-    .limit(limit);
-  if (vehicleId)  q = q.eq("vehicle_id", vehicleId);
-  if (dispatchId) q = q.eq("dispatch_id", dispatchId);
-  if (from) q = q.gte("recorded_at", from);
-  if (to)   q = q.lte("recorded_at", to);
-
-  const { data: tracks, error } = await q;
-  if (error) throw new Error(error.message);
-  const all: any[] = tracks ?? [];
+  const { vehicleId, dispatchId, from, to, limit = 50000 } = opts;
+  const maximum = Math.min(Math.max(limit, 2), 50_000);
+  const pageSize = 1000;
+  const all: any[] = [];
+  for (let offset = 0; offset < maximum; offset += pageSize) {
+    let q = supa
+      .from("gps_track")
+      .select("id, vehicle_id, dispatch_id, latitude, longitude, speed, heading, accuracy, recorded_at")
+      .order("recorded_at", { ascending: true })
+      .range(offset, Math.min(offset + pageSize - 1, maximum - 1));
+    if (vehicleId)  q = q.eq("vehicle_id", vehicleId);
+    if (dispatchId) q = q.eq("dispatch_id", dispatchId);
+    if (from) q = q.gte("recorded_at", from);
+    if (to)   q = q.lte("recorded_at", to);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < pageSize || all.length >= maximum) break;
+  }
   if (!all.length) return [];
 
   // Fetch enrichment data
@@ -244,8 +252,10 @@ async function buildRoutes(opts: {
   let colorCounter = 0;
   const routes: RouteRecord[] = [];
 
-  for (const pts of groups.values()) {
-    if (pts.length < 2) continue;
+  for (const groupedPoints of groups.values()) {
+    const cleaned = processSurveyTrack(groupedPoints as SurveyPoint[]);
+    for (let segmentIndex = 0; segmentIndex < cleaned.segments.length; segmentIndex++) {
+    const pts = cleaned.segments[segmentIndex] as any[];
     const first = pts[0], last = pts[pts.length - 1];
     const veh   = vehMap[first.vehicle_id];
     const dm    = first.dispatch_id ? dspMeta[first.dispatch_id] ?? {} : {};
@@ -270,7 +280,7 @@ async function buildRoutes(opts: {
     const dateKey   = startTime.toISOString().slice(0, 10);
 
     routes.push({
-      routeId:        `${first.vehicle_id}-${first.dispatch_id ?? dateKey}`,
+      routeId:        `${first.vehicle_id}-${first.dispatch_id ?? dateKey}-s${segmentIndex + 1}`,
       vehicleId:      first.vehicle_id,
       plateNumber:    veh?.plate_number ?? `VEH-${first.vehicle_id}`,
       vehicleCode:    veh?.vehicle_code ?? null,
@@ -292,6 +302,7 @@ async function buildRoutes(opts: {
       rawPoints:      pts.map((p: any) => ({ lat: Number(p.latitude), lng: Number(p.longitude), speed: p.speed != null ? Number(p.speed) : null, heading: p.heading ?? null, ts: p.recorded_at })),
       ...analytics,
     });
+    }
   }
   return routes.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 }
@@ -310,6 +321,249 @@ function fileLabel(from?: string, to?: string): string {
   const parts = [from?.slice(0, 10), to?.slice(0, 10)].filter(Boolean);
   return parts.length ? parts.join("_to_") : new Date().toISOString().slice(0, 10);
 }
+
+// ── Curated road survey workflow ─────────────────────────────────────────────
+const ROAD_INTERVENTIONS = new Set([
+  "AVDP Feeder Road", "AVDP Access Road", "Existing Feeder Road", "Other",
+]);
+const ROAD_SURVEY_PURPOSES = new Set([
+  "baseline", "construction_progress", "completion", "inspection", "accessibility",
+]);
+
+async function actorId(req: any): Promise<number | null> {
+  if (req.user?.userId) return Number(req.user.userId);
+  const email = req.supabaseUser?.email;
+  if (!email) return null;
+  const { data } = await supa.from("users").select("id").ilike("email", email).limit(1).maybeSingle();
+  return data?.id == null ? null : Number(data.id);
+}
+
+async function fetchSurveyPoints(vehicleId: number, startedAt: string, endedAt: string): Promise<SurveyPoint[]> {
+  const pageSize = 1000;
+  const maximumPoints = 50_000;
+  const points: SurveyPoint[] = [];
+  for (let offset = 0; offset < maximumPoints; offset += pageSize) {
+    const { data, error } = await supa
+      .from("gps_track")
+      .select("latitude,longitude,recorded_at,speed,heading,accuracy")
+      .eq("vehicle_id", vehicleId)
+      .gte("recorded_at", startedAt)
+      .lte("recorded_at", endedAt)
+      .order("recorded_at", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as SurveyPoint[];
+    points.push(...page);
+    if (page.length < pageSize) return points;
+  }
+  throw new Error("Survey contains more than 50,000 GPS points; select a shorter time window");
+}
+
+async function enrichSurveys(rows: any[]) {
+  const roadIds = [...new Set(rows.map(r => r.road_id).filter(Boolean))];
+  const vehicleIds = [...new Set(rows.map(r => r.vehicle_id).filter(Boolean))];
+  const [{ data: roads }, { data: vehicles }] = await Promise.all([
+    roadIds.length ? supa.from("roads").select("id,road_code,name,district_id,start_location,end_location,project_status").in("id", roadIds) : Promise.resolve({ data: [] as any[] }),
+    vehicleIds.length ? supa.from("vehicles").select("id,plate_number,vehicle_code").in("id", vehicleIds) : Promise.resolve({ data: [] as any[] }),
+  ]);
+  const districtIds = [...new Set((roads ?? []).map((r: any) => r.district_id).filter(Boolean))];
+  const { data: districts } = districtIds.length
+    ? await supa.from("districts").select("id,name").in("id", districtIds)
+    : { data: [] as any[] };
+  const roadMap = Object.fromEntries((roads ?? []).map((r: any) => [r.id, r]));
+  const vehicleMap = Object.fromEntries((vehicles ?? []).map((v: any) => [v.id, v]));
+  const districtMap = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d.name]));
+  return rows.map(row => {
+    const road = roadMap[row.road_id];
+    return snakeToCamel({
+      ...row,
+      road_name: road?.name ?? null,
+      road_code: road?.road_code ?? null,
+      start_location: road?.start_location ?? null,
+      end_location: road?.end_location ?? null,
+      project_status: road?.project_status ?? null,
+      district_name: road ? districtMap[road.district_id] ?? null : null,
+      plate_number: row.vehicle_id ? vehicleMap[row.vehicle_id]?.plate_number ?? null : null,
+      vehicle_code: row.vehicle_id ? vehicleMap[row.vehicle_id]?.vehicle_code ?? null : null,
+    });
+  });
+}
+
+router.get("/api/gis/roads", async (_req, res) => {
+  const { data: roads, error } = await supa.from("roads").select("*").eq("is_active", true).order("name");
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const districtIds = [...new Set((roads ?? []).map((r: any) => r.district_id).filter(Boolean))];
+  const [{ data: districts }, { data: surveys }] = await Promise.all([
+    districtIds.length ? supa.from("districts").select("id,name").in("id", districtIds) : Promise.resolve({ data: [] as any[] }),
+    supa.from("road_surveys").select("road_id,status,surveyed_length_km,started_at").order("started_at", { ascending: false }),
+  ]);
+  const districtMap = Object.fromEntries((districts ?? []).map((d: any) => [d.id, d.name]));
+  const summary = new Map<number, { surveyCount: number; approvedKm: number; latestApprovedAt: string | null; lastSurveyAt: string | null }>();
+  for (const survey of surveys ?? []) {
+    const current = summary.get(survey.road_id) ?? { surveyCount: 0, approvedKm: 0, latestApprovedAt: null, lastSurveyAt: null };
+    current.surveyCount++;
+    if (survey.status === "Approved" && !current.latestApprovedAt) {
+      current.approvedKm = Number(survey.surveyed_length_km ?? 0);
+      current.latestApprovedAt = survey.started_at;
+    }
+    if (!current.lastSurveyAt || survey.started_at > current.lastSurveyAt) current.lastSurveyAt = survey.started_at;
+    summary.set(survey.road_id, current);
+  }
+  res.json((roads ?? []).map((road: any) => snakeToCamel({
+    ...road,
+    district_name: districtMap[road.district_id] ?? null,
+    ...(summary.get(road.id) ?? { surveyCount: 0, approvedKm: 0, latestApprovedAt: null, lastSurveyAt: null }),
+  })));
+});
+
+router.post("/api/gis/roads", async (req, res) => {
+  const body = req.body ?? {};
+  if (!body.name?.trim() || !body.districtId || !body.startLocation?.trim() || !body.endLocation?.trim()) {
+    res.status(400).json({ error: "Road name, district, start location and end location are required" }); return;
+  }
+  if (body.interventionType && !ROAD_INTERVENTIONS.has(body.interventionType)) {
+    res.status(400).json({ error: "Unsupported road intervention type" }); return;
+  }
+  const roadCode = body.roadCode?.trim() || `RD-${new Date().getUTCFullYear()}-${randomBytes(3).toString("hex").toUpperCase()}`;
+  const payload = {
+    road_code: roadCode,
+    name: body.name.trim(),
+    district_id: Number(body.districtId),
+    start_location: body.startLocation.trim(),
+    end_location: body.endLocation.trim(),
+    intervention_type: body.interventionType || "Existing Feeder Road",
+    surface_type: body.surfaceType || "Unknown",
+    project_status: body.projectStatus || "Planned",
+    planned_length_km: body.plannedLengthKm ? Number(body.plannedLengthKm) : null,
+    contractor_name: body.contractorName?.trim() || null,
+    contract_reference: body.contractReference?.trim() || null,
+    notes: body.notes?.trim() || null,
+    created_by: await actorId(req),
+  };
+  const { data, error } = await supa.from("roads").insert(payload).select().single();
+  if (error) { res.status(400).json({ error: error.message }); return; }
+  await logAudit(req, "CREATE", "Road Mapping", `Registered road ${roadCode}`, "road", Number(data.id));
+  res.status(201).json(snakeToCamel(data));
+});
+
+router.get("/api/gis/surveys", async (req, res) => {
+  const q = req.query as Record<string, string>;
+  let query = supa.from("road_surveys").select("*").order("started_at", { ascending: false }).limit(250);
+  if (q.roadId) query = query.eq("road_id", Number(q.roadId));
+  if (q.status) query = query.eq("status", q.status);
+  const { data, error } = await query;
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(await enrichSurveys(data ?? []));
+});
+
+router.post("/api/gis/surveys", async (req, res) => {
+  const body = req.body ?? {};
+  const roadId = Number(body.roadId);
+  const vehicleId = Number(body.vehicleId);
+  const start = new Date(body.startedAt);
+  const end = new Date(body.endedAt);
+  if (!roadId || !vehicleId || !body.surveyorName?.trim() || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    res.status(400).json({ error: "Road, tracker vehicle, surveyor, start and end time are required" }); return;
+  }
+  if (end <= start || end.getTime() - start.getTime() > 72 * 60 * 60 * 1000) {
+    res.status(400).json({ error: "Survey end must follow start and the window cannot exceed 72 hours" }); return;
+  }
+  if (body.purpose && !ROAD_SURVEY_PURPOSES.has(body.purpose)) {
+    res.status(400).json({ error: "Unsupported survey purpose" }); return;
+  }
+  try {
+    const rawPoints = await fetchSurveyPoints(vehicleId, start.toISOString(), end.toISOString());
+    const processed = processSurveyTrack(rawPoints);
+    if (processed.rawPointCount < 2) {
+      res.status(400).json({ error: "Fewer than two tracker points were found in this time window" }); return;
+    }
+    const surveyCode = `RS-${start.toISOString().slice(0, 10).replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`;
+    const { data, error } = await supa.from("road_surveys").insert({
+      survey_code: surveyCode,
+      road_id: roadId,
+      vehicle_id: vehicleId,
+      source_type: "vehicle_tracker",
+      purpose: body.purpose || "baseline",
+      started_at: start.toISOString(),
+      ended_at: end.toISOString(),
+      surveyor_name: body.surveyorName.trim(),
+      surveyed_length_km: processed.distanceKm,
+      raw_point_count: processed.rawPointCount,
+      accepted_point_count: processed.acceptedPointCount,
+      discarded_point_count: processed.discardedPointCount,
+      segment_count: processed.segmentCount,
+      gap_count: processed.gapCount,
+      average_speed_kmh: processed.averageSpeedKmh,
+      quality_status: processed.qualityStatus,
+      processing_notes: processed.processingNotes,
+      field_notes: body.fieldNotes?.trim() || null,
+      processed_at: new Date().toISOString(),
+      created_by: await actorId(req),
+    }).select().single();
+    if (error) { res.status(400).json({ error: error.message }); return; }
+    await logAudit(req, "CREATE", "Road Mapping", `Created road survey ${surveyCode}`, "road_survey", Number(data.id), processed);
+    res.status(201).json((await enrichSurveys([data]))[0]);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/api/gis/surveys/:id/geometry", async (req, res) => {
+  const { data: survey, error } = await supa.from("road_surveys").select("*").eq("id", Number(req.params.id)).maybeSingle();
+  if (error || !survey) { res.status(404).json({ error: "Survey not found" }); return; }
+  if (survey.source_type !== "vehicle_tracker" || !survey.vehicle_id) {
+    res.status(409).json({ error: "This survey source is not available in Phase 1" }); return;
+  }
+  try {
+    const processed = processSurveyTrack(await fetchSurveyPoints(survey.vehicle_id, survey.started_at, survey.ended_at));
+    res.json({
+      surveyId: survey.id,
+      segments: processed.segments.map(segment => segment.map(point => [point.longitude, point.latitude])),
+      metrics: { ...processed, segments: undefined },
+      coordinateSystem: "WGS84 (EPSG:4326)",
+      verified: survey.status === "Approved",
+    });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+router.post("/api/gis/surveys/:id/submit", async (req, res) => {
+  const id = Number(req.params.id);
+  const { data: current } = await supa.from("road_surveys").select("status,accepted_point_count").eq("id", id).maybeSingle();
+  if (!current) { res.status(404).json({ error: "Survey not found" }); return; }
+  if (!["Draft", "Rejected"].includes(current.status) || current.accepted_point_count < 2) {
+    res.status(409).json({ error: "Only a processed Draft or Rejected survey can be submitted" }); return;
+  }
+  const { data, error } = await supa.from("road_surveys")
+    .update({ status: "Ready for Review", rejection_reason: null, updated_at: new Date().toISOString() })
+    .eq("id", id).eq("status", current.status).select().single();
+  if (error) { res.status(400).json({ error: error.message }); return; }
+  await logAudit(req, "SUBMIT", "Road Mapping", `Submitted road survey ${data.survey_code}`, "road_survey", id);
+  res.json(snakeToCamel(data));
+});
+
+router.post("/api/gis/surveys/:id/review", requireRoleIfJwt("Admin", "ProjectManager"), async (req, res) => {
+  const id = Number(req.params.id);
+  const decision = req.body?.decision;
+  const reason = req.body?.reason?.trim() || null;
+  if (!['Approved', 'Rejected'].includes(decision) || (decision === 'Rejected' && !reason)) {
+    res.status(400).json({ error: "Review requires Approved, or Rejected with a reason" }); return;
+  }
+  const { data: current } = await supa.from("road_surveys").select("status,accepted_point_count,survey_code").eq("id", id).maybeSingle();
+  if (!current) { res.status(404).json({ error: "Survey not found" }); return; }
+  if (current.status !== "Ready for Review" || (decision === "Approved" && current.accepted_point_count < 2)) {
+    res.status(409).json({ error: "Only a processed survey awaiting review can be approved or rejected" }); return;
+  }
+  const { data, error } = await supa.from("road_surveys").update({
+    status: decision,
+    rejection_reason: decision === "Rejected" ? reason : null,
+    reviewed_by: await actorId(req),
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).eq("status", "Ready for Review").select().single();
+  if (error) { res.status(400).json({ error: error.message }); return; }
+  await logAudit(req, decision === "Approved" ? "APPROVE" : "REJECT", "Road Mapping", `${decision} road survey ${current.survey_code}`, "road_survey", id, { reason });
+  res.json(snakeToCamel(data));
+});
 
 // ── GET /api/gis/routes ───────────────────────────────────────────────────────
 router.get("/api/gis/routes", async (req, res) => {
