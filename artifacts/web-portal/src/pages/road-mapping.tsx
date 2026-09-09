@@ -13,12 +13,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
+import { RoadSurveyWorkspace } from "@/components/RoadSurveyWorkspace";
 import { useToast } from "@/hooks/use-toast";
 import {
   Map as MapIcon, Route, RefreshCw, Truck, Navigation,
   Clock, Ruler, Gauge, Calendar, FileText, Globe,
   MapPin, Layers, ArrowDownToLine, BarChart2, Info,
-  ChevronDown, ChevronRight, Table2,
+  ArrowLeft, ChevronDown, ChevronRight, Table2,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -552,7 +553,7 @@ async function triggerExportDownload(
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
-export default function RoadMapping() {
+function TrackerHistory({ onBack }: { onBack: () => void }) {
   const { toast } = useToast();
 
   const todayStr    = () => new Date().toISOString().slice(0, 10);
@@ -570,8 +571,8 @@ export default function RoadMapping() {
 
   const queryParams = useMemo(() => ({
     vehicleId: vehicleFilter || undefined,
-    from: fromDate || undefined,
-    to:   toDate   || undefined,
+    from: fromDate ? `${fromDate}T00:00:00.000Z` : undefined,
+    to:   toDate   ? `${toDate}T23:59:59.999Z` : undefined,
   }), [vehicleFilter, fromDate, toDate]);
 
   const { data: routes, isLoading, isFetching, refetch, error } = useQuery({
@@ -606,10 +607,14 @@ export default function RoadMapping() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="GIS Road Mapping"
-        subtitle="Professional vehicle route mapping — WGS84 (EPSG:4326) · ISO 19157 data quality · FHWA functional classification"
+        title="Tracker History — Unverified"
+        subtitle="Explore cleaned vehicle movements. These tracks do not count as approved road surveys or official road kilometres."
         actions={
           <div className="flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="outline" className="h-8" onClick={onBack}>
+              <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+              Road surveys
+            </Button>
             <Button size="sm" variant="outline" className="h-8" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
               Refresh
@@ -951,4 +956,11 @@ export default function RoadMapping() {
       </div>
     </div>
   );
+}
+
+export default function RoadMapping() {
+  const [workspace, setWorkspace] = useState<"surveys" | "history">("surveys");
+  return workspace === "surveys"
+    ? <RoadSurveyWorkspace onOpenTrackerHistory={() => setWorkspace("history")} />
+    : <TrackerHistory onBack={() => setWorkspace("surveys")} />;
 }
