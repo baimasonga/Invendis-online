@@ -69,7 +69,7 @@ function SignalBadge({ lastPing }: { lastPing: string | null | undefined }) {
 
 type ArrivalStatus =
   | "arrived" | "en_route" | "signal_lost" | "no_destination"
-  | "no_signal" | "idle" | "dormant";
+  | "no_signal" | "setup_required" | "idle" | "dormant";
 
 // Ordered by what an operator needs to act on. The previous version could never
 // reach "not_reached": it required tier === "offline", which only happens when
@@ -80,7 +80,10 @@ function getArrivalStatus(v: any): ArrivalStatus {
   const tier = getSignalTier(v.lastPing);
 
   // Idle fleet: tracked, but not currently carrying a delivery.
-  if (v.hasActiveDispatch === false) return tier === "dormant" ? "dormant" : "idle";
+  if (v.hasActiveDispatch === false) {
+    if (v.hasTracker === false) return "setup_required";
+    return tier === "dormant" ? "dormant" : "idle";
+  }
 
   if (v.arrivedAt || v.withinGeofence === true) return "arrived";
   if (v.lastPing == null || v.lastLatitude == null) return "no_signal";
@@ -96,6 +99,7 @@ const ARRIVAL_CONFIG: Record<ArrivalStatus, { label: string; cls: string; icon: 
   signal_lost:    { label: "Signal Lost",    cls: "bg-red-100   text-red-700",   icon: AlertTriangle },
   no_destination: { label: "No Destination", cls: "bg-amber-100 text-amber-700", icon: Target       },
   no_signal:      { label: "No Signal",      cls: "bg-red-100   text-red-700",   icon: RouteOff     },
+  setup_required: { label: "Setup Required", cls: "bg-amber-100 text-amber-700", icon: PlugZap      },
   idle:           { label: "Idle",           cls: "bg-slate-100 text-slate-600", icon: Truck        },
   dormant:        { label: "Dormant",        cls: "bg-slate-100 text-slate-500", icon: WifiOff      },
 };
@@ -740,8 +744,9 @@ function TrackerSetup() {
 
 export default function GpsTracking() {
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
-  // Idle fleet is reference info, not a task — collapsed until asked for.
-  const [showIdle, setShowIdle] = useState(false);
+  // Show the registered fleet by default. Operators can collapse it once they
+  // have reviewed tracker coverage and current assignments.
+  const [showIdle, setShowIdle] = useState(true);
 
   const { data: vehicles, isLoading, refetch, isFetching } = useQuery({
     queryKey: KEYS.gpsVehicles(),
@@ -769,12 +774,14 @@ export default function GpsTracking() {
   // Triage, not recency. The API returns idle-but-tracked vehicles too, so
   // sorting purely by last ping would float a parked truck above one that is
   // mid-delivery and in trouble. Group by what the operator must act on.
-  const { attention, active, idle } = useMemo(() => {
+  const { attention, active, setup, idle } = useMemo(() => {
     const attention: any[] = [];
     const active: any[]    = [];
+    const setup: any[]     = [];
     const idle: any[]      = [];
     for (const v of vehicleList) {
       if (isAttention(v)) attention.push(v);
+      else if (getArrivalStatus(v) === "setup_required") setup.push(v);
       else if (v.hasActiveDispatch === false) idle.push(v);
       else active.push(v);
     }
@@ -787,6 +794,7 @@ export default function GpsTracking() {
     return {
       attention: attention.sort(byRecency),
       active:    active.sort(byRecency),
+      setup:     setup.sort(byRecency),
       idle:      idle.sort(byRecency),
     };
   }, [vehicleList]);
@@ -829,6 +837,12 @@ export default function GpsTracking() {
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-100 text-teal-700">
                   <CheckCircle2 className="h-2.5 w-2.5" />
                   {arrivedCount} arrived
+                </span>
+              )}
+              {setup.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">
+                  <PlugZap className="h-2.5 w-2.5" />
+                  {setup.length} need tracker setup
                 </span>
               )}
             </div>
@@ -922,8 +936,26 @@ export default function GpsTracking() {
                   </RailSection>
                 )}
 
-                {/* Tracked but not on a delivery — collapsed, since it is
-                    reference information rather than something to act on. */}
+                {/* Registered vehicles without a linked tracker stay visible so
+                    operators can finish their configuration from this page. */}
+                {setup.length > 0 && (
+                  <RailSection
+                    label="Tracker setup required"
+                    count={setup.length}
+                    icon={PlugZap}
+                    tone="normal"
+                  >
+                    {setup.map((v: any) => (
+                      <VehicleCard
+                        key={v.id} v={v}
+                        isSelected={selectedVehicle === v.id}
+                        onSelect={handleSelectVehicle}
+                      />
+                    ))}
+                  </RailSection>
+                )}
+
+                {/* Tracked but not on a delivery. */}
                 {idle.length > 0 && (
                   <div className="pt-1">
                     <button

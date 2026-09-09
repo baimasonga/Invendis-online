@@ -382,14 +382,11 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
   if (dispErr) { res.status(500).json({ error: dispErr.message }); return; }
   const dispatchRows = await scopeDispatchesForRequester(_req, dispatches ?? []);
 
-  // 2. Live Tracking is vehicle-driven, not dispatch-driven. A vehicle earns a
-  //    place on the map if it has a linked hardware tracker or a known position,
-  //    even with no active dispatch — otherwise linking a tracker appears to do
-  //    nothing, which is exactly how this looked before: trackers reporting
-  //    positions minutes ago were invisible because their vehicle was idle.
-  //    Filtering happens in JS rather than via a PostgREST .or(...) filter: the
-  //    vehicle table is small, and this avoids depending on null-negation filter
-  //    syntax that would fail silently and empty the map if it were wrong.
+  // 2. Live Tracking is vehicle-driven, not dispatch-driven. Managers need the
+  //    complete fleet here, including vehicles that still need tracker setup;
+  //    otherwise registered vehicles silently disappear and cannot be diagnosed
+  //    from this screen. Scoped users continue to see only vehicles attached to
+  //    dispatches they are allowed to read.
   const { data: allVehicles, error: trackedErr } = await supa
     .from("vehicles")
     .select("id, plate_number, vehicle_code, vehicle_type, gps_device_id, last_latitude, last_longitude, last_ping");
@@ -400,22 +397,10 @@ router.get("/api/gps/vehicles", requireAnyAuth, async (_req, res) => {
   const visibleVehicles = isGpsManager(requester)
     ? (allVehicles ?? [])
     : (allVehicles ?? []).filter((v: any) => visibleVehicleIds.has(v.id));
-  const trackedVehicles = visibleVehicles.filter(
-    (v: any) => v.gps_device_id != null || v.last_ping != null,
-  );
-
-  const dispatchVehicleIds = [...new Set(dispatchRows.map(d => d.vehicle_id).filter(Boolean))];
   const campaignIds        = [...new Set(dispatchRows.map(d => d.campaign_id).filter(Boolean))];
   const driverIds          = [...new Set(dispatchRows.map(d => d.driver_id).filter(Boolean))];
 
-  // Any vehicle on an active dispatch also belongs here, even with no tracker and
-  // no position yet — it should show as "no signal" rather than vanish.
-  const trackedIds = new Set(trackedVehicles.map((v: any) => v.id));
-  const dispatchOnlyVehicles = visibleVehicles.filter(
-    (v: any) => !trackedIds.has(v.id) && dispatchVehicleIds.includes(v.id),
-  );
-
-  const vehiclesRes = { data: [...trackedVehicles, ...dispatchOnlyVehicles] };
+  const vehiclesRes = { data: visibleVehicles };
   if (vehiclesRes.data.length === 0) { res.json([]); return; }
 
   // 3. Parallel lookups for dispatch enrichment
