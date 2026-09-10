@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, listAllPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
+import { getDispatch, approveDispatch, dispatchManifest, arriveDispatch, issueOfflineCredentials, listAllPod, sendOtp, listDispatchFarmers, notifyFarmers, archiveDispatch, unarchiveDispatch, KEYS } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Truck, MapPin, Package2, ClipboardCheck,
   CheckCircle2, CalendarDays, Warehouse, User, Plus, Smartphone, Car, Printer,
-  MessageSquare, Send, Phone, AlertCircle, Bell, Archive, ArchiveRestore,
+  MessageSquare, Send, Phone, AlertCircle, Bell, Archive, ArchiveRestore, QrCode,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -136,6 +136,7 @@ export default function DispatchDetail() {
   const [otpResults, setOtpResults] = useState<Record<number, { sending: boolean; sent?: boolean; maskedPhone?: string; error?: string }>>({});
   const [notifyAllLoading, setNotifyAllLoading] = useState(false);
   const [notifyAllResult, setNotifyAllResult] = useState<{ total: number; notified: number; noPhone: number; failed: number } | null>(null);
+  const [issuingOfflineCredentials, setIssuingOfflineCredentials] = useState(false);
 
   const { data: dispatch, isLoading } = useQuery({
     queryKey: KEYS.dispatch(id),
@@ -175,6 +176,33 @@ export default function DispatchDetail() {
       toast({ title: "Notify failed", description: err.message, variant: "destructive" });
     } finally {
       setNotifyAllLoading(false);
+    }
+  }
+
+  async function handleIssueOfflineCredentials() {
+    setIssuingOfflineCredentials(true);
+    try {
+      const result = await issueOfflineCredentials(id);
+      const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]!));
+      const cards = result.credentials.map(credential => `
+        <section class="voucher">
+          <div><h2>${escapeHtml(credential.farmerName)}</h2><p>${escapeHtml(credential.farmerCode)}</p><p>Manifest: ${escapeHtml(dispatch?.manifestCode)}</p><p>Valid until: ${escapeHtml(new Date(credential.expiresAt).toLocaleDateString("en-GB"))}</p></div>
+          <img src="${credential.voucherQrDataUrl}" alt="Offline beneficiary QR voucher" />
+          <div class="pin"><span>Offline PIN</span><strong>${escapeHtml(credential.pin)}</strong></div>
+          <p class="notice">Present this voucher only to an authorised AVDP field officer. It can be used once for this dispatch.</p>
+        </section>`).join("");
+      const printWindow = window.open("", "_blank", "width=900,height=760");
+      if (!printWindow) throw new Error("Allow pop-ups to open the printable voucher sheet");
+      writePrintDocument(printWindow, `<!doctype html><html><head><title>Offline beneficiary vouchers</title><style>
+        @page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#0f172a}.voucher{display:grid;grid-template-columns:1fr 155px;gap:12px;border:2px solid #166534;padding:14px;margin:0 0 14px;break-inside:avoid}.voucher h2{margin:0 0 4px;font-size:18px}.voucher p{margin:3px 0;font-size:12px}.voucher img{width:145px;height:145px;grid-row:span 2}.pin{border:1px dashed #64748b;padding:10px;display:flex;align-items:center;gap:16px}.pin span{font-size:11px;text-transform:uppercase}.pin strong{font-size:24px;letter-spacing:4px}.notice{grid-column:1/-1;color:#475569}
+      </style></head><body><h1>AVDP Offline Beneficiary Vouchers</h1>${cards}</body></html>`);
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 300);
+      toast({ title: `${result.credentials.length} offline vouchers prepared`, description: "The printable vouchers contain both QR and PIN alternatives." });
+    } catch (err: any) {
+      toast({ title: "Offline voucher preparation failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIssuingOfflineCredentials(false);
     }
   }
 
@@ -591,6 +619,9 @@ export default function DispatchDetail() {
         <div className="flex items-center gap-2 ml-auto flex-wrap">
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintManifest}>
             <Printer className="h-3.5 w-3.5 mr-1" /> Print Manifest
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleIssueOfflineCredentials} disabled={issuingOfflineCredentials}>
+            <QrCode className="h-3.5 w-3.5 mr-1" /> {issuingOfflineCredentials ? "Preparing…" : "Offline Vouchers"}
           </Button>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handlePrintReport}>
             <Printer className="h-3.5 w-3.5 mr-1" /> Print Report

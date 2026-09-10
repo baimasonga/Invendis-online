@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { prepareQueuedPodMedia } from "@/lib/api";
 
 export interface QueuedPoD {
   id: string;
@@ -78,10 +79,25 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
   };
 
   async function submitPod(domain: string, token: string, payload: Record<string, unknown>) {
+    const dispatchId = Number(payload.dispatchId);
+    const arrivalPayload = payload.arrivalEvidencePayload;
+    if (Number.isInteger(dispatchId) && dispatchId > 0 && arrivalPayload && typeof arrivalPayload === "object") {
+      const arrivalRes = await fetch(`https://${domain}/api/dispatch/${dispatchId}/arrival-evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(arrivalPayload),
+      });
+      if (!arrivalRes.ok) {
+        const err = await arrivalRes.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? `Arrival evidence error ${arrivalRes.status}`);
+      }
+    }
+    const { arrivalEvidencePayload: _arrivalEvidencePayload, ...podPayload } = payload;
+    const serverPayload = await prepareQueuedPodMedia(token, podPayload);
     const res = await fetch(`https://${domain}/api/pod/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(serverPayload),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

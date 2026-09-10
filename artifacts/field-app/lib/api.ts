@@ -144,6 +144,8 @@ export interface PoD {
     distanceM?: number | null;
     status?: string;
   } | null;
+  beneficiaryVerificationMethod?: "online_otp" | "offline_qr" | "offline_pin" | "supervisor_exception";
+  syncVerificationStatus?: "Verified Online" | "Pending Verification" | "Verified After Sync" | "Needs Review" | "Rejected";
   farmerLatitude: number | null;
   farmerLongitude: number | null;
   inputItemId: number | null;
@@ -220,6 +222,29 @@ export interface GpsPingResult {
   success: boolean;
   arrivalStatus: "arrived" | null;
 }
+
+export interface OfflineDispatchPack {
+  version: 1;
+  generatedAt: string;
+  dispatchId: number;
+  vehicleId: number | null;
+  destination: { id: number; name: string; latitude: number; longitude: number; geofenceRadiusM: number } | null;
+  arrivalPolicy: { minimumFixes: number; minimumDwellSeconds: number; maximumAccuracyM: number };
+  credentials: Array<{ farmer_id: number; token_hash: string; method: "offline_qr" | "offline_pin"; expires_at: string }>;
+}
+
+export const getOfflineDispatchPack = (token: string, dispatchId: number) =>
+  apiFetch<OfflineDispatchPack>(`/dispatch/${dispatchId}/offline-pack`, token);
+
+export const submitArrivalEvidence = (
+  token: string,
+  dispatchId: number,
+  payload: object,
+) => apiFetch<{ id: number; evidenceKey: string; verificationStatus: string }>(
+  `/dispatch/${dispatchId}/arrival-evidence`,
+  token,
+  { method: "POST", body: JSON.stringify(payload) },
+);
 
 export const pingGps = (
   token: string,
@@ -378,4 +403,73 @@ export async function uploadPhotoToS3(uploadUrl: string, photoUri: string): Prom
     try { detail = await putRes.text(); } catch { /* ignore */ }
     throw new Error(`S3 upload failed: ${putRes.status}${detail ? " — " + detail.slice(0, 200) : ""}`);
   }
+}
+
+export interface PendingPodPhoto {
+  uri: string;
+  index: number;
+  label: string;
+  gps?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    capturedAt: string;
+  } | null;
+}
+
+/**
+ * Upload media retained on the device while offline and return a server-ready
+ * PoD payload. Local file URIs are deliberately removed before transmission.
+ */
+export async function prepareQueuedPodMedia(
+  token: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const farmerId = Number(payload.farmerId);
+  const dispatchId = Number(payload.dispatchId);
+  if (!Number.isInteger(farmerId) || !Number.isInteger(dispatchId)) {
+    throw new Error("Queued PoD is missing its farmer or dispatch");
+  }
+
+  const photoKeys = Array.isArray(payload.photoKeys) ? [...payload.photoKeys] : [];
+  const photoGpsCoords = Array.isArray(payload.photoGpsCoords) ? [...payload.photoGpsCoords] : [];
+  const pendingPhotos = Array.isArray(payload.pendingPhotos)
+    ? payload.pendingPhotos as PendingPodPhoto[]
+    : [];
+
+  for (const photo of pendingPhotos) {
+    if (!photo?.uri || !Number.isInteger(photo.index)) continue;
+    const upload = await getPodPhotoUploadUrl(token, farmerId, dispatchId, photo.index);
+    await uploadPhotoToS3(upload.uploadUrl, photo.uri);
+    photoKeys.push(upload.key);
+    photoGpsCoords.push(photo.gps ? {
+      label: photo.label,
+      lat: photo.gps.latitude,
+      lng: photo.gps.longitude,
+      ...(photo.gps.accuracy != null ? { accuracy: photo.gps.accuracy } : {}),
+    } : { label: photo.label });
+  }
+
+  let facePhotoKey = payload.facePhotoKey;
+  let faceVerificationToken = payload.faceVerificationToken;
+  if (typeof payload.pendingFacePhotoUri === "string" && payload.pendingFacePhotoUri) {
+    const upload = await getFaceUploadUrl(token, farmerId, "delivery");
+    await uploadPhotoToS3(upload.uploadUrl, payload.pendingFacePhotoUri);
+    facePhotoKey = upload.key;
+    const comparison = await compareFace(token, farmerId, upload.key, dispatchId);
+    faceVerificationToken = comparison.verificationToken ?? undefined;
+  }
+
+  const {
+    pendingPhotos: _pendingPhotos,
+    pendingFacePhotoUri: _pendingFacePhotoUri,
+    ...serverPayload
+  } = payload;
+  return {
+    ...serverPayload,
+    photoKeys,
+    photoGpsCoords,
+    ...(facePhotoKey ? { facePhotoKey } : {}),
+    ...(faceVerificationToken ? { faceVerificationToken } : {}),
+  };
 }

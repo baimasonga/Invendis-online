@@ -1452,6 +1452,25 @@ export async function arriveDispatch(id: number) {
   return resp.json();
 }
 
+export interface OfflineCredentialIssue {
+  dispatchId: number;
+  expiresAt: string;
+  credentials: Array<{
+    farmerId: number;
+    farmerCode: string;
+    farmerName: string;
+    beneficiaryType: string | null;
+    voucher: string;
+    voucherQrDataUrl: string;
+    pin: string;
+    expiresAt: string;
+  }>;
+}
+
+export async function issueOfflineCredentials(id: number, validDays = 30): Promise<OfflineCredentialIssue> {
+  return apiPost(`/api/dispatch/${id}/offline-credentials/issue`, { validDays });
+}
+
 export async function deleteDispatch(id: number) {
   const { error } = await supabase.from("dispatches").delete().eq("id", id);
   if (error) throw new Error(error.message);

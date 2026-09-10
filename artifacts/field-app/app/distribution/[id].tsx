@@ -19,16 +19,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/EmptyState";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
-import { getDispatch, listPoDs, pingGps, farmerDisplayName } from "@/lib/api";
+import { getDispatch, getOfflineDispatchPack, listPoDs, pingGps, submitArrivalEvidence, farmerDisplayName } from "@/lib/api";
+import { appendArrivalFix, cacheOfflinePack, clearArrivalCapture, isLocalArrivalConfirmed, loadArrivalCapture, loadOfflinePack } from "@/lib/offline-delivery";
 
 // ── GPS helper ────────────────────────────────────────────────────────────────
 
-async function getCurrentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+async function getCurrentLocation(): Promise<{ latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null; speed?: number | null; heading?: number | null; capturedAt: string } | null> {
   if (Platform.OS === "web") {
     return new Promise((resolve) => {
       if (!navigator.geolocation) { resolve(null); return; }
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+        (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, altitude: p.coords.altitude, speed: p.coords.speed, heading: p.coords.heading, capturedAt: new Date(p.timestamp || Date.now()).toISOString() }),
         () => resolve(null),
         { timeout: 8000 }
       );
@@ -38,8 +39,8 @@ async function getCurrentLocation(): Promise<{ latitude: number; longitude: numb
     const Location = require("expo-location");
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return null;
-    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, altitude: pos.coords.altitude, speed: pos.coords.speed, heading: pos.coords.heading, capturedAt: new Date(pos.timestamp || Date.now()).toISOString() };
   } catch {
     return null;
   }
@@ -82,6 +83,7 @@ export default function DistributionDetailScreen() {
   const hasArrivedRef = useRef(false);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [gpsUnavailable, setGpsUnavailable] = React.useState(false);
+  const [localArrivalReady, setLocalArrivalReady] = React.useState(false);
 
   const dispatchQ = useQuery({
     queryKey: ["dispatch", dispatchId],
@@ -99,6 +101,14 @@ export default function DistributionDetailScreen() {
   const pods = podsQ.data?.data ?? [];
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  useEffect(() => {
+    if (!token || !dispatchId) return;
+    getOfflineDispatchPack(token, dispatchId).then(cacheOfflinePack).catch(() => {});
+    Promise.all([loadOfflinePack(dispatchId), loadArrivalCapture(dispatchId)])
+      .then(([pack, capture]) => { if (pack && capture) setLocalArrivalReady(isLocalArrivalConfirmed(pack, capture)); })
+      .catch(() => {});
+  }, [token, dispatchId]);
+
   // ── GPS ping logic ──────────────────────────────────────────────────────────
   const doPing = useCallback(async () => {
     const statusOk = dispatch?.status === "In Transit" || dispatch?.status === "InTransit";
@@ -109,10 +119,18 @@ export default function DistributionDetailScreen() {
       return;
     }
     setGpsUnavailable(false);
+    const capture = await appendArrivalFix(dispatch.id, location);
+    const offlinePack = await loadOfflinePack(dispatch.id);
+    if (offlinePack && isLocalArrivalConfirmed(offlinePack, capture)) setLocalArrivalReady(true);
     try {
       const result = await pingGps(token, dispatch.vehicleId, location.latitude, location.longitude, {
         dispatchId: dispatch.id,
+        accuracy: location.accuracy ?? undefined,
       });
+      if (capture.fixes.length >= 3) {
+        const evidence = await submitArrivalEvidence(token, dispatch.id, capture);
+        if (evidence.verificationStatus === "GPS Verified") await clearArrivalCapture(dispatch.id);
+      }
       if (result.arrivalStatus === "arrived" && !hasArrivedRef.current) {
         hasArrivedRef.current = true;
         // Stop pinging immediately — no need to keep the interval alive
@@ -162,7 +180,7 @@ export default function DistributionDetailScreen() {
 
   const isInTransit = dispatch.status === "In Transit" || dispatch.status === "InTransit";
   const isArrived   = dispatch.status === "Arrived" || !!dispatch.arrivedAt;
-  const canRecordDelivery = isInTransit || isArrived;
+  const canRecordDelivery = isArrived || localArrivalReady;
 
   return (
     <ScrollView
@@ -235,6 +253,17 @@ export default function DistributionDetailScreen() {
               Vehicle confirmed within the delivery zone.
               {dispatch.arrivedAt ? ` Arrived ${new Date(dispatch.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : ""}
             </Text>
+          </View>
+        </View>
+      )}
+      {!isArrived && localArrivalReady && (
+        <View style={[styles.arrivedBanner, { backgroundColor: colors.warning + "18", borderColor: colors.warning + "40" }]}>
+          <View style={[styles.arrivedIcon, { backgroundColor: colors.warning + "25" }]}>
+            <Feather name="download-cloud" size={20} color={colors.warning} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.arrivedTitle, { color: colors.warning }]}>Arrival captured offline</Text>
+            <Text style={[styles.arrivedSub, { color: colors.warning }]}>Three accurate GNSS fixes and the required dwell time were recorded. Server verification will occur when coverage returns.</Text>
           </View>
         </View>
       )}
@@ -318,7 +347,9 @@ export default function DistributionDetailScreen() {
         <Text style={styles.recordBtnText}>Record Delivery</Text>
       </TouchableOpacity> : <View style={[styles.recordBtn, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
         <Feather name="lock" size={18} color={colors.mutedForeground} />
-        <Text style={[styles.recordBtnText, { color: colors.mutedForeground }]}>Delivery unavailable in {dispatch.status}</Text>
+        <Text style={[styles.recordBtnText, { color: colors.mutedForeground }]}>
+          {isInTransit ? "Remain in the delivery zone while arrival is verified" : `Delivery unavailable in ${dispatch.status}`}
+        </Text>
       </View>}
 
       {/* PoDs summary */}
