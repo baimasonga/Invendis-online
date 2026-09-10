@@ -33,7 +33,7 @@ async function mintProof(kind: "otp", farmerId: number, dispatchId: number, stat
   const token = randomBytes(32).toString("base64url");
   const tokenHash = hashCode(token);
   const { error } = await supa.from("pod_verification_proofs").insert({
-    token_hash: tokenHash, kind, farmer_id: farmerId, dispatch_id: dispatchId, status,
+    token_hash: tokenHash, kind, method: "online_otp", farmer_id: farmerId, dispatch_id: dispatchId, status,
     // One-use and resource-bound, but long enough for an offline queue replay.
     expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   });

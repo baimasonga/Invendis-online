@@ -42,14 +42,17 @@ test("field delivery lookup is scoped to an authorized dispatch campaign", () =>
   assert.match(mobileLookup, /searchFarmersForDispatch/);
 });
 
-test("mobile PoD evidence cannot be queued before verification", () => {
+test("mobile PoD evidence is only queued after beneficiary verification", () => {
   assert.match(deliveryGuard, /photoKeys\.length < 2/);
   assert.match(deliveryGuard, /!otpToken \|\| !faceToken/);
   assert.equal(
     (mobilePod.match(/Save Offline/g) ?? []).length,
-    1,
-    "only the failed final-submit fallback may queue a PoD",
+    2,
+    "offline media and failed final-submit paths must be explicit",
   );
+  assert.match(mobilePod, /Save Offline — Verify After Sync/);
+  assert.match(mobilePod, /pendingFacePhotoUri/);
+  assert.match(mobilePod, /pendingPhotos/);
   assert.match(mobilePod, /\.filter\(p => p\.key\)\s*\.map\(p => p\.gps/);
 });
 

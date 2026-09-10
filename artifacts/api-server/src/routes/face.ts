@@ -32,7 +32,7 @@ async function canAccessFarmer(req: import("express").Request, farmerId: number)
 async function mintFaceProof(farmerId: number, dispatchId: number, status: string, similarity: number | null): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   const { error } = await supa.from("pod_verification_proofs").insert({
-    token_hash: createHash("sha256").update(token).digest("hex"), kind: "face",
+    token_hash: createHash("sha256").update(token).digest("hex"), kind: "face", method: "face",
     farmer_id: farmerId, dispatch_id: dispatchId, status, similarity,
     // Proofs are one-use and resource-bound, but must survive an offline queue.
     expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),

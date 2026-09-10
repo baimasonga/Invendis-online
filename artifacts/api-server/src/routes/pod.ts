@@ -23,6 +23,7 @@ import { generateProxyUploadUrl } from "../lib/auth.js";
 import { sendSms } from "../lib/sms.js";
 import { canReadDispatch, getDispatchReadScope } from "../lib/dispatch-auth.js";
 import { assessVehicleGpsMatch } from "../lib/pod-gps.js";
+import { verifyOfflineVoucher } from "../lib/offline-delivery.js";
 
 const OPERATIONAL_ROLES = [
   "FieldOfficer",
@@ -848,6 +849,54 @@ router.post(
               },
             ]
           : [];
+
+    // A pre-issued QR voucher or PIN is represented by the same one-use,
+    // farmer/dispatch-bound proof consumed by submit_pod_atomic. Derive its
+    // method server-side; never trust a client-supplied verification label.
+    const { data: existingOfflineSubmission } = typeof raw.submissionKey === "string" && raw.submissionKey.trim()
+      ? await supa.from("pod")
+          .select("id,beneficiary_verification_method,sync_verification_status,gps_captured_at,arrival_evidence_id")
+          .eq("submission_key", raw.submissionKey.trim()).maybeSingle()
+      : { data: null } as any;
+    let beneficiaryVerificationMethod = (existingOfflineSubmission as any)?.beneficiary_verification_method ?? "supervisor_exception";
+    if (!existingOfflineSubmission && typeof raw.otpVerificationToken === "string") {
+      const tokenHash = createHash("sha256").update(raw.otpVerificationToken.trim()).digest("hex");
+      const { data: proofMethod } = await supa.from("pod_verification_proofs")
+        .select("method,revoked_at")
+        .eq("token_hash", tokenHash)
+        .eq("farmer_id", body.farmer_id)
+        .eq("dispatch_id", body.dispatch_id)
+        .is("consumed_at", null)
+        .maybeSingle();
+      if ((proofMethod as any)?.revoked_at) {
+        res.status(409).json({ error: "This offline beneficiary credential has been revoked" });
+        return;
+      }
+      if (["offline_qr", "offline_pin"].includes((proofMethod as any)?.method)) {
+        beneficiaryVerificationMethod = (proofMethod as any).method;
+      } else if ((proofMethod as any)?.method === "online_otp") {
+        beneficiaryVerificationMethod = "online_otp";
+      }
+      if (beneficiaryVerificationMethod === "offline_qr") {
+        const signingSecret = process.env.OFFLINE_VOUCHER_SIGNING_SECRET ?? process.env.SESSION_SECRET ?? "";
+        if (!verifyOfflineVoucher(raw.otpVerificationToken, signingSecret)) {
+          res.status(409).json({ error: "The signed offline beneficiary voucher is invalid or expired" });
+          return;
+        }
+      }
+    }
+
+    let arrivalEvidence: any = existingOfflineSubmission?.arrival_evidence_id
+      ? { id: existingOfflineSubmission.arrival_evidence_id, verification_status: existingOfflineSubmission.sync_verification_status }
+      : null;
+    if (!existingOfflineSubmission && typeof raw.arrivalEvidenceKey === "string" && raw.arrivalEvidenceKey.trim()) {
+      const { data } = await supa.from("dispatch_arrival_evidence")
+        .select("id,verification_status")
+        .eq("evidence_key", raw.arrivalEvidenceKey.trim())
+        .eq("dispatch_id", body.dispatch_id)
+        .maybeSingle();
+      arrivalEvidence = data;
+    }
     const { data: podInserted, error: insertErr } = await supa.rpc(
       "submit_pod_atomic",
       {
@@ -892,6 +941,36 @@ router.post(
         (podInserted as Record<string, any>).vehicle_gps_status ??
         vehicleGpsStatus,
     };
+
+    const usedOfflineCredential = beneficiaryVerificationMethod === "offline_qr"
+      || beneficiaryVerificationMethod === "offline_pin";
+    const syncVerificationStatus = beneficiaryVerificationMethod === "supervisor_exception"
+      ? "Needs Review"
+      : usedOfflineCredential && arrivalEvidence?.verification_status === "GPS Verified"
+        ? "Verified After Sync"
+        : usedOfflineCredential
+          ? "Needs Review"
+          : "Verified Online";
+    const verificationPatch = existingOfflineSubmission ? {
+      beneficiary_verification_method: existingOfflineSubmission.beneficiary_verification_method,
+      sync_verification_status: existingOfflineSubmission.sync_verification_status,
+      gps_captured_at: existingOfflineSubmission.gps_captured_at,
+      arrival_evidence_id: existingOfflineSubmission.arrival_evidence_id,
+    } : {
+      beneficiary_verification_method: beneficiaryVerificationMethod,
+      sync_verification_status: syncVerificationStatus,
+      gps_captured_at: mobileGpsCapturedAt,
+      arrival_evidence_id: arrivalEvidence?.id ?? null,
+    };
+    if (!existingOfflineSubmission) {
+      const { error: verificationPatchError } = await supa.from("pod")
+        .update(verificationPatch)
+        .eq("id", podRow.id as number);
+      if (verificationPatchError) {
+        console.error("PoD submitted but verification metadata update failed:", verificationPatchError);
+      }
+    }
+    podRow = { ...podRow, ...verificationPatch };
 
     // Classify duplicate deliveries. Where entitlements are tracked an earlier
     // Verified PoD is the first half of a split delivery, not a duplicate, and

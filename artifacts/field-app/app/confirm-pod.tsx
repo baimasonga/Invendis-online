@@ -34,6 +34,8 @@ import {
   inputByBarcode,
   listInputItems,
   getDispatch,
+  submitArrivalEvidence,
+  prepareQueuedPodMedia,
   type OtpSendResult,
   type FaceCompareResult,
   type PoD,
@@ -41,6 +43,13 @@ import {
   type DispatchItem,
 } from "@/lib/api";
 import { buildVerificationProofPayload, saveFirstReferenceIfNeeded } from "@/lib/pod-proof";
+import {
+  clearArrivalCapture,
+  loadArrivalCapture,
+  loadOfflinePack,
+  matchOfflineCredential,
+  type OfflineArrivalCapture,
+} from "@/lib/offline-delivery";
 
 let CameraView: React.ComponentType<{
   style?: any;
@@ -178,6 +187,11 @@ export default function ConfirmPodScreen() {
   const [otpVerificationToken, setOtpVerificationToken] = useState<string | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [otpBypassed, setOtpBypassed] = useState(false);
+  const [offlineCredential, setOfflineCredential] = useState("");
+  const [offlineCredentialError, setOfflineCredentialError] = useState<string | null>(null);
+  const [offlineVerificationMethod, setOfflineVerificationMethod] = useState<"offline_qr" | "offline_pin" | null>(null);
+  const [offlineScannerOpen, setOfflineScannerOpen] = useState(false);
+  const [arrivalCapture, setArrivalCapture] = useState<OfflineArrivalCapture | null>(null);
 
   // Delivery photos
   const [deliveryPhotos, setDeliveryPhotos] = useState<DeliveryPhoto[]>(
@@ -220,7 +234,50 @@ export default function ConfirmPodScreen() {
   // GPS capture — run once on mount only
   useEffect(() => {
     captureGPS();
+    if (dispatchId) loadArrivalCapture(Number(dispatchId)).then(setArrivalCapture).catch(() => {});
   }, []);
+
+  async function verifyOfflineCredential(value = offlineCredential) {
+    const raw = value.trim();
+    if (!dispatchId || !raw) {
+      setOfflineCredentialError("Enter the beneficiary PIN or scan the printed AVDP voucher.");
+      return;
+    }
+    const pack = await loadOfflinePack(Number(dispatchId));
+    if (!pack) {
+      setOfflineCredentialError("No offline verification pack is stored for this dispatch. Connect once before departure to download it.");
+      return;
+    }
+    const matched = matchOfflineCredential(pack, Number(farmerId), raw);
+    if (!matched) {
+      setOfflineCredentialError("This credential is invalid, expired, or belongs to another beneficiary.");
+      return;
+    }
+    setOfflineCredential(raw);
+    setOtpVerificationToken(raw);
+    setOfflineVerificationMethod(matched.method);
+    setOtpBypassed(false);
+    setOfflineCredentialError(null);
+    setOfflineScannerOpen(false);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setStep("photos");
+  }
+
+  async function toggleOfflineScanner() {
+    if (offlineScannerOpen) { setOfflineScannerOpen(false); return; }
+    try {
+      const Camera = require("expo-camera");
+      const permission = await Camera.requestCameraPermissionsAsync();
+      if (permission.status !== "granted") {
+        setOfflineCredentialError("Camera permission is required to scan a printed voucher. You can enter its PIN instead.");
+        return;
+      }
+      setOfflineScannerOpen(true);
+      setOfflineCredentialError(null);
+    } catch {
+      setOfflineCredentialError("The QR scanner is unavailable. Enter the printed 8-digit PIN instead.");
+    }
+  }
 
   // OTP status + dispatch items — wait for token (loaded async from AsyncStorage)
   useEffect(() => {
@@ -607,7 +664,19 @@ export default function ConfirmPodScreen() {
       // Filter both arrays identically so optional empty slots never associate
       // a later photo with the wrong coordinate in the portal.
       photoGpsCoords: deliveryPhotos.filter(p => p.key).map(p => p.gps ? { label: p.label, lat: p.gps.latitude, lng: p.gps.longitude, ...(p.gps.accuracy != null ? { accuracy: p.gps.accuracy } : {}) } : { label: p.label }),
+      pendingPhotos: deliveryPhotos.flatMap((p, index) => p.uri && !p.key ? [{
+        uri: p.uri,
+        index,
+        label: p.label,
+        gps: p.gps,
+      }] : []),
       ...(facePhotoKey ? { facePhotoKey } : {}),
+      ...(facePhotoUri && !facePhotoKey ? { pendingFacePhotoUri: facePhotoUri } : {}),
+      ...(offlineVerificationMethod ? { offlineVerificationMethod } : {}),
+      ...(arrivalCapture ? {
+        arrivalEvidenceKey: arrivalCapture.evidenceKey,
+        arrivalEvidencePayload: arrivalCapture,
+      } : {}),
       ...(beneficiaryType === "group" && actualGroupSize ? { actualGroupSize: Number(actualGroupSize) } : {}),
     };
   };
@@ -623,7 +692,13 @@ export default function ConfirmPodScreen() {
           { text: "OK", onPress: () => router.back() },
         ]);
       } else {
-        const pod = await submitPoD(token!, payload);
+        if (arrivalCapture && dispatchId) {
+          await submitArrivalEvidence(token!, Number(dispatchId), arrivalCapture);
+          await clearArrivalCapture(Number(dispatchId));
+        }
+        const { arrivalEvidencePayload: _arrivalEvidencePayload, ...networkPayload } = payload;
+        const serverPayload = await prepareQueuedPodMedia(token!, networkPayload);
+        const pod = await submitPoD(token!, serverPayload);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setSubmittedPod(pod);
         setStep("result");
@@ -1558,6 +1633,46 @@ export default function ConfirmPodScreen() {
             </View>
           </View>
 
+          <View style={[styles.otpCard, { backgroundColor: colors.card, borderColor: colors.success + "50", borderRadius: colors.radius }]}>
+            <View style={[styles.otpIconWrap, { backgroundColor: colors.success + "12" }]}>
+              <Feather name="download-cloud" size={30} color={colors.success} />
+            </View>
+            <Text style={[styles.otpTitle, { color: colors.foreground }]}>Offline beneficiary verification</Text>
+            <Text style={[styles.otpSubtitle, { color: colors.mutedForeground }]}>Use the beneficiary's pre-issued printed QR voucher or 8-digit PIN. No cellular coverage is required.</Text>
+            {offlineScannerOpen && CameraView ? (
+              <View style={{ width: "100%", height: 220, overflow: "hidden", borderRadius: colors.radius }}>
+                <CameraView
+                  style={{ flex: 1 }}
+                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                  onBarcodeScanned={({ data }) => verifyOfflineCredential(data)}
+                />
+              </View>
+            ) : (
+              <TextInput
+                value={offlineCredential}
+                onChangeText={(value) => { setOfflineCredential(value); setOfflineCredentialError(null); }}
+                placeholder="8-digit PIN or AVDP1 voucher"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.offlineCredentialInput, { color: colors.foreground, borderColor: offlineCredentialError ? colors.destructive : colors.border, backgroundColor: colors.muted, borderRadius: colors.radius }]}
+              />
+            )}
+            {offlineCredentialError && <Text style={[styles.errorText, { color: colors.destructive }]}>{offlineCredentialError}</Text>}
+            <View style={[styles.actions, { width: "100%" }]}>
+              {CameraView && Platform.OS !== "web" && (
+                <TouchableOpacity style={[styles.skipOtpBtn, { borderColor: colors.success + "80", borderRadius: colors.radius }]} onPress={toggleOfflineScanner}>
+                  <Feather name="camera" size={16} color={colors.success} />
+                  <Text style={[styles.offlineBtnText, { color: colors.success }]}>{offlineScannerOpen ? "Enter PIN" : "Scan QR"}</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={[styles.submitBtn, { backgroundColor: colors.success, borderRadius: colors.radius }]} onPress={() => verifyOfflineCredential()}>
+                <Feather name="shield" size={17} color="#fff" />
+                <Text style={styles.submitBtnText}>Verify Offline</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={[styles.summaryCard, { backgroundColor: colors.muted, borderRadius: colors.radius }]}>
             <View style={styles.summaryRow}>
               <Feather name="user" size={14} color={colors.mutedForeground} />
@@ -1647,9 +1762,9 @@ export default function ConfirmPodScreen() {
   // STEP "photos" — Delivery Photo Capture
   // ═══════════════════════════════════════════════════════════════════════════
   if (step === "photos") {
-    const uploadedCount = deliveryPhotos.filter(p => p.key).length;
-    const requiredUploaded = REQUIRED_PHOTO_INDICES.every(i => !!deliveryPhotos[i]?.key);
-    const allUploaded = uploadedCount === PHOTO_SLOTS.length;
+    const capturedCount = deliveryPhotos.filter(p => p.uri).length;
+    const requiredCaptured = REQUIRED_PHOTO_INDICES.every(i => !!deliveryPhotos[i]?.uri);
+    const allCaptured = capturedCount === PHOTO_SLOTS.length;
     const anyUploading = deliveryPhotos.some(p => p.uploading);
 
     return (
@@ -1686,18 +1801,18 @@ export default function ConfirmPodScreen() {
             <View style={{ marginTop: 12, gap: 6 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                 <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.mutedForeground }}>
-                  {uploadedCount} of {PHOTO_SLOTS.length} photos captured
-                  {" · "}{REQUIRED_PHOTO_INDICES.filter(i => deliveryPhotos[i]?.key).length}/{REQUIRED_PHOTO_INDICES.length} required
+                  {capturedCount} of {PHOTO_SLOTS.length} photos captured
+                  {" · "}{REQUIRED_PHOTO_INDICES.filter(i => deliveryPhotos[i]?.uri).length}/{REQUIRED_PHOTO_INDICES.length} required
                 </Text>
-                {requiredUploaded && (
+                {requiredCaptured && (
                   <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.success }}>✓ Ready</Text>
                 )}
               </View>
               <View style={{ height: 5, borderRadius: 3, backgroundColor: colors.border, overflow: "hidden" }}>
                 <View style={{
-                  width: `${(uploadedCount / PHOTO_SLOTS.length) * 100}%` as any,
+                  width: `${(capturedCount / PHOTO_SLOTS.length) * 100}%` as any,
                   height: "100%",
-                  backgroundColor: requiredUploaded ? colors.success : colors.primary,
+                  backgroundColor: requiredCaptured ? colors.success : colors.primary,
                   borderRadius: 3,
                 }} />
               </View>
@@ -1844,17 +1959,17 @@ export default function ConfirmPodScreen() {
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.submitBtn, {
-                backgroundColor: requiredUploaded ? colors.primary : colors.muted,
+                backgroundColor: requiredCaptured ? colors.primary : colors.muted,
                 borderRadius: colors.radius,
                 opacity: (anyUploading || submitting) ? 0.7 : 1,
               }]}
               onPress={() => { setFacePhotoUri(null); setFaceResult(null); setFaceError(null); setStep("face"); }}
-              disabled={!requiredUploaded || anyUploading}
+              disabled={!requiredCaptured || anyUploading}
               activeOpacity={0.85}
             >
-              <Feather name="camera" size={18} color={requiredUploaded ? "#fff" : colors.mutedForeground} />
-              <Text style={[styles.submitBtnText, { color: requiredUploaded ? "#fff" : colors.mutedForeground }]}>
-                {allUploaded ? "Next: Face ID" : `Next: Face ID (${PHOTO_SLOTS.length - uploadedCount} optional left)`}
+              <Feather name="camera" size={18} color={requiredCaptured ? "#fff" : colors.mutedForeground} />
+              <Text style={[styles.submitBtnText, { color: requiredCaptured ? "#fff" : colors.mutedForeground }]}>
+                {allCaptured ? "Next: Face ID" : `Next: Face ID (${PHOTO_SLOTS.length - capturedCount} optional left)`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2033,6 +2148,21 @@ export default function ConfirmPodScreen() {
         </View>
 
         <View style={styles.actions}>
+          {facePhotoUri && faceError && (
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: colors.warning, borderRadius: colors.radius, opacity: submitting ? 0.7 : 1 }]}
+              onPress={() => doSubmit(otpBypassed ? "SMSBypass" : "Verified", "Pending", true)}
+              disabled={submitting}
+              activeOpacity={0.85}
+            >
+              {submitting ? <ActivityIndicator color="#fff" /> : (
+                <>
+                  <Feather name="upload-cloud" size={18} color="#fff" />
+                  <Text style={styles.submitBtnText}>Save Offline — Verify After Sync</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
           {faceFailed && (
             <TouchableOpacity
               style={[styles.overrideBtn, { borderColor: colors.destructive + "80", borderRadius: colors.radius }]}
@@ -2118,6 +2248,7 @@ const styles = StyleSheet.create({
   offlineBtn: { flex: 0.5, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1 },
   overrideBtn: { flex: 0.5, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1 },
   offlineBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  offlineCredentialInput: { width: "100%", minHeight: 52, borderWidth: 1, paddingHorizontal: 14, fontSize: 14, fontFamily: "Inter_500Medium" },
   submitBtn: { flex: 1, height: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   submitBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 15 },
   devBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1.5 },

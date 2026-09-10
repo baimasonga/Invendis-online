@@ -23,6 +23,7 @@ import uploadProxyRouter from "./upload-proxy";
 import gisRouter from "./gis";
 import deliveryFarmersRouter from "./delivery-farmers";
 import deliveryGuardRouter from "./delivery-guard";
+import offlineDeliveryRouter from "./offline-delivery";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,7 @@ router.use(dispatchRouter);
 router.use(gpsRouter);
 router.use(gpsTraceRouter);
 router.use(deliveryGuardRouter);
+router.use(offlineDeliveryRouter);
 router.use(podRouter);
 router.use(otpRouter);
 router.use(reconciliationRouter);
